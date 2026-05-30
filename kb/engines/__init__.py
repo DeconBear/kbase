@@ -4,6 +4,7 @@ from importlib import import_module
 ENGINES = {
     "marker": "engines.marker.MarkerEngine",
     "docmind": "engines.docmind.DocMindEngine",
+    "docparser": "engines.docparser.DocParserEngine",
 }
 
 
