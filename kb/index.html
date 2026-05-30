@@ -1977,19 +1977,7 @@ async function exportContextSelection(format) {
   const ids = contextArticleIds.length ? contextArticleIds : [...selectedArticleIds];
   if (!ids.length) return;
   hideLibraryContextMenu();
-  try {
-    const resp = await fetch('/api/export', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ids, format})
-    });
-    if (!resp.ok) throw new Error((await resp.text()).slice(0, 300));
-    const fallback = format === 'bibtex' ? 'kbase_export.bib' : `kbase_${format}.zip`;
-    const filename = filenameFromDisposition(resp.headers.get('Content-Disposition'), fallback);
-    downloadBlob(await resp.blob(), filename);
-  } catch(e) {
-    uiAlert('导出失败: ' + e.message);
-  }
+  window.location.href = `/api/export?ids=${ids.map(encodeURIComponent).join(',')}&format=${encodeURIComponent(format)}`;
 }
 
 async function batchExtractAndSummarize() {

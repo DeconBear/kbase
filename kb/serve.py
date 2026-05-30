@@ -794,6 +794,16 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             self.serve_json({"history": history, "versions": versions})
         elif request_path.startswith("/api/articles/") and request_path.endswith("/attachments"):
             self.handle_get_attachments()
+        elif request_path == "/api/export":
+            try:
+                from urllib.parse import parse_qs
+                qs = parse_qs(parsed_path.query)
+                self.handle_export(
+                    force_ids=qs.get("ids", [""])[0].split(","), 
+                    force_format=qs.get("format", [""])[0]
+                )
+            except Exception as e:
+                self.send_error(500, str(e))
         else:
             super().do_GET()
 
@@ -1481,14 +1491,19 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             self.serve_error_json(500, str(e))
 
-    def handle_export(self):
+    def handle_export(self, force_ids=None, force_format=None):
         try:
-            body = self.read_json_body()
-            export_format = str(body.get("format") or "").lower().strip()
-            ids = body.get("ids") or []
+            if force_ids is not None:
+                ids = force_ids
+                export_format = str(force_format).lower().strip()
+            else:
+                body = self.read_json_body()
+                export_format = str(body.get("format") or "").lower().strip()
+                ids = body.get("ids") or []
+                
             if isinstance(ids, str):
                 ids = [ids]
-            ids = [validate_article_id(item) for item in ids]
+            ids = [validate_article_id(item) for item in ids if item]
             ids = list(dict.fromkeys(ids))
             if not ids:
                 self.serve_error_json(400, "No articles selected")
