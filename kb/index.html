@@ -1983,29 +1983,7 @@ async function batchExtractAndSummarize() {
     
     document.getElementById('statusMsg').textContent = `[${i+1}/${ids.length}] 正在抓取并总结: ${article.title.slice(0, 25)}...`;
 
-    // 1. Extract Info
-    try {
-      const resp = await fetch('/api/extract-info/' + encodeURIComponent(id), {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({
-          id: id,
-          provider_id: LLM_CFG.providerId,
-          model: LLM_CFG.model,
-          reason: 'manual',
-          background: false,
-          force: true
-        })
-      });
-      if (resp.ok) {
-        const data = await resp.json();
-        if (data.article) mergeArticleRecord(data.article);
-      }
-    } catch(e) {
-      console.warn('extract failed for', id, e);
-    }
-
-    // 2. Summarize
+    // 1. Summarize
     try {
       let t = Date.now();
       let mdResp = await fetch(`articles/${id}/${id}_calibrated.md?t=${t}`);
@@ -2019,16 +1997,40 @@ async function batchExtractAndSummarize() {
            const summary = await callLLM(`You are a research assistant. Read the following academic paper and provide a structured summary in Chinese:\n\n1. **研究背景与问题** (Background & Problem)\n2. **核心方法** (Core Method/Approach)\n3. **主要发现** (Key Findings)\n4. **贡献与局限** (Contributions & Limitations)\n\nKeep it concise and academic. Use bullet points where helpful.\n\nPaper content:\n${textToSummarize}`, LLM_CFG);
            
            if (summary) {
-              await fetch('/save',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:`articles/${id}/${id}_summary.md`,content:summary})});
+              const metaBlock = `# 论文摘要信息\n- **标题**: ${article.title || '未知'}\n- **作者**: ${articleAuthor(article)}\n- **期刊/会议**: ${article.venue || '未知'}\n- **DOI**: ${article.doi || '未知'}\n- **年份**: ${article.year || '未知'}\n\n---\n\n`;
+              const finalSummary = metaBlock + summary;
+              await fetch('/save',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:`articles/${id}/${id}_summary.md`,content:finalSummary})});
               await fetch('/api/articles/update',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id,updates:{summarized:true}})});
               const a = articles.find(x => x.id === id);
               if (a) a.summarized = true;
-              successCount++;
            }
         }
       }
     } catch(e) {
-       console.warn('summarize failed for', id, e);
+      console.warn('summarize failed for', id, e);
+    }
+
+    // 2. Extract Info
+    try {
+      const resp = await fetch('/api/extract-info/' + encodeURIComponent(id), {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          id: id,
+          provider_id: LLM_CFG.providerId,
+          model: LLM_CFG.model,
+          reason: 'summary',
+          background: false,
+          force: true
+        })
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.article) mergeArticleRecord(data.article);
+        successCount++;
+      }
+    } catch(e) {
+      console.warn('extract failed for', id, e);
     }
   }
   
