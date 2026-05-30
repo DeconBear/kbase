@@ -469,7 +469,7 @@ def get_conv_status(article_id):
         return _conv_status.get(article_id, None)
 
 
-def run_conversion(pdf_path, article_id, engine_name="marker"):
+def run_conversion(pdf_path, article_id, engine_name="marker", docparser_engine=None):
     """Run PDF conversion using the specified engine in background."""
     log_path = ARTICLES_DIR / article_id / "conversion.log"
 
@@ -494,7 +494,11 @@ def run_conversion(pdf_path, article_id, engine_name="marker"):
 
         from engines import get_engine
         engine = get_engine(engine_name)
-        success = engine.run(pdf_path, article_id, log_callback=log)
+        
+        if engine_name == "docparser" and docparser_engine:
+            success = engine.run(pdf_path, article_id, log_callback=log, engine=docparser_engine)
+        else:
+            success = engine.run(pdf_path, article_id, log_callback=log)
 
         if success:
             log("=== Conversion completed successfully ===")
@@ -891,24 +895,38 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
         try:
             body = self.read_json_body()
             api_key = body.get("api_key", "").strip()
+            engine = body.get("engine", "").strip()
+            
+            env_file = DIR.parent / "local.env"
+            if env_file.exists():
+                lines = env_file.read_text(encoding="utf-8").splitlines()
+            else:
+                lines = []
+            
             if api_key:
                 os.environ["DOCPARSER_API_KEY"] = api_key
-                env_file = DIR.parent / "local.env"
-                if env_file.exists():
-                    lines = env_file.read_text(encoding="utf-8").splitlines()
-                else:
-                    lines = []
-                new_lines = []
-                found = False
-                for line in lines:
-                    if line.startswith("DOCPARSER_API_KEY="):
-                        new_lines.append(f"DOCPARSER_API_KEY={api_key}")
-                        found = True
-                    else:
-                        new_lines.append(line)
-                if not found:
+            if engine:
+                os.environ["DOCPARSER_ENGINE"] = engine
+            
+            new_lines = []
+            found_key = False
+            found_engine = False
+            for line in lines:
+                if line.startswith("DOCPARSER_API_KEY=") and api_key:
                     new_lines.append(f"DOCPARSER_API_KEY={api_key}")
-                env_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+                    found_key = True
+                elif line.startswith("DOCPARSER_ENGINE=") and engine:
+                    new_lines.append(f"DOCPARSER_ENGINE={engine}")
+                    found_engine = True
+                else:
+                    new_lines.append(line)
+            
+            if api_key and not found_key:
+                new_lines.append(f"DOCPARSER_API_KEY={api_key}")
+            if engine and not found_engine:
+                new_lines.append(f"DOCPARSER_ENGINE={engine}")
+                
+            env_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
             self.serve_json({"status": "ok"})
         except Exception as e:
             self.serve_error_json(400, str(e))
@@ -1533,25 +1551,38 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             body = json.loads(self.rfile.read(content_len))
             article_id = validate_article_id(body.get("id", ""))
             engine = body.get("engine", "marker")
+            docparser_engine = body.get("docparser_engine", "").strip()
 
-            if engine == "docparser" and "api_key" in body:
-                api_key = body["api_key"]
-                os.environ["DOCPARSER_API_KEY"] = api_key
+            if engine == "docparser":
+                api_key = body.get("api_key", "").strip()
                 env_file = DIR.parent / "local.env"
                 if env_file.exists():
                     lines = env_file.read_text(encoding="utf-8").splitlines()
                 else:
                     lines = []
+                
+                if api_key:
+                    os.environ["DOCPARSER_API_KEY"] = api_key
+                if docparser_engine:
+                    os.environ["DOCPARSER_ENGINE"] = docparser_engine
+
                 new_lines = []
-                found = False
+                found_key = False
+                found_engine = False
                 for line in lines:
-                    if line.startswith("DOCPARSER_API_KEY="):
+                    if line.startswith("DOCPARSER_API_KEY=") and api_key:
                         new_lines.append(f"DOCPARSER_API_KEY={api_key}")
-                        found = True
+                        found_key = True
+                    elif line.startswith("DOCPARSER_ENGINE=") and docparser_engine:
+                        new_lines.append(f"DOCPARSER_ENGINE={docparser_engine}")
+                        found_engine = True
                     else:
                         new_lines.append(line)
-                if not found:
+                if api_key and not found_key:
                     new_lines.append(f"DOCPARSER_API_KEY={api_key}")
+                if docparser_engine and not found_engine:
+                    new_lines.append(f"DOCPARSER_ENGINE={docparser_engine}")
+                
                 env_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
 
             article_dir = article_dir_for(article_id)
@@ -1570,7 +1601,7 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
 
             thread = threading.Thread(
                 target=run_conversion,
-                args=(str(pdf_path), article_id, engine),
+                args=(str(pdf_path), article_id, engine, docparser_engine),
                 daemon=True
             )
             thread.start()
