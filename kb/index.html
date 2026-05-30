@@ -5738,21 +5738,46 @@ async function showReconvert() {
         <button class="btn-emerald btn-convert" onclick="startConvert()">开始解析</button>
       </div>
       <p class="engine-desc" id="engine-desc" style="margin-top:8px">Marker：本地 Surya 模型，~6GB 显存，离线可用</p>
-      <input type="password" id="docparser-key-input" placeholder="输入 DeconBear DocParser API Key (若已配置可留空)" style="display:none; width:100%; margin-top:12px; padding:8px; border:1px solid var(--border); border-radius:4px; font-size:13px;" />
+      <div id="docparser-key-container" style="display:none; margin-top:12px; flex-direction:row; gap:8px;">
+        <input type="password" id="docparser-key-input" placeholder="输入 DeconBear DocParser API Key (若已配置可留空)" style="flex:1; padding:8px; border:1px solid var(--border); border-radius:4px; font-size:13px;" />
+        <button class="btn-secondary" onclick="saveDocParserKey()" style="padding:8px 16px; border-radius:4px; border:1px solid var(--border); background:var(--surface); cursor:pointer; font-size:13px;">保存配置</button>
+      </div>
       ${verHtml}
     </div>`;
   document.getElementById('md-content').style.display = 'block';
 
   const sel = document.getElementById('engine-select');
-  const keyInput = document.getElementById('docparser-key-input');
+  const keyContainer = document.getElementById('docparser-key-container');
   sel.addEventListener('change', () => {
     document.getElementById('engine-desc').textContent = descs[sel.value] || '';
     if (sel.value === 'docparser') {
-      keyInput.style.display = 'block';
+      keyContainer.style.display = 'flex';
     } else {
-      keyInput.style.display = 'none';
+      keyContainer.style.display = 'none';
     }
   });
+}
+
+async function saveDocParserKey() {
+  const key = document.getElementById('docparser-key-input').value.trim();
+  if (!key) {
+    alert('请输入 API Key');
+    return;
+  }
+  try {
+    const resp = await fetch('/api/config/docparser', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ api_key: key })
+    });
+    if (resp.ok) {
+      alert('保存成功！');
+    } else {
+      alert('保存失败：' + await resp.text());
+    }
+  } catch (e) {
+    alert('网络错误：' + e.message);
+  }
 }
 
 async function loadVersion(articleId, engine) {

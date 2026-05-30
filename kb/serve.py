@@ -824,6 +824,8 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_article_update()
         elif self.path == "/api/articles/delete":
             self.handle_article_delete()
+        elif self.path == "/api/config/docparser":
+            self.handle_config_docparser()
         elif self.path == "/api/notes":
             self.handle_create_note()
         elif self.path.startswith("/api/articles/") and self.path.endswith("/attachments"):
@@ -882,6 +884,32 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             content_len = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(content_len)) if content_len else {}
             self.serve_json(save_llm_config_from_public(body))
+        except Exception as e:
+            self.serve_error_json(400, str(e))
+
+    def handle_config_docparser(self):
+        try:
+            body = self.read_json_body()
+            api_key = body.get("api_key", "").strip()
+            if api_key:
+                os.environ["DOCPARSER_API_KEY"] = api_key
+                env_file = DIR.parent / "local.env"
+                if env_file.exists():
+                    lines = env_file.read_text(encoding="utf-8").splitlines()
+                else:
+                    lines = []
+                new_lines = []
+                found = False
+                for line in lines:
+                    if line.startswith("DOCPARSER_API_KEY="):
+                        new_lines.append(f"DOCPARSER_API_KEY={api_key}")
+                        found = True
+                    else:
+                        new_lines.append(line)
+                if not found:
+                    new_lines.append(f"DOCPARSER_API_KEY={api_key}")
+                env_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+            self.serve_json({"status": "ok"})
         except Exception as e:
             self.serve_error_json(400, str(e))
 
