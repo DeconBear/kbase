@@ -664,6 +664,34 @@ body { display: flex !important; flex-direction: column !important; height: 100v
   min-width: 0 !important;
 }
 
+  /* ==================== DESKTOP APP NATIVE FEEL ==================== */
+  body {
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: default;
+  }
+  input, textarea, [contenteditable], #md-content, .markdown-body, .vditor-ir {
+    user-select: text;
+    -webkit-user-select: text;
+    cursor: auto;
+  }
+  img, a {
+    -webkit-user-drag: none;
+  }
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--text-3);
+  }
 </style>
 </head>
 <body>
@@ -6133,6 +6161,29 @@ async function toggleFloatingNotePiP() {
     isResizing = false;
   });
 })();
+
+// ==================== DESKTOP APP NATIVE FEEL ====================
+// Disable default context menu unless on editable fields
+document.addEventListener('contextmenu', e => {
+  const t = e.target;
+  if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) return;
+  // Allow system context menu if we are selecting text? Actually, better to just let our app's own custom context menus handle things, and block default everywhere else.
+  if (!e.defaultPrevented) e.preventDefault();
+});
+
+// Disable Ctrl+Wheel zooming
+document.addEventListener('wheel', e => {
+  if (e.ctrlKey) {
+    e.preventDefault();
+  }
+}, { passive: false });
+
+// Disable Ctrl++/Ctrl+- zooming
+document.addEventListener('keydown', e => {
+  if (e.ctrlKey && (e.key === '=' || e.key === '-' || e.key === '+' || e.key === '0')) {
+    e.preventDefault();
+  }
+});
 </script>
 
 </body>
