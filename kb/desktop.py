@@ -24,8 +24,10 @@ def main():
     )
     
     try:
+        import os
+        icon_path = os.path.join(os.path.dirname(__file__), 'assets', 'kbase-logo.ico')
         # Start the pywebview event loop. This blocks until the window is closed.
-        webview.start(private_mode=False, debug=False)
+        webview.start(private_mode=False, debug=False, icon=icon_path)
     except Exception as e:
         print(f"Webview error: {e}")
     finally:
