@@ -1735,6 +1735,7 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             self.serve_json({"status": "ok", "title": new_title})
         except ValueError as e:
             self.serve_error_json(400, str(e))
+        except Exception as e:
             self.serve_error_json(500, str(e))
 
     def handle_get_attachments(self):
@@ -1834,7 +1835,7 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             parts = urllib.parse.urlsplit(self.path).path.rstrip("/").split("/")
             article_id = validate_article_id(urllib.parse.unquote(parts[3]))
             filename = urllib.parse.unquote(parts[5])
-            if not filename or ".." in filename or "/" in filename or "\\\\" in filename:
+            if not filename or ".." in filename or "/" in filename or "\\" in filename:
                 self.serve_error_json(400, "Invalid filename")
                 return
             article_dir = article_dir_for(article_id)
