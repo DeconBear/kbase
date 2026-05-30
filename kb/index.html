@@ -1912,6 +1912,37 @@ function hideLibraryContextMenu() {
   if (menu) menu.classList.remove('visible');
 }
 
+async function exportContextSelection(format) {
+  const ids = contextArticleIds.length ? contextArticleIds : [...selectedArticleIds];
+  if (!ids.length) return;
+  hideLibraryContextMenu();
+  const url = `/api/export?ids=${ids.map(encodeURIComponent).join(',')}&format=${format}`;
+  
+  if (window.pywebview && window.pywebview.api && window.pywebview.api.save_file) {
+    try {
+      const resp = await fetch(url);
+      if (resp.ok) {
+        const text = await resp.text();
+        const ext = format === 'bibtex' ? '.bib' : '.json';
+        await window.pywebview.api.save_file(text, `export_${Date.now()}${ext}`);
+      } else {
+        alert('导出失败');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('导出出错');
+    }
+  } else {
+    // For normal browsers
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = '';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+}
+
 function showLibraryContextMenu(ev, id) {
   ev.preventDefault();
   ev.stopPropagation();
