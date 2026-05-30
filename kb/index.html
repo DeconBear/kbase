@@ -3275,6 +3275,7 @@ function initReaderEditor(md, article) {
   container.innerHTML = '';
   container.style.display = 'block';
 
+  let _readerPostRenderTimer = null;
   markdownEditor = new Vditor('md-content', {
     value: md || '',
     mode: 'ir',
@@ -3307,7 +3308,6 @@ function initReaderEditor(md, article) {
       }
     }
   });
-  let _readerPostRenderTimer = null;
 
   // Rebuild TOC from editor preview when rendered
   setTimeout(() => {
