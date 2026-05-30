@@ -796,8 +796,8 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_get_attachments()
         elif request_path == "/api/export":
             try:
-                from urllib.parse import parse_qs
-                qs = parse_qs(parsed_path.query)
+                from urllib.parse import parse_qs, urlsplit
+                qs = parse_qs(urlsplit(self.path).query)
                 self.handle_export(
                     force_ids=qs.get("ids", [""])[0].split(","), 
                     force_format=qs.get("format", [""])[0]
