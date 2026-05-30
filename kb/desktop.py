@@ -1,7 +1,15 @@
 """Desktop app launcher for Knowledge Base — starts server + opens app window."""
 import time
 import webview
+import ctypes
 from serve import start_server, PORT
+
+try:
+    # Tell Windows this is a separate app, not a generic Python process
+    myappid = 'kbase.desktop.app.1'
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+except Exception:
+    pass
 
 def main():
     print("Starting Knowledge Base server...")
