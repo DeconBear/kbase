@@ -18,7 +18,7 @@
 
 ### 笔记功能
 
-内置笔记系统，灵感来自 [思源笔记](https://b3log.org/siyuan/)，点击顶栏 📝 按钮即可进入。
+内置笔记系统，点击顶栏 📝 按钮即可进入。
 
 **编辑器**
 - WYSIWYG Markdown 编辑器（ToastUI Editor），支持实时预览
@@ -270,7 +270,7 @@ marker ./pdfs --output_dir ./results
 - **[marked](https://marked.js.org/)** — Markdown 解析
 - **[highlight.js](https://highlightjs.org/)** — 代码语法高亮
 - **[Mermaid](https://mermaid.js.org/)** — 图表渲染
-- **[思源笔记](https://b3log.org/siyuan/)** — 笔记功能 UI/UX 设计灵感
+
 
 ## 许可
 

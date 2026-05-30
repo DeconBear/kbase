@@ -18,7 +18,7 @@ A local academic paper knowledge base powered by [Marker](https://github.com/Vik
 
 ### Notes
 
-A built-in note-taking system inspired by [SiYuan Note](https://b3log.org/siyuan/), accessible via the 📝 button in the top bar.
+A built-in note-taking system accessible via the 📝 button in the top bar.
 
 **Editor**
 - WYSIWYG Markdown editor (ToastUI Editor) with live preview
@@ -270,7 +270,7 @@ Built on top of these open-source projects:
 - **[marked](https://marked.js.org/)** — Markdown parser
 - **[highlight.js](https://highlightjs.org/)** — Code syntax highlighting
 - **[Mermaid](https://mermaid.js.org/)** — Diagram rendering
-- **[SiYuan Note](https://b3log.org/siyuan/)** — UI/UX inspiration for the notes feature
+
 
 ## License
 
