@@ -1,8 +1,16 @@
-"""Desktop app launcher for Knowledge Base — starts server + opens app window."""
 import time
 import webview
 import ctypes
+import sys
+import os
 from serve import start_server, PORT
+
+# Redirect stdout/stderr to a log file so we don't crash in windowless mode
+log_path = os.path.join(os.path.dirname(__file__), 'app.log')
+try:
+    sys.stdout = sys.stderr = open(log_path, 'a', encoding='utf-8')
+except Exception:
+    pass
 
 try:
     # Tell Windows this is a separate app, not a generic Python process
