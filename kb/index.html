@@ -2620,6 +2620,7 @@ async function initArticleTab(tabId, tabData) {
           <select id="engine-select">
             <option value="marker">Marker（本地）</option>
             <option value="docmind">DocMind（云端 API）</option>
+            <option value="docparser">DocParser（云端 GPU）</option>
           </select>
           <button class="btn-emerald btn-convert" onclick="startConvert()">开始解析</button>
         </div>
@@ -2630,7 +2631,8 @@ async function initArticleTab(tabId, tabData) {
     // Update engine description on change
     const descs = {
       marker: 'Marker：本地 Surya 模型，~6GB 显存，离线可用',
-      docmind: 'DocMind：阿里云文档解析 API，无需 GPU，需配置 RAM AccessKey'
+      docmind: 'DocMind：阿里云文档解析 API，无需 GPU，需配置 RAM AccessKey',
+      docparser: 'DocParser：DeconBear 云端 GPU 加速解析，支持 struct/polyglot 引擎'
     };
     const sel = document.getElementById('engine-select');
     const desc = document.getElementById('engine-desc');
@@ -5695,7 +5697,8 @@ async function showReconvert() {
 
   const descs = {
     marker: 'Marker：本地 Surya 模型，~6GB 显存，离线可用',
-    docmind: 'DocMind：阿里云文档解析 API，无需 GPU，需配置 RAM AccessKey'
+    docmind: 'DocMind：阿里云文档解析 API，无需 GPU，需配置 RAM AccessKey',
+    docparser: 'DocParser：DeconBear 云端 GPU 加速解析，支持 struct/polyglot 引擎'
   };
 
   let verHtml = '';
@@ -5730,17 +5733,25 @@ async function showReconvert() {
         <select id="engine-select">
           <option value="marker">Marker（本地）</option>
           <option value="docmind">DocMind（云端 API）</option>
+          <option value="docparser">DocParser（云端 GPU）</option>
         </select>
         <button class="btn-emerald btn-convert" onclick="startConvert()">开始解析</button>
       </div>
       <p class="engine-desc" id="engine-desc" style="margin-top:8px">Marker：本地 Surya 模型，~6GB 显存，离线可用</p>
+      <input type="password" id="docparser-key-input" placeholder="输入 DeconBear DocParser API Key (若已配置可留空)" style="display:none; width:100%; margin-top:12px; padding:8px; border:1px solid var(--border); border-radius:4px; font-size:13px;" />
       ${verHtml}
     </div>`;
   document.getElementById('md-content').style.display = 'block';
 
   const sel = document.getElementById('engine-select');
+  const keyInput = document.getElementById('docparser-key-input');
   sel.addEventListener('change', () => {
     document.getElementById('engine-desc').textContent = descs[sel.value] || '';
+    if (sel.value === 'docparser') {
+      keyInput.style.display = 'block';
+    } else {
+      keyInput.style.display = 'none';
+    }
   });
 }
 
@@ -5780,10 +5791,17 @@ async function startConvert() {
 
   // Trigger conversion
   try {
+    const payload = { id: article.id, engine: engine };
+    if (engine === 'docparser') {
+      const keyInput = document.getElementById('docparser-key-input');
+      if (keyInput && keyInput.value.trim() !== '') {
+        payload.api_key = keyInput.value.trim();
+      }
+    }
     const resp = await fetch('/api/convert/' + article.id, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: article.id, engine: engine })
+      body: JSON.stringify(payload)
     });
     if (resp.ok) {
       startConvPolling(article.id);

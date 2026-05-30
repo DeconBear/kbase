@@ -785,7 +785,7 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
                     if name.endswith(".md") and name.startswith(f"{article_id}_"):
                         # e.g. {id}_pymupdf.md, {id}_marker.md, {id}_docmind.md
                         engine = name.rsplit("_", 1)[-1].replace(".md", "")
-                        if engine in {"pymupdf", "marker", "docmind"}:
+                        if engine in {"pymupdf", "marker", "docmind", "docparser"}:
                             versions.append({"engine": engine, "file": name})
             self.serve_json({"history": history, "versions": versions})
         elif request_path.startswith("/api/articles/") and request_path.endswith("/attachments"):
@@ -1505,6 +1505,26 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             body = json.loads(self.rfile.read(content_len))
             article_id = validate_article_id(body.get("id", ""))
             engine = body.get("engine", "marker")
+
+            if engine == "docparser" and "api_key" in body:
+                api_key = body["api_key"]
+                os.environ["DOCPARSER_API_KEY"] = api_key
+                env_file = DIR.parent / "local.env"
+                if env_file.exists():
+                    lines = env_file.read_text(encoding="utf-8").splitlines()
+                else:
+                    lines = []
+                new_lines = []
+                found = False
+                for line in lines:
+                    if line.startswith("DOCPARSER_API_KEY="):
+                        new_lines.append(f"DOCPARSER_API_KEY={api_key}")
+                        found = True
+                    else:
+                        new_lines.append(line)
+                if not found:
+                    new_lines.append(f"DOCPARSER_API_KEY={api_key}")
+                env_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
 
             article_dir = article_dir_for(article_id)
             pdf_path = article_dir / "original.pdf"
