@@ -764,6 +764,8 @@ body { display: flex !important; flex-direction: column !important; height: 100v
       <button onclick="exportContextSelection('pdf')">导出 PDF</button>
       <button onclick="exportContextSelection('markdown')">导出 Markdown</button>
       <div class="ctx-separator"></div>
+      <button id="ctxCopyDoi" onclick="copyContextDoi()">复制 DOI</button>
+      <div class="ctx-separator"></div>
       <button id="ctxBatchProcess" onclick="batchExtractAndSummarize()">一键抓取并总结</button>
       <div class="ctx-separator"></div>
       <button id="ctxUploadAttachment" onclick="uploadContextAttachment()">上传附件</button>
@@ -1725,7 +1727,15 @@ function kindLabel(kind) {
 }
 
 function articleAuthor(a) {
-  return a.author || (Array.isArray(a.authors) ? a.authors.slice(0, 4).join(', ') : '') || '未知作者';
+  let authors = [];
+  if (Array.isArray(a.authors) && a.authors.length > 0) {
+    authors = a.authors;
+  } else if (a.author) {
+    authors = a.author.split(/,|;| and /).map(s => s.trim()).filter(s => s);
+  }
+  if (!authors || authors.length === 0) return '未知作者';
+  if (authors.length <= 2) return authors.join(', ');
+  return authors.slice(0, 2).join(', ') + ' et al.';
 }
 
 function visibleArticleIds() {
@@ -1943,6 +1953,24 @@ function downloadBlob(blob, filename) {
 function filenameFromDisposition(header, fallback) {
   const match = String(header || '').match(/filename="?([^";]+)"?/i);
   return match ? match[1] : fallback;
+}
+
+async function copyContextDoi() {
+  const ids = contextArticleIds.length ? contextArticleIds : [...selectedArticleIds];
+  if (!ids.length) return;
+  hideLibraryContextMenu();
+  const id = ids[0];
+  const article = articles.find(a => a.id === id);
+  if (article && article.doi) {
+    try {
+      await navigator.clipboard.writeText(article.doi);
+      uiAlert('DOI 已复制: ' + article.doi);
+    } catch(e) {
+      uiAlert('复制失败: ' + e.message);
+    }
+  } else {
+    uiAlert('该项没有 DOI 信息');
+  }
 }
 
 async function exportContextSelection(format) {
@@ -2163,7 +2191,7 @@ function renderGridView(filtered) {
       ${a.summarized?'<span class="badge badge-summarized" style="position:absolute;top:12px;right:'+(a.translated?'72px':'12px')+'">已总结</span>':''}
       ${a.converting?'<span class="badge badge-converting" style="position:absolute;top:12px;right:12px">解析中...</span>':''}
       <div class="card-title">${esc(a.title)}</div>
-      <div class="card-author">👤 ${esc(articleAuthor(a))} ${a.doi?`<span class="tag">DOI ${esc(a.doi)}</span>`:''}</div>
+      <div class="card-author">👤 ${esc(articleAuthor(a))}</div>
       <div class="card-meta"><span>📦 ${kindLabel(a.kind)}</span><span>📅 ${a.date_added||''}</span>${a.pages?`<span>📖 ${a.pages}页</span>`:''}${a.year?`<span>${esc(a.year)}</span>`:''}${a.venue?`<span title="期刊/会议">📚 ${esc(a.venue)}</span>`:''}${a.category?`<span>📂 ${esc(a.category)}</span>`:''}</div>
       <div class="card-actions-row" onclick="event.stopPropagation()">
         <button class="card-btn" onclick="event.stopPropagation();openReader('${esc(a.id)}');setTimeout(()=>doSummarize(),1500)">🤖 总结</button>
@@ -2557,7 +2585,7 @@ async function initArticleTab(tabId, tabData) {
   const article = tabData.article;
   document.getElementById('readerTitle').textContent = article.title;
   document.getElementById('readerVenue').textContent = article.venue ? `| 期刊/会议: ${article.venue}` : '';
-  document.getElementById('readerDoi').textContent = article.doi ? `| DOI: ${article.doi}` : '';
+  document.getElementById('readerDoi').textContent = '';
 
   // Reset
   currentRawMd = ''; translatedMd = ''; summaryText = '';
