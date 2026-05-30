@@ -913,6 +913,8 @@ body { display: flex !important; flex-direction: column !important; height: 100v
 <div id="reader-view" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="handleReaderDrop(event)">
   <div id="reader-topbar">
     <span style="color:var(--text-strong);font-size:13px;font-weight:600;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="readerTitle"></span>
+    <span id="readerVenue" style="font-size:11px;color:var(--text-3);margin-left:8px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="期刊/会议"></span>
+    <span id="readerDoi" style="font-size:11px;color:var(--text-3);margin-left:8px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="DOI"></span>
     <span style="color:var(--border);margin:0 4px">|</span>
     <button class="ctrl-btn active col-toggle" id="rbMD" onclick="toggleColumn('md')">📄 文献</button>
     <button class="ctrl-btn active col-toggle" id="rbChat" onclick="toggleColumn('chat')">💬 AI 对话</button>
@@ -2132,7 +2134,7 @@ function renderGridView(filtered) {
       ${a.converting?'<span class="badge badge-converting" style="position:absolute;top:12px;right:12px">解析中...</span>':''}
       <div class="card-title">${esc(a.title)}</div>
       <div class="card-author">👤 ${esc(articleAuthor(a))} ${a.doi?`<span class="tag">DOI ${esc(a.doi)}</span>`:''}</div>
-      <div class="card-meta"><span>📦 ${kindLabel(a.kind)}</span><span>📅 ${a.date_added||''}</span>${a.pages?`<span>📖 ${a.pages}页</span>`:''}${a.year?`<span>${esc(a.year)}</span>`:''}${a.category?`<span>📂 ${esc(a.category)}</span>`:''}</div>
+      <div class="card-meta"><span>📦 ${kindLabel(a.kind)}</span><span>📅 ${a.date_added||''}</span>${a.pages?`<span>📖 ${a.pages}页</span>`:''}${a.year?`<span>${esc(a.year)}</span>`:''}${a.venue?`<span title="期刊/会议">📚 ${esc(a.venue)}</span>`:''}${a.category?`<span>📂 ${esc(a.category)}</span>`:''}</div>
       <div class="card-actions-row" onclick="event.stopPropagation()">
         <button class="card-btn" onclick="event.stopPropagation();openReader('${esc(a.id)}');setTimeout(()=>doSummarize(),1500)">🤖 总结</button>
       </div>
@@ -2147,7 +2149,7 @@ function renderBoardView(filtered) {
     <div class="board-column">
       <div class="board-col-header">📂 ${esc(cat)} <span class="count">${items.length}</span></div>
       <div class="board-col-body">
-        ${items.map(a => `<div class="board-card" onclick="openReader('${esc(a.id)}')" oncontextmenu="showLibraryContextMenu(event,'${esc(a.id)}')" title="点击阅读，右键操作\n也可拖拽文件至此快速上传附件" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="handleArticleDrop(event, '${esc(a.id)}')"><div class="board-card-head"><input class="board-select" type="checkbox" ${selectedArticleIds.has(a.id)?'checked':''} onclick="event.stopPropagation()" onchange="toggleArticleSelection(event,'${esc(a.id)}')"><div><div class="bc-title">${esc(a.title)}</div><div class="bc-meta">${kindLabel(a.kind)} · ${esc(articleAuthor(a))} ${a.pages?`· ${a.pages}页`:''} ${a.translated?'🌐':''} ${a.summarized?'🤖':''}</div></div></div></div>`).join('')}
+        ${items.map(a => `<div class="board-card" onclick="openReader('${esc(a.id)}')" oncontextmenu="showLibraryContextMenu(event,'${esc(a.id)}')" title="点击阅读，右键操作\n也可拖拽文件至此快速上传附件" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="handleArticleDrop(event, '${esc(a.id)}')"><div class="board-card-head"><input class="board-select" type="checkbox" ${selectedArticleIds.has(a.id)?'checked':''} onclick="event.stopPropagation()" onchange="toggleArticleSelection(event,'${esc(a.id)}')"><div><div class="bc-title">${esc(a.title)}</div><div class="bc-meta">${kindLabel(a.kind)} · ${esc(articleAuthor(a))} ${a.pages?`· ${a.pages}页`:''} ${a.venue?`· ${esc(a.venue)}`:''} ${a.translated?'🌐':''} ${a.summarized?'🤖':''}</div></div></div></div>`).join('')}
       </div>
     </div>`).join('');
 }
@@ -2524,6 +2526,8 @@ async function openReader(id) {
 async function initArticleTab(tabId, tabData) {
   const article = tabData.article;
   document.getElementById('readerTitle').textContent = article.title;
+  document.getElementById('readerVenue').textContent = article.venue ? `| 期刊/会议: ${article.venue}` : '';
+  document.getElementById('readerDoi').textContent = article.doi ? `| DOI: ${article.doi}` : '';
 
   // Reset
   currentRawMd = ''; translatedMd = ''; summaryText = '';
@@ -3753,11 +3757,14 @@ async function doSummarize(force=false) {
   try {
     const summary = await callLLM(`You are a research assistant. Read the following academic paper and provide a structured summary in Chinese:\n\n1. **研究背景与问题** (Background & Problem)\n2. **核心方法** (Core Method/Approach)\n3. **主要发现** (Key Findings)\n4. **贡献与局限** (Contributions & Limitations)\n\nKeep it concise and academic. Use bullet points where helpful.\n\nPaper content:\n${text}`, LLM_CFG);
 
-    summaryText = summary;
-    setSummaryMarkdown(summary);
+    const metaBlock = `# 论文摘要信息\n- **标题**: ${currentArticle.title || '未知'}\n- **作者**: ${articleAuthor(currentArticle)}\n- **期刊/会议**: ${currentArticle.venue || '未知'}\n- **DOI**: ${currentArticle.doi || '未知'}\n- **年份**: ${currentArticle.year || '未知'}\n\n---\n\n`;
+    const finalSummary = metaBlock + summary;
+
+    summaryText = finalSummary;
+    setSummaryMarkdown(finalSummary);
     status.textContent = '✅ 总结完成';
 
-    await fetch('/save',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:`articles/${currentArticle.id}/${currentArticle.id}_summary.md`,content:summary})});
+    await fetch('/save',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:`articles/${currentArticle.id}/${currentArticle.id}_summary.md`,content:finalSummary})});
     await fetch('/api/articles/update',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:currentArticle.id,updates:{summarized:true}})});
     currentArticle.summarized = true;
     status.textContent = '🔎 LLM 正在根据全文和总结校准论文信息...';
