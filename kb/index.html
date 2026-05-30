@@ -5740,6 +5740,10 @@ async function showReconvert() {
       <p class="engine-desc" id="engine-desc" style="margin-top:8px">Marker：本地 Surya 模型，~6GB 显存，离线可用</p>
       <div id="docparser-key-container" style="display:none; margin-top:12px; flex-direction:row; gap:8px;">
         <input type="password" id="docparser-key-input" placeholder="输入 DeconBear DocParser API Key (若已配置可留空)" style="flex:1; padding:8px; border:1px solid var(--border); border-radius:4px; font-size:13px;" />
+        <select id="docparser-engine-input" style="padding:8px; border:1px solid var(--border); border-radius:4px; font-size:13px;">
+          <option value="struct">struct 引擎</option>
+          <option value="polyglot">polyglot 引擎</option>
+        </select>
         <button class="btn-secondary" onclick="saveDocParserKey()" style="padding:8px 16px; border-radius:4px; border:1px solid var(--border); background:var(--surface); cursor:pointer; font-size:13px;">保存配置</button>
       </div>
       ${verHtml}
@@ -5760,15 +5764,12 @@ async function showReconvert() {
 
 async function saveDocParserKey() {
   const key = document.getElementById('docparser-key-input').value.trim();
-  if (!key) {
-    alert('请输入 API Key');
-    return;
-  }
+  const subEngine = document.getElementById('docparser-engine-input').value;
   try {
     const resp = await fetch('/api/config/docparser', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ api_key: key })
+      body: JSON.stringify({ api_key: key, engine: subEngine })
     });
     if (resp.ok) {
       alert('保存成功！');
@@ -5821,6 +5822,10 @@ async function startConvert() {
       const keyInput = document.getElementById('docparser-key-input');
       if (keyInput && keyInput.value.trim() !== '') {
         payload.api_key = keyInput.value.trim();
+      }
+      const engineInput = document.getElementById('docparser-engine-input');
+      if (engineInput) {
+        payload.docparser_engine = engineInput.value;
       }
     }
     const resp = await fetch('/api/convert/' + article.id, {
