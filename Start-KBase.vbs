@@ -1,2 +1,2 @@
 Set WshShell = CreateObject("WScript.Shell")
-WshShell.Run "python kb/desktop.py", 0, False
+WshShell.Run "pythonw kb/desktop.py", 1, False
