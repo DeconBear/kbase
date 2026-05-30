@@ -736,6 +736,8 @@ body { display: flex !important; flex-direction: column !important; height: 100v
       <button onclick="exportContextSelection('pdf')">导出 PDF</button>
       <button onclick="exportContextSelection('markdown')">导出 Markdown</button>
       <div class="ctx-separator"></div>
+      <button id="ctxBatchProcess" onclick="batchExtractAndSummarize()">一键抓取并总结</button>
+      <div class="ctx-separator"></div>
       <button id="ctxUploadAttachment" onclick="uploadContextAttachment()">上传附件</button>
       <button id="ctxOpenFolder" onclick="openContextFolder()">打开所在文件夹</button>
       <button class="danger" onclick="deleteContextSelection()">删除</button>
@@ -1930,6 +1932,79 @@ async function exportContextSelection(format) {
   } catch(e) {
     uiAlert('导出失败: ' + e.message);
   }
+}
+
+async function batchExtractAndSummarize() {
+  const ids = contextArticleIds.length ? contextArticleIds : [...selectedArticleIds];
+  if (!ids.length) return;
+  hideLibraryContextMenu();
+
+  const provider = getActiveLLMProvider();
+  if (!provider || !provider.api_key_set) {
+    uiAlert('请先配置 LLM API key（设置 → LLM 配置）');
+    return;
+  }
+
+  let successCount = 0;
+  for (let i = 0; i < ids.length; i++) {
+    const id = ids[i];
+    const article = articles.find(a => a.id === id);
+    if (!article) continue;
+    
+    document.getElementById('statusMsg').textContent = `[${i+1}/${ids.length}] 正在抓取并总结: ${article.title.slice(0, 25)}...`;
+
+    // 1. Extract Info
+    try {
+      const resp = await fetch('/api/extract-info/' + encodeURIComponent(id), {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          id: id,
+          provider_id: LLM_CFG.providerId,
+          model: LLM_CFG.model,
+          reason: 'manual',
+          background: false,
+          force: true
+        })
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.article) mergeArticleRecord(data.article);
+      }
+    } catch(e) {
+      console.warn('extract failed for', id, e);
+    }
+
+    // 2. Summarize
+    try {
+      let t = Date.now();
+      let mdResp = await fetch(`articles/${id}/${id}_calibrated.md?t=${t}`);
+      if (!mdResp.ok) mdResp = await fetch(`articles/${id}/${id}.md?t=${t}`);
+      
+      if (mdResp.ok) {
+        const rawMd = await mdResp.text();
+        const textToSummarize = rawMd.replace(/```[\s\S]*?```/g,'').replace(/!\[.*?\]\(.*?\)/g,'').replace(/\$\$[\s\S]*?\$\$/g,'').replace(/\$(.+?)\$/g,'').substring(0, 15000);
+        
+        if (textToSummarize.trim()) {
+           const summary = await callLLM(`You are a research assistant. Read the following academic paper and provide a structured summary in Chinese:\n\n1. **研究背景与问题** (Background & Problem)\n2. **核心方法** (Core Method/Approach)\n3. **主要发现** (Key Findings)\n4. **贡献与局限** (Contributions & Limitations)\n\nKeep it concise and academic. Use bullet points where helpful.\n\nPaper content:\n${textToSummarize}`, LLM_CFG);
+           
+           if (summary) {
+              await fetch('/save',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:`articles/${id}/${id}_summary.md`,content:summary})});
+              await fetch('/api/articles/update',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id,updates:{summarized:true}})});
+              const a = articles.find(x => x.id === id);
+              if (a) a.summarized = true;
+              successCount++;
+           }
+        }
+      }
+    } catch(e) {
+       console.warn('summarize failed for', id, e);
+    }
+  }
+  
+  document.getElementById('statusMsg').textContent = `✅ 批量处理完成，成功总结 ${successCount}/${ids.length} 篇`;
+  setTimeout(() => { document.getElementById('statusMsg').textContent = ''; }, 4000);
+  renderLibrary();
 }
 
 async function deleteContextSelection() {
