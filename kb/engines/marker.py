@@ -1,0 +1,122 @@
+"""Marker engine — local Surya-model-based PDF conversion."""
+import json
+import os
+import subprocess
+import shutil
+import sys
+from pathlib import Path
+
+ARTICLES_DIR = Path(__file__).parent.parent / "articles"
+REPO_ROOT = Path(__file__).parent.parent.parent
+RUNTIME_CONFIG = ARTICLES_DIR.parent / "low_memory_config.json"
+
+
+def _load_runtime_config():
+    if not RUNTIME_CONFIG.exists():
+        return {}
+    try:
+        return json.loads(RUNTIME_CONFIG.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+class MarkerEngine:
+    name = "marker"
+
+    def run(self, pdf_path: str, article_id: str, log_callback=None) -> bool:
+        """Run marker_single on a PDF. Returns True on success."""
+        def log(msg):
+            if log_callback:
+                log_callback(msg)
+
+        marker_exe = shutil.which("marker_single") or os.path.expandvars(
+            r"%APPDATA%\Python\Python313\Scripts\marker_single.exe"
+        )
+        env = os.environ.copy()
+        env["MODEL_CACHE_DIR"] = str(REPO_ROOT / "models")
+        env["PYTHONPATH"] = (
+            str(REPO_ROOT)
+            if not env.get("PYTHONPATH")
+            else str(REPO_ROOT) + os.pathsep + env["PYTHONPATH"]
+        )
+        runtime_config = _load_runtime_config()
+        device = runtime_config.get("device")
+        if device in {"cpu", "cuda"}:
+            env["TORCH_DEVICE"] = device
+
+        article_dir = ARTICLES_DIR / article_id
+        work_root = article_dir / ".marker_work"
+        if work_root.exists():
+            shutil.rmtree(work_root)
+        work_root.mkdir(parents=True, exist_ok=True)
+
+        if marker_exe and Path(marker_exe).exists():
+            cmd = [marker_exe, str(pdf_path), "--output_dir", str(work_root)]
+        else:
+            cmd = [
+                sys.executable,
+                "-m",
+                "marker.scripts.convert_single",
+                str(pdf_path),
+                "--output_dir",
+                str(work_root),
+            ]
+
+        log("Starting Marker engine...")
+        log(f"Command: {' '.join(cmd)}")
+        if device:
+            log(f"Device: {device}")
+
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            env=env,
+            cwd=str(REPO_ROOT),
+            bufsize=1,
+        )
+
+        for line in proc.stdout:
+            line = line.rstrip()
+            if line:
+                log(line)
+
+        proc.wait(timeout=600)
+        log(f"Process exited with code {proc.returncode}")
+
+        if proc.returncode != 0:
+            return False
+
+        # Move results from Marker's output folder to the article dir.
+        pdf_stem = Path(pdf_path).stem
+        src_dir = work_root / pdf_stem
+
+        if src_dir.exists():
+            dest = article_dir
+            for item in src_dir.iterdir():
+                target_name = item.name
+                if target_name == f"{pdf_stem}.md":
+                    target_name = f"{article_id}.md"
+                elif target_name == f"{pdf_stem}_meta.json":
+                    target_name = f"{article_id}_meta.json"
+                elif target_name.startswith(f"{pdf_stem}_"):
+                    target_name = f"{article_id}_{target_name[len(pdf_stem) + 1:]}"
+
+                target = dest / target_name
+                if target.exists():
+                    if target.is_dir():
+                        shutil.rmtree(target)
+                    else:
+                        os.remove(target)
+                if item.is_dir():
+                    shutil.copytree(item, target)
+                else:
+                    shutil.copy2(item, target)
+            shutil.rmtree(work_root)
+            log(f"Merged result from {src_dir.name} into {dest}")
+            return (dest / f"{article_id}.md").exists()
+
+        log(f"WARNING: No conversion result folder found at {src_dir}")
+        shutil.rmtree(work_root, ignore_errors=True)
+        return False
