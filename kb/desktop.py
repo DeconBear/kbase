@@ -29,7 +29,21 @@ def main():
     print(f"Opening desktop window at {url}")
     
     # Create the webview window
+    class Api:
+        def save_file(self, content, suggested_name):
+            try:
+                import webview
+                result = webview.windows[0].create_file_dialog(webview.SAVE_DIALOG, directory='', save_filename=suggested_name)
+                if result:
+                    with open(result[0], 'wb') as f:
+                        f.write(content.encode('utf-8'))
+                    return True
+            except Exception as e:
+                return str(e)
+            return False
+
     window = webview.create_window(
+        js_api=Api(),
         title="Knowledge Base",
         url=url,
         width=1280,
