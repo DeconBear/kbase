@@ -2004,12 +2004,7 @@ async function copyContextDoi() {
   }
 }
 
-async function exportContextSelection(format) {
-  const ids = contextArticleIds.length ? contextArticleIds : [...selectedArticleIds];
-  if (!ids.length) return;
-  hideLibraryContextMenu();
-  window.location.href = `/api/export?ids=${ids.map(encodeURIComponent).join(',')}&format=${encodeURIComponent(format)}`;
-}
+
 
 async function batchExtractAndSummarize() {
   const ids = contextArticleIds.length ? contextArticleIds : [...selectedArticleIds];
