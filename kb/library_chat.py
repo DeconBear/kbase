@@ -38,13 +38,16 @@ def _estimate_tokens(text):
     return int(cn / 1.5 + other / 3) + 1
 
 
-def _load_index():
-    if INDEX_FILE.exists():
-        try:
-            return json.loads(INDEX_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    return {"articles": []}
+import db_api
+
+def load_index():
+    return db_api.get_all_articles()
+
+def get_workspace_items_dict(workspace_id):
+    if not workspace_id:
+        return None
+    items = db_api.get_workspace_items(workspace_id)
+    return { (item['item_type'], item['item_id']) for item in items }
 
 
 def _clean_message(message):
@@ -252,6 +255,11 @@ def _article_markdown_paths(article_id):
         except Exception:
             continue
 
+def _note_markdown_paths(note_id):
+    path = DIR / "notes" / f"{note_id}.md"
+    if path.exists():
+        yield "笔记", path
+
 
 def _split_long_text(text, max_chars=MAX_CHUNK_CHARS):
     parts = []
@@ -310,17 +318,26 @@ def _plain_snippet(text, max_len=220):
     return text[:max_len] + ("..." if len(text) > max_len else "")
 
 
-def search_library(query, limit=MAX_SOURCES, context_chars=MAX_CONTEXT_CHARS):
+def search_library(query, limit=MAX_SOURCES, context_chars=MAX_CONTEXT_CHARS, workspace_id=""):
     terms = _query_terms(query)
-    idx = _load_index()
+    
+    ws_items = get_workspace_items_dict(workspace_id)
+    
+    idx = load_index()
     articles = idx.get("articles") or []
+    notes = db_api.get_all_notes().get("notes") or []
+    
     results = []
     source_no = 1
 
+    # Search articles
     for article in articles:
         article_id = str(article.get("id") or "")
         if not article_id:
             continue
+        if ws_items is not None and ("paper", article_id) not in ws_items:
+            continue
+            
         meta_text = " ".join([
             str(article.get("title") or ""),
             str(article.get("author") or ""),
@@ -354,6 +371,54 @@ def search_library(query, limit=MAX_SOURCES, context_chars=MAX_CONTEXT_CHARS):
                     "article_id": article_id,
                     "title": article.get("title") or article_id,
                     "author": article.get("author") or "",
+                    "heading": chunk["heading"],
+                    "variant": variant,
+                    "score": score,
+                    "text": chunk["text"],
+                    "snippet": _plain_snippet(chunk["text"]),
+                })
+                source_no += 1
+
+    # Search notes
+    for note in notes:
+        note_id = str(note.get("id") or "")
+        if not note_id:
+            continue
+        if ws_items is not None and ("note", note_id) not in ws_items:
+            continue
+        meta_text = " ".join([
+            str(note.get("title") or ""),
+            str(note.get("folder") or ""),
+            " ".join(note.get("tags") or []),
+        ]).lower()
+        for variant, path in _note_markdown_paths(note_id):
+            try:
+                from utils_yaml import parse_frontmatter
+                _, md = parse_frontmatter(path)
+            except Exception:
+                continue
+            for chunk in _chunk_markdown(md):
+                hay = (meta_text + "\n" + chunk["heading"] + "\n" + chunk["text"]).lower()
+                score = 0
+                if query and query.lower() in hay:
+                    score += 12
+                for term in terms:
+                    count = hay.count(term.lower())
+                    if count:
+                        score += min(count, 8)
+                        if term in meta_text:
+                            score += 4
+                        if term in chunk["heading"].lower():
+                            score += 3
+                if not terms:
+                    score = 1
+                if score <= 0:
+                    continue
+                results.append({
+                    "source_id": f"S{source_no}",
+                    "article_id": note_id,
+                    "title": note.get("title") or note_id,
+                    "author": "Note",
                     "heading": chunk["heading"],
                     "variant": variant,
                     "score": score,
@@ -468,7 +533,7 @@ def _sanitize_sources_for_client(sources):
     ]
 
 
-def prepare_library_question(question, session_id="", provider_id="", model=""):
+def prepare_library_question(question, session_id="", provider_id="", model="", workspace_id=""):
     question = str(question or "").strip()
     if not question:
         raise ValueError("Question is required")
@@ -502,10 +567,12 @@ def prepare_library_question(question, session_id="", provider_id="", model=""):
         provider_id=provider_id,
         model=model,
     )
-    sources = search_library(_session_query(working_session, question))
+    sources = search_library(_session_query(working_session, question), workspace_id=workspace_id)
     client_sources = _sanitize_sources_for_client(sources)
 
-    system_prompt = f"""你是 KBase 的全库论文问答助手。你可以检索用户已经上传并解析出的论文 Markdown。
+    system_prompt = f"""你是 KBase 的全库知识问答助手。你可以检索用户已经上传的论文和笔记 Markdown。
+    
+当前的工作空间限制为：{'已限制为选定文件' if workspace_id else '全局搜索'}
 
 回答规则：
 - 只依据“检索到的论文片段”和会话记忆回答；不要编造不存在的论文内容。
@@ -577,12 +644,13 @@ def finalize_library_answer(prepared, answer):
         }
 
 
-def ask_library_question(question, session_id="", provider_id="", model=""):
+def ask_library_question(question, session_id="", provider_id="", model="", workspace_id=""):
     prepared = prepare_library_question(
         question,
         session_id=session_id,
         provider_id=provider_id,
         model=model,
+        workspace_id=workspace_id
     )
     data = call_chat_completion(
         prepared["api_messages"],

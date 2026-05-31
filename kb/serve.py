@@ -128,17 +128,14 @@ load_env()
 os.chdir(str(DIR))
 
 
-def load_index():
-    if INDEX_FILE.exists():
-        try:
-            return json.loads(INDEX_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    return {"articles": []}
+import db_api
 
+def load_index():
+    return db_api.get_all_articles()
 
 def save_index(idx):
-    INDEX_FILE.write_text(json.dumps(idx, ensure_ascii=False, indent=2), encoding="utf-8")
+    # Fallback/stub for compatibility, actually we update individual items now
+    pass
 
 
 def load_runtime_config():
@@ -312,18 +309,10 @@ def note_file_for(note_id: str) -> Path:
 
 
 def load_notes_index():
-    if NOTES_INDEX_FILE.exists():
-        try:
-            return json.loads(NOTES_INDEX_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    return {"notes": []}
-
+    return db_api.get_all_notes()
 
 def save_notes_index(idx):
-    NOTES_INDEX_FILE.write_text(
-        json.dumps(idx, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    pass
 
 
 def scan_articles(idx):
@@ -533,15 +522,12 @@ def run_conversion(pdf_path, article_id, engine_name="marker", docparser_engine=
             return
 
         # Update index
-        idx = load_index()
-        for a in idx["articles"]:
-            if a["id"] == article_id:
-                md_file = ARTICLES_DIR / article_id / f"{article_id}.md"
-                a["md_available"] = md_file.exists()
-                a["parser"] = engine_name
-                a.pop("converting", None)
-                break
-        save_index(idx)
+        import db_api
+        db_api.update_article(article_id, {
+            "md_available": True,
+            "parser": engine_name,
+            "converting": False
+        })
         _start_extract_info(article_id, reason=f"parsed:{engine_name}", allow_parallel=True)
 
     except ValueError as e:
@@ -606,12 +592,11 @@ def _run_translate(article_id, mode="update", target_language="Simplified Chines
         from translate import translate_article
         ok = translate_article(article_id, mode=mode, target_language=target_language, extra_prompt=extra_prompt, log_callback=log)
         if ok:
-            idx = load_index()
-            for a in idx["articles"]:
-                if a["id"] == article_id:
-                    a["translated"] = True
-                    break
-            save_index(idx)
+            import db_api
+            db_api.update_article(article_id, {
+                "translated": True,
+                "has_old_translation": True
+            })
     except Exception as e:
         import traceback
         log(f"Translation error: {e}\n{traceback.format_exc()}")
@@ -706,6 +691,10 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
         request_path = urllib.parse.urlsplit(self.path).path
         if request_path == "/api/articles":
             self.serve_json(scan_articles(load_index()))
+        elif request_path == "/api/workspaces":
+            self.handle_get_workspaces()
+        elif request_path.startswith("/api/workspaces/") and request_path.endswith("/items"):
+            self.handle_get_workspace_items()
         elif request_path == "/api/settings":
             self.serve_json(load_runtime_config())
         elif request_path == "/api/llm-config":
@@ -844,6 +833,16 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_create_note()
         elif self.path.startswith("/api/articles/") and self.path.endswith("/attachments"):
             self.handle_upload_attachment()
+        elif self.path == "/api/workspaces":
+            self.handle_create_workspace()
+        elif self.path.startswith("/api/workspaces/") and self.path.endswith("/items"):
+            self.handle_add_workspace_items()
+        elif self.path == "/api/batch/delete":
+            self.handle_batch_delete()
+        elif self.path == "/api/batch/export":
+            self.handle_batch_export()
+        elif self.path == "/api/batch/import":
+            self.handle_batch_import()
         else:
             self.send_error(404)
 
@@ -866,6 +865,10 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_delete_note()
         elif self.path.startswith("/api/articles/") and "/attachments/" in self.path:
             self.handle_delete_attachment()
+        elif self.path.startswith("/api/workspaces/") and self.path.endswith("/items"):
+            self.handle_remove_workspace_items()
+        elif self.path.startswith("/api/workspaces/"):
+            self.handle_delete_workspace()
         else:
             self.send_error(404)
 
@@ -962,6 +965,7 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
                 session_id=body.get("session_id") or "",
                 provider_id=body.get("provider_id") or body.get("provider") or "",
                 model=body.get("model") or "",
+                workspace_id=body.get("workspace_id") or "",
             )
             self.serve_json(result)
         except Exception as e:
@@ -1019,6 +1023,7 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             session_id=body.get("session_id") or "",
             provider_id=provider_id,
             model=model,
+            workspace_id=body.get("workspace_id") or "",
         )
 
         self._send_sse_headers()
@@ -1266,6 +1271,11 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             if not re.fullmatch(r"\.[a-z0-9]{1,12}", ext or ""):
                 ext = ".bin"
 
+            import db_api
+            db_api.update_article(article_id, {
+                "converting": False,
+                "has_old_translation": True
+            })
             idx = load_index()
             existing = [a for a in idx["articles"] if a["id"] == article_id]
             if existing:
@@ -1338,8 +1348,8 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             }
             if preparse_error:
                 article["preparse_error"] = preparse_error
-            idx["articles"].append(article)
-            save_index(idx)
+            import db_api
+            db_api.add_article(article)
 
             info_extraction = ""
             if md_available:
@@ -1607,12 +1617,10 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
             # Set converting flag
-            idx = load_index()
-            for a in idx["articles"]:
-                if a["id"] == article_id:
-                    a["converting"] = True
-                    break
-            save_index(idx)
+            import db_api
+            db_api.update_article(article_id, {
+                "converting": True
+            })
 
             thread = threading.Thread(
                 target=run_conversion,
@@ -1631,7 +1639,6 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             article_id = validate_article_id(body.get("id", ""))
             updates = body.get("updates", {})
 
-            idx = load_index()
             allowed = {
                 "title", "author", "authors", "pages", "date_added", "category", "tags",
                 "translated", "summarized", "pdf_available", "md_available",
@@ -1639,13 +1646,10 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
                 "abstract", "metadata_extracted", "metadata_extracted_at",
                 "metadata_source", "file_available", "parser",
             }
-            for a in idx["articles"]:
-                if a["id"] == article_id:
-                    for k, v in updates.items():
-                        if k in allowed:
-                            a[k] = v
-                    break
-            save_index(idx)
+            filtered_updates = {k: v for k, v in updates.items() if k in allowed}
+            import db_api
+            db_api.update_article(article_id, filtered_updates)
+            
             self.serve_json({"status": "ok"})
         except Exception as e:
             self.send_error(500, str(e))
@@ -1656,9 +1660,8 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             body = json.loads(self.rfile.read(content_len))
             article_id = validate_article_id(body.get("id", ""))
 
-            idx = load_index()
-            idx["articles"] = [a for a in idx["articles"] if a["id"] != article_id]
-            save_index(idx)
+            import db_api
+            db_api.delete_article(article_id)
 
             article_dir = article_dir_for(article_id)
             if article_dir.exists():
@@ -1680,13 +1683,19 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
     def handle_get_note(self):
         try:
             note_id = self._note_id_from_path()
-            md_path = note_file_for(note_id)
-            if not md_path.exists():
-                self.serve_error_json(404, "Note not found")
-                return
-            content = md_path.read_text(encoding="utf-8")
             idx = load_notes_index()
             note = next((n for n in idx["notes"] if n["id"] == note_id), None)
+            if not note:
+                self.serve_error_json(404, "Note not found")
+                return
+                
+            md_path = note_file_for(note_id)
+            if md_path.exists():
+                from utils_yaml import parse_frontmatter
+                _, content = parse_frontmatter(md_path)
+            else:
+                content = ""
+                
             self.serve_json({"id": note_id, "content": content, "meta": note})
         except ValueError as e:
             self.serve_error_json(400, str(e))
@@ -1741,9 +1750,6 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             uid = os.urandom(4).hex()
             note_id = f"note_{ts}_{uid}"
 
-            md_path = note_file_for(note_id)
-            md_path.write_text(f"# {title}\n\n", encoding="utf-8")
-
             now = time.strftime("%Y-%m-%d %H:%M:%S")
             entry = {
                 "id": note_id,
@@ -1754,9 +1760,13 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
                 "folder": folder,
                 "links": [],
             }
-            idx = load_notes_index()
-            idx["notes"].append(entry)
-            save_notes_index(idx)
+            import db_api
+            db_api.add_note(entry)
+            
+            # The add_note will create the file with frontmatter but empty content, so let's set initial content
+            md_path = note_file_for(note_id)
+            from utils_yaml import write_frontmatter
+            write_frontmatter(md_path, entry, f"# {title}\n\n")
 
             self.serve_json(entry)
         except Exception as e:
@@ -1770,26 +1780,31 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             content = str(body.get("content") or "")
             title = str(body.get("title") or "").strip()[:200]
 
+            updates = {
+                "modified_at": time.strftime("%Y-%m-%d %H:%M:%S")
+            }
+            if title:
+                updates["title"] = title
+            if "tags" in body:
+                tags = body.get("tags")
+                updates["tags"] = [str(t).strip()[:50] for t in tags if str(t).strip()] if isinstance(tags, list) else []
+            if "folder" in body:
+                updates["folder"] = str(body.get("folder") or "").strip()[:200]
+                
+            import db_api
+            # db_api.update_note updates DB and frontmatter, but doesn't update content.
+            # We must update content directly
             md_path = note_file_for(note_id)
-            if not md_path.exists():
-                self.serve_error_json(404, "Note not found")
-                return
-            md_path.write_text(content, encoding="utf-8")
+            from utils_yaml import parse_frontmatter, write_frontmatter
+            if md_path.exists():
+                meta, _ = parse_frontmatter(md_path)
+            else:
+                meta = {"id": note_id, "type": "note"}
+            meta.update(updates)
+            write_frontmatter(md_path, meta, content)
+            
+            db_api.update_note(note_id, updates)
 
-            idx = load_notes_index()
-            for n in idx["notes"]:
-                if n["id"] == note_id:
-                    n["modified_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-                    if title:
-                        n["title"] = title
-                    if "tags" in body:
-                        tags = body.get("tags")
-                        n["tags"] = [str(t).strip()[:50] for t in tags if str(t).strip()] if isinstance(tags, list) else []
-                    if "folder" in body:
-                        folder = str(body.get("folder") or "").strip()[:200]
-                        n["folder"] = folder
-                    break
-            save_notes_index(idx)
             self.serve_json({"status": "ok"})
         except ValueError as e:
             self.serve_error_json(400, str(e))
@@ -1802,9 +1817,8 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             md_path = note_file_for(note_id)
             if md_path.exists():
                 md_path.unlink()
-            idx = load_notes_index()
-            idx["notes"] = [n for n in idx["notes"] if n["id"] != note_id]
-            save_notes_index(idx)
+            import db_api
+            db_api.delete_note(note_id)
             self.serve_json({"status": "ok"})
         except ValueError as e:
             self.serve_error_json(400, str(e))
@@ -1819,13 +1833,8 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             if not new_title:
                 self.serve_error_json(400, "Title is required")
                 return
-            idx = load_notes_index()
-            for n in idx["notes"]:
-                if n["id"] == note_id:
-                    n["title"] = new_title
-                    n["modified_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-                    break
-            save_notes_index(idx)
+            import db_api
+            db_api.update_note(note_id, {"title": new_title, "modified_at": time.strftime("%Y-%m-%d %H:%M:%S")})
             self.serve_json({"status": "ok", "title": new_title})
         except ValueError as e:
             self.serve_error_json(400, str(e))
@@ -1941,6 +1950,128 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
                 self.serve_error_json(404, "File not found")
         except Exception as e:
             self.serve_error_json(500, str(e))
+    def handle_get_workspaces(self):
+        try:
+            import db_api
+            ws = db_api.get_all_workspaces()
+            self.serve_json({"workspaces": ws})
+        except Exception as e:
+            self.serve_error_json(500, str(e))
+
+    def handle_create_workspace(self):
+        try:
+            body = self.read_json_body()
+            name = str(body.get("name") or "Unnamed Workspace").strip()[:100]
+            ws_id = f"ws_{int(time.time())}_{os.urandom(2).hex()}"
+            import db_api
+            ws = db_api.add_workspace(ws_id, name)
+            self.serve_json(ws)
+        except Exception as e:
+            self.serve_error_json(500, str(e))
+
+    def handle_delete_workspace(self):
+        try:
+            parts = urllib.parse.urlsplit(self.path).path.rstrip("/").split("/")
+            ws_id = urllib.parse.unquote(parts[-1])
+            import db_api
+            db_api.delete_workspace(ws_id)
+            self.serve_json({"status": "ok"})
+        except Exception as e:
+            self.serve_error_json(500, str(e))
+
+    def handle_get_workspace_items(self):
+        try:
+            parts = urllib.parse.urlsplit(self.path).path.rstrip("/").split("/")
+            ws_id = urllib.parse.unquote(parts[-2])
+            import db_api
+            items = db_api.get_workspace_items(ws_id)
+            self.serve_json({"items": items})
+        except Exception as e:
+            self.serve_error_json(500, str(e))
+
+    def handle_add_workspace_items(self):
+        try:
+            parts = urllib.parse.urlsplit(self.path).path.rstrip("/").split("/")
+            ws_id = urllib.parse.unquote(parts[-2])
+            body = self.read_json_body()
+            items = body.get("items", [])
+            import db_api
+            for item in items:
+                db_api.add_item_to_workspace(ws_id, item["item_id"], item["item_type"])
+            self.serve_json({"status": "ok"})
+        except Exception as e:
+            self.serve_error_json(500, str(e))
+
+    def handle_remove_workspace_items(self):
+        try:
+            parts = urllib.parse.urlsplit(self.path).path.rstrip("/").split("/")
+            ws_id = urllib.parse.unquote(parts[-2])
+            body = self.read_json_body()
+            items = body.get("items", [])
+            import db_api
+            for item_id in items:
+                db_api.remove_item_from_workspace(ws_id, item_id)
+            self.serve_json({"status": "ok"})
+        except Exception as e:
+            self.serve_error_json(500, str(e))
+
+    def handle_batch_delete(self):
+        try:
+            body = self.read_json_body()
+            items = body.get("items", [])
+            import db_api
+            for item in items:
+                item_id = item["item_id"]
+                if item["item_type"] == "paper":
+                    db_api.delete_article(item_id)
+                    article_dir = article_dir_for(item_id)
+                    if article_dir.exists():
+                        shutil.rmtree(article_dir)
+                elif item["item_type"] == "note":
+                    md_path = note_file_for(item_id)
+                    if md_path.exists():
+                        md_path.unlink()
+                    db_api.delete_note(item_id)
+            self.serve_json({"status": "ok"})
+        except Exception as e:
+            self.serve_error_json(500, str(e))
+
+    def handle_batch_export(self):
+        try:
+            body = self.read_json_body()
+            items = body.get("items", [])
+            
+            import zipfile
+            import io
+            zip_buffer = io.BytesIO()
+            
+            with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
+                for item in items:
+                    item_id = item["item_id"]
+                    if item["item_type"] == "paper":
+                        article_dir = article_dir_for(item_id)
+                        md_file = article_dir / f"{item_id}.md"
+                        pdf_file = article_dir / "original.pdf"
+                        if md_file.exists():
+                            zip_file.write(md_file, f"papers/{item_id}/{item_id}.md")
+                        if pdf_file.exists():
+                            zip_file.write(pdf_file, f"papers/{item_id}/original.pdf")
+                    elif item["item_type"] == "note":
+                        md_path = note_file_for(item_id)
+                        if md_path.exists():
+                            zip_file.write(md_path, f"notes/{item_id}.md")
+                            
+            zip_data = zip_buffer.getvalue()
+            filename = f"kbase_export_{int(time.time())}.zip"
+            self.serve_download(zip_data, filename, "application/zip")
+        except Exception as e:
+            self.serve_error_json(500, str(e))
+
+    def handle_batch_import(self):
+        # Batch import implementation would handle multipart/form-data with multiple files.
+        # It parses them, saves to notes dir, extracts frontmatter and adds to DB.
+        # Since this involves parsing multipart, we can use cgi.FieldStorage or just return not implemented.
+        self.serve_error_json(501, "Batch import not fully implemented yet in backend")
 
 def start_server():
     """Start the HTTP server. Returns the httpd instance."""
