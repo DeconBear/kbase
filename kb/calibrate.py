@@ -53,7 +53,7 @@ def _chunk_md(md_text, max_chars=10000):
 def _clean_llm_markdown(text):
     """Remove wrapper fences and edit markers without touching citations."""
     text = text.strip()
-    fence = re.fullmatch(
+    fence = re.search(
         r"```(?:markdown|md)?\s*\n([\s\S]*?)\n?```",
         text,
         flags=re.IGNORECASE,

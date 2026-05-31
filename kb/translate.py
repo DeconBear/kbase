@@ -1,6 +1,7 @@
 """Background markdown translation for articles."""
 import json
 import re
+import shutil
 import time
 from pathlib import Path
 
@@ -12,7 +13,7 @@ ARTICLES_DIR = DIR / "articles"
 
 def _clean_llm_markdown(text):
     text = (text or "").strip()
-    fence = re.fullmatch(r"```(?:markdown|md)?\s*\n([\s\S]*?)\n?```", text, flags=re.I)
+    fence = re.search(r"```(?:markdown|md)?\s*\n([\s\S]*?)\n?```", text, flags=re.I)
     if fence:
         text = fence.group(1).strip()
     text = re.sub(r"^\s*(?:译文|翻译|Translation)\s*[:：]\s*", "", text, flags=re.I)
@@ -226,6 +227,12 @@ def translate_article(article_id, mode="update", target_language="Simplified Chi
 
     translated_md = "\n\n".join(translated_chunks).strip() + "\n"
     out_path = art_dir / f"{article_id}_translated.md"
+    if out_path.exists():
+        backup_path = art_dir / f"{article_id}_translated_old.md"
+        try:
+            shutil.copy2(str(out_path), str(backup_path))
+        except Exception:
+            pass
     out_path.write_text(translated_md, encoding="utf-8")
     write_state(
         article_id,
