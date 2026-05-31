@@ -626,9 +626,18 @@ def finalize_library_answer(prepared, answer):
         if not session:
             session = working_session
             store["sessions"].insert(0, session)
-        session["messages"] = working_session.get("messages") or session.get("messages") or []
-        session["memory_summary"] = working_session.get("memory_summary", "")
-        session["compacted_count"] = working_session.get("compacted_count", 0)
+        was_compacted = working_session.get("compacted_count", 0) > session.get("compacted_count", 0)
+        if was_compacted and working_session.get("memory_summary"):
+            compacted_count = working_session.get("compacted_count", 0)
+            store_messages = session.get("messages") or []
+            if len(store_messages) > KEEP_RECENT_MESSAGES:
+                session["messages"] = store_messages[-KEEP_RECENT_MESSAGES:]
+            else:
+                session["messages"] = list(store_messages)
+            session["memory_summary"] = working_session.get("memory_summary", "")
+            session["compacted_count"] = compacted_count
+        else:
+            session["messages"] = session.get("messages") or []
         session["messages"].append(assistant_message)
         session["updated_at"] = _now()
         store["active_session_id"] = session["id"]

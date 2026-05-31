@@ -11,6 +11,7 @@ DB_PATH = DB_DIR / "index.db"
 def init_db():
     DB_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA foreign_keys = ON")
     cursor = conn.cursor()
     
     # Create tables

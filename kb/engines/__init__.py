@@ -16,3 +16,21 @@ def get_engine(name: str):
     module = import_module(module_name)
     cls = getattr(module, class_name)
     return cls()
+
+
+def check_marker_available():
+    try:
+        from engines.marker import check_marker_available as _check
+        return _check()
+    except Exception:
+        return False
+
+
+def install_marker_deps(log_callback=None):
+    try:
+        from engines.marker import install_marker_deps as _install
+        return _install(log_callback=log_callback)
+    except Exception as e:
+        if log_callback:
+            log_callback(f"❌ 无法启动安装: {e}")
+        return False

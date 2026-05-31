@@ -120,7 +120,7 @@ def load_env():
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, _, val = line.partition("=")
-        os.environ[key.strip()] = val.strip()
+        os.environ.setdefault(key.strip(), val.strip())
 
 
 load_env()
@@ -519,6 +519,8 @@ def run_conversion(pdf_path, article_id, engine_name="marker", docparser_engine=
             log("=== Conversion FAILED ===")
             _record_conv(article_id, engine_name, "fail")
             set_conv_status(article_id, "error", "解析失败，查看日志了解详情")
+            import db_api
+            db_api.update_article(article_id, {"converting": False})
             return
 
         # Update index
@@ -533,11 +535,15 @@ def run_conversion(pdf_path, article_id, engine_name="marker", docparser_engine=
     except ValueError as e:
         log(f"ERROR: {e}")
         set_conv_status(article_id, "error", str(e))
+        import db_api
+        db_api.update_article(article_id, {"converting": False})
     except Exception as e:
         import traceback
         log(f"FATAL ERROR: {e}")
         log(traceback.format_exc())
         set_conv_status(article_id, "error", f"系统错误: {e}")
+        import db_api
+        db_api.update_article(article_id, {"converting": False})
 
 
 def _run_calibrate(article_id, log_callback):
@@ -699,6 +705,12 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             self.serve_json(load_runtime_config())
         elif request_path == "/api/llm-config":
             self.serve_json(public_llm_config())
+        elif request_path == "/api/engine-available/marker":
+            try:
+                from engines import check_marker_available
+                self.serve_json({"available": check_marker_available()})
+            except Exception as e:
+                self.serve_error_json(500, str(e))
         elif request_path == "/api/library-chat/sessions":
             try:
                 from library_chat import list_sessions
@@ -787,8 +799,10 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             try:
                 from urllib.parse import parse_qs, urlsplit
                 qs = parse_qs(urlsplit(self.path).query)
+                raw_ids = qs.get("ids", [""])[0]
+                force_id_list = [i for i in raw_ids.split(",") if i.strip()] if raw_ids.strip() else []
                 self.handle_export(
-                    force_ids=qs.get("ids", [""])[0].split(","), 
+                    force_ids=force_id_list,
                     force_format=qs.get("format", [""])[0]
                 )
             except Exception as e:
@@ -829,6 +843,8 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_article_delete()
         elif self.path == "/api/config/docparser":
             self.handle_config_docparser()
+        elif self.path == "/api/install-marker-deps":
+            self.handle_install_marker_deps()
         elif self.path == "/api/notes":
             self.handle_create_note()
         elif self.path.startswith("/api/articles/") and self.path.endswith("/attachments"):
@@ -943,6 +959,53 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             self.serve_json({"status": "ok"})
         except Exception as e:
             self.serve_error_json(400, str(e))
+
+    def handle_install_marker_deps(self):
+        """Install Marker engine dependencies (PyTorch + models) on demand."""
+        try:
+            from engines import check_marker_available, install_marker_deps
+
+            if check_marker_available():
+                self.serve_json({"status": "ok", "already_installed": True})
+                return
+
+            # Start installation in a background thread with SSE streaming
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "close")
+            self.send_header("X-Accel-Buffering", "no")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.close_connection = True
+
+            logs = []
+            def sse_send(data):
+                payload = json.dumps(data, ensure_ascii=False)
+                try:
+                    self.wfile.write(f"data: {payload}\n\n".encode("utf-8"))
+                    self.wfile.flush()
+                except Exception:
+                    pass
+
+            def log_callback(msg):
+                logs.append(msg)
+                try:
+                    sse_send({"type": "log", "message": msg})
+                except Exception:
+                    pass
+
+            sse_send({"type": "start", "message": "开始安装 Marker 引擎依赖..."})
+
+            result = install_marker_deps(log_callback=log_callback)
+
+            if result:
+                sse_send({"type": "done", "success": True, "message": "安装完成！Marker 引擎现在可以使用了。"})
+            else:
+                sse_send({"type": "done", "success": False, "message": "安装失败，请查看上方日志了解详情。"})
+            sse_send({"type": "end"})
+        except Exception as e:
+            self.serve_error_json(500, str(e))
 
     def read_json_body(self):
         content_len = int(self.headers.get("Content-Length", 0))
@@ -1170,6 +1233,7 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
         if "stream" in body:
             req_body["stream"] = body["stream"]
         stream_requested = bool(req_body.get("stream"))
+        response_started = False
 
         try:
             req = urllib.request.Request(
@@ -1184,6 +1248,7 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             with urllib.request.urlopen(req, timeout=300 if stream_requested else 120) as resp:
                 upstream_content_type = resp.headers.get("Content-Type", "")
                 if stream_requested and "text/event-stream" in upstream_content_type:
+                    response_started = True
                     self.send_response(200)
                     self.send_header("Content-Type", "text/event-stream; charset=utf-8")
                     self.send_header("Cache-Control", "no-cache")
@@ -1196,8 +1261,11 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
                         line = resp.readline()
                         if not line:
                             break
-                        self.wfile.write(line)
-                        self.wfile.flush()
+                        try:
+                            self.wfile.write(line)
+                            self.wfile.flush()
+                        except (BrokenPipeError, ConnectionResetError):
+                            break
                 else:
                     result = resp.read()
                     self.send_response(200)
@@ -1208,13 +1276,15 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass
         except urllib.error.HTTPError as e:
-            self.send_response(e.code)
-            self.send_header("Content-Type", e.headers.get("Content-Type", "application/json"))
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            self.wfile.write(e.read())
+            if not response_started:
+                self.send_response(e.code)
+                self.send_header("Content-Type", e.headers.get("Content-Type", "application/json"))
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(e.read())
         except Exception as e:
-            self.serve_error_json(500, str(e))
+            if not response_started:
+                self.serve_error_json(500, str(e))
 
     def handle_upload(self):
         content_type = self.headers.get("Content-Type", "")
@@ -1223,6 +1293,9 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         content_len = int(self.headers.get("Content-Length", 0))
+        if not content_len:
+            self.send_error(411, "Content-Length required for upload")
+            return
         body = self.rfile.read(content_len)
 
         boundary = None
@@ -1236,8 +1309,15 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         boundary_bytes = boundary.encode()
-        parts = body.split(b"--" + boundary_bytes)
-        for part in parts:
+        # Use proper boundary markers with CRLF prefix per RFC 2046
+        delimiter = b"\r\n--" + boundary_bytes
+        # First part starts with --boundary (no leading CRLF)
+        parts = body.split(delimiter)
+        if parts and parts[0].startswith(b"--" + boundary_bytes):
+            parts[0] = parts[0][len(b"--" + boundary_bytes):]
+        for idx, part in enumerate(parts):
+            if idx == 0 and not part.strip():
+                continue
             if b"Content-Disposition" not in part:
                 continue
             header_end = part.find(b"\r\n\r\n")
@@ -1247,6 +1327,10 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             content = part[header_end + 4:]
             if content.endswith(b"\r\n"):
                 content = content[:-2]
+            # Strip trailing boundary close
+            close_marker = b"\r\n--" + boundary_bytes + b"--"
+            if content.endswith(close_marker):
+                content = content[:-len(close_marker)]
 
             if 'name="file"' not in headers_raw:
                 continue
@@ -1892,9 +1976,15 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
             boundary_bytes = boundary.encode()
-            form_parts = body.split(b"--" + boundary_bytes)
+            # Use proper boundary markers with CRLF prefix per RFC 2046
+            delimiter = b"\r\n--" + boundary_bytes
+            form_parts = body.split(delimiter)
+            if form_parts and form_parts[0].startswith(b"--" + boundary_bytes):
+                form_parts[0] = form_parts[0][len(b"--" + boundary_bytes):]
             uploaded_filenames = []
-            for part in form_parts:
+            for idx, part in enumerate(form_parts):
+                if idx == 0 and not part.strip():
+                    continue
                 if b"Content-Disposition" not in part:
                     continue
                 header_end = part.find(b"\r\n\r\n")
@@ -1904,6 +1994,10 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
                 content = part[header_end + 4:]
                 if content.endswith(b"\r\n"):
                     content = content[:-2]
+                # Strip trailing boundary close
+                close_marker = b"\r\n--" + boundary_bytes + b"--"
+                if content.endswith(close_marker):
+                    content = content[:-len(close_marker)]
 
                 if 'name="file"' not in headers_raw:
                     continue
