@@ -682,8 +682,10 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
         print(f" [{self.client_address[0]}] {args[0]}")
 
     def end_headers(self):
-        # Prevent browser caching for all responses (single-page app, always up-to-date)
-        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        # Only set no-cache for API/HTML; allow caching for static assets (images, fonts, etc.)
+        path = urllib.parse.urlsplit(self.path).path
+        if path.startswith("/api/") or path.endswith(".html") or path == "/":
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
         super().end_headers()
 
     def do_OPTIONS(self):

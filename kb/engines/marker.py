@@ -174,6 +174,8 @@ class MarkerEngine:
 
         if src_dir.exists():
             dest = article_dir
+            # Track renames so we can update image paths in the markdown
+            _renames = {}  # old_name -> new_name
             for item in src_dir.iterdir():
                 target_name = item.name
                 if target_name == f"{pdf_stem}.md":
@@ -182,6 +184,7 @@ class MarkerEngine:
                     target_name = f"{article_id}_meta.json"
                 elif target_name.startswith(f"{pdf_stem}_"):
                     target_name = f"{article_id}_{target_name[len(pdf_stem) + 1:]}"
+                    _renames[item.name] = target_name
 
                 target = dest / target_name
                 if target.exists():
@@ -193,6 +196,18 @@ class MarkerEngine:
                     shutil.copytree(item, target)
                 else:
                     shutil.copy2(item, target)
+
+            # Fix image references in the markdown to use the renamed paths
+            md_file = dest / f"{article_id}.md"
+            if md_file.exists() and _renames:
+                try:
+                    content = md_file.read_text(encoding="utf-8")
+                    for _old, _new in sorted(_renames.items(), key=lambda x: -len(x[0])):
+                        content = content.replace(_old, _new)
+                    md_file.write_text(content, encoding="utf-8")
+                except Exception:
+                    pass
+
             shutil.rmtree(work_root)
             log(f"Merged result from {src_dir.name} into {dest}")
             return (dest / f"{article_id}.md").exists()
