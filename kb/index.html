@@ -3541,9 +3541,17 @@ document.getElementById('global-chat-input').addEventListener('input', function(
 function fixPreviewImages(preview, articleId) {
   preview.querySelectorAll('img').forEach(img => {
     let src = img.getAttribute('src');
-    if (src && !src.startsWith('http') && !src.startsWith('data:') && !src.startsWith('articles/')) {
-      img.setAttribute('src', `articles/${articleId}/${src}`);
-    }
+    if (!src) return;
+    // Already absolute or inlined — skip
+    if (src.startsWith('http') || src.startsWith('data:') || src.startsWith('blob:')) return;
+    // Already pointing into the article dir — skip
+    if (src.startsWith('articles/') && src.includes(articleId)) return;
+    // Strip leading ./ or / prefix
+    src = src.replace(/^\.?\//, '');
+    // Skip if already fully qualified for this article
+    const prefix = `articles/${articleId}/`;
+    if (src.startsWith(prefix)) return;
+    img.setAttribute('src', prefix + src);
   });
 }
 
