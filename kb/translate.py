@@ -85,6 +85,15 @@ def write_state(article_id, **updates):
 
 
 def _translate_chunk(chunk, index, total, title_hint="", retries=2, old_md_text="", target_language="Simplified Chinese", extra_prompt=""):
+    # Dynamically adjust completeness thresholds based on target language.
+    # Chinese and similar languages are inherently more compact than English,
+    # so legitimate translations can be 30-40% the character count of the source.
+    _is_cjk = any(tag in target_language.lower() for tag in (
+        "chinese", "中文", "japanese", "日本語", "korean", "한국어",
+    ))
+    _min_ratio = 0.18 if _is_cjk else 0.35   # first pass: suspicious-too-short
+    _hard_ratio = 0.10 if _is_cjk else 0.18  # second pass: definitely truncated
+
     if old_md_text:
         prompt = f"""This document was previously translated, but the original text has been slightly modified or re-parsed by a different OCR engine.
 Please translate the following new Markdown chunk into {target_language}.
@@ -101,7 +110,7 @@ Now, translate this specific new chunk:
 """
     else:
         prompt = f"""Translate this markdown chunk from an academic paper into {target_language}."""
-        
+
     prompt += f"""
 You must translate the entire chunk. Do not summarize, skip, merge away, or replace content with placeholders.
 
@@ -123,14 +132,16 @@ Chunk {index + 1}/{total}
 Markdown:
 {chunk}"""
 
-    def looks_incomplete(source, output):
+    def _is_truncated(source, output, min_ratio):
+        """Check if output appears truncated relative to source."""
         if not output.strip():
             return True
         if re.search(r"\[(?:NEXT|DONE|FIX)\b", output, flags=re.I):
             return True
+        # Compare non-whitespace character counts
         compact_source = re.sub(r"\s+", "", source)
         compact_output = re.sub(r"\s+", "", output)
-        if len(compact_source) > 900 and len(compact_output) < len(compact_source) * 0.35:
+        if len(compact_source) > 900 and len(compact_output) < len(compact_source) * min_ratio:
             return True
         return False
 
@@ -146,14 +157,19 @@ Markdown:
             )
             translated = _clean_llm_markdown(data["choices"][0]["message"]["content"])
             last_translation = translated
-            if looks_incomplete(chunk, translated):
+
+            # First pass: check with generous threshold
+            if _is_truncated(chunk, translated, _min_ratio):
                 if attempt < retries:
                     prompt += "\n\nYour previous output looked incomplete. Translate every paragraph and do not emit control tags."
                     continue
                 return f"{translated}\n\n> [翻译可能不完整，以下保留原文]\n\n{chunk}".strip()
-            if len(chunk) > 800 and len(translated) < len(chunk) * 0.18 and attempt < retries:
+
+            # Second pass: hard check for severely truncated output
+            if len(chunk) > 800 and len(translated) < len(chunk) * _hard_ratio and attempt < retries:
                 prompt += "\n\nYour previous output was too short. Translate every line and preserve all content."
                 continue
+
             return translated or chunk
         except Exception as exc:
             last_error = exc
