@@ -80,7 +80,6 @@ kbase/
 │   └── .kbase/              # SQLite database (runtime)
 ├── marker/                  # Vendored Marker PDF engine
 ├── kbase.spec               # PyInstaller build configuration
-└── static/fonts/            # Rendering fonts
 ```
 
 ## API Endpoints
@@ -136,6 +135,7 @@ Built on top of these open-source projects:
 - **[marked](https://marked.js.org/)** — Markdown parser
 - **[highlight.js](https://highlightjs.org/)** — Code syntax highlighting
 - **[Mermaid](https://mermaid.js.org/)** — Diagram rendering
+- **[DOMPurify](https://github.com/cure53/DOMPurify)** — Safe HTML sanitization for rendered Markdown
 
 ## License
 

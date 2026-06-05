@@ -23,12 +23,19 @@ from llm_config import (
 )
 
 PORT = 8765
+HOST = "127.0.0.1"
 DIR = Path(__file__).parent.absolute()
 ARTICLES_DIR = DIR / "articles"
 NOTES_DIR = DIR / "notes"
 INDEX_FILE = DIR / "kb-index.json"
 NOTES_INDEX_FILE = DIR / "notes_index.json"
 INVALID_ARTICLE_CHARS = set("/\\:*?\"<>|'")
+RUNTIME_CONFIG_FILE = DIR / "low_memory_config.json"
+ALLOWED_ORIGINS = {
+    f"http://localhost:{PORT}",
+    f"http://127.0.0.1:{PORT}",
+    f"http://[::1]:{PORT}",
+}
 
 
 def _is_inside(path: Path, base: Path) -> bool:
@@ -97,10 +104,6 @@ def resolve_save_path(filepath: str) -> Path:
     dir_root = DIR.resolve()
     articles_root = ARTICLES_DIR.resolve()
     notes_root = NOTES_DIR.resolve()
-    config_path = (DIR / "low_memory_config.json").resolve()
-
-    if target == config_path:
-        return target
     if _is_inside(target, articles_root) and target != articles_root:
         return target
     if _is_inside(target, notes_root) and target != notes_root:
@@ -139,13 +142,119 @@ def save_index(idx):
 
 
 def load_runtime_config():
-    config_path = DIR / "low_memory_config.json"
-    if config_path.exists():
+    if RUNTIME_CONFIG_FILE.exists():
         try:
-            return json.loads(config_path.read_text(encoding="utf-8"))
+            return json.loads(RUNTIME_CONFIG_FILE.read_text(encoding="utf-8"))
         except Exception:
             pass
     return {}
+
+
+def _mask_secret(value: str) -> str:
+    value = str(value or "")
+    if not value:
+        return ""
+    if len(value) <= 8:
+        return "configured"
+    return f"{value[:4]}...{value[-4:]}"
+
+
+def _safe_provider_id(value: str, fallback: str) -> str:
+    value = re.sub(r"[^A-Za-z0-9_-]+", "_", str(value or "").strip()).strip("_")
+    return value or fallback
+
+
+def _normalize_vision_provider(provider, fallback_id="default", old_key=""):
+    provider = provider if isinstance(provider, dict) else {}
+    provider_id = _safe_provider_id(provider.get("id"), fallback_id)
+    key = str(provider.get("key") or "").strip()
+    if not key and provider.get("keep_key", True):
+        key = old_key
+    return {
+        "id": provider_id,
+        "name": str(provider.get("name") or provider_id).strip() or provider_id,
+        "type": str(provider.get("type") or "openai").strip() or "openai",
+        "url": str(provider.get("url") or "").strip(),
+        "model": str(provider.get("model") or "").strip(),
+        "key": key,
+    }
+
+
+def public_runtime_config():
+    cfg = load_runtime_config()
+    public = dict(cfg)
+    providers = cfg.get("vision_providers") or []
+    if not isinstance(providers, list):
+        providers = []
+    public_providers = []
+    for idx, provider in enumerate(providers):
+        normalized = _normalize_vision_provider(provider, f"provider_{idx + 1}")
+        item = {k: v for k, v in normalized.items() if k != "key"}
+        item["key_set"] = bool(normalized.get("key"))
+        item["key_hint"] = _mask_secret(normalized.get("key", ""))
+        public_providers.append(item)
+    public["vision_providers"] = public_providers
+    return public
+
+
+def save_runtime_config_from_public(data):
+    data = data if isinstance(data, dict) else {}
+    current = load_runtime_config()
+    old_keys = {
+        str(p.get("id")): str(p.get("key") or "")
+        for p in current.get("vision_providers", [])
+        if isinstance(p, dict)
+    }
+
+    raw_providers = data.get("vision_providers") or []
+    providers = []
+    seen = set()
+    if isinstance(raw_providers, list):
+        for idx, provider in enumerate(raw_providers):
+            if not isinstance(provider, dict):
+                continue
+            fallback_id = f"provider_{idx + 1}"
+            normalized = _normalize_vision_provider(
+                provider,
+                fallback_id=fallback_id,
+                old_key=old_keys.get(str(provider.get("id") or ""), ""),
+            )
+            if normalized["id"] in seen:
+                normalized["id"] = _safe_provider_id(
+                    f"{normalized['id']}_{idx + 1}",
+                    fallback_id,
+                )
+            seen.add(normalized["id"])
+            providers.append(normalized)
+
+    if not providers:
+        providers = [{
+            "id": "default",
+            "name": "默认配置",
+            "type": "openai",
+            "url": "",
+            "model": "",
+            "key": old_keys.get("default", ""),
+        }]
+
+    active = str(data.get("active_vision_provider") or "").strip()
+    if not any(p["id"] == active for p in providers):
+        active = providers[0]["id"]
+
+    cfg = {
+        "device": "cpu" if data.get("device") == "cpu" else "cuda",
+        "protect_pdf": data.get("protect_pdf") is not False,
+        "auto_extract_info": data.get("auto_extract_info") is not False,
+        "theme": "dark" if data.get("theme") == "dark" else "light",
+        "vision_providers": providers,
+        "active_vision_provider": active,
+        "settings_version": int(data.get("settings_version") or 2),
+    }
+    RUNTIME_CONFIG_FILE.write_text(
+        json.dumps(cfg, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return public_runtime_config()
 
 
 def _read_json_file(path):
@@ -681,6 +790,39 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, format, *args):
         print(f" [{self.client_address[0]}] {args[0]}")
 
+    def _request_origin(self):
+        return (self.headers.get("Origin") or "").rstrip("/")
+
+    def _send_cors_headers(self):
+        origin = self._request_origin()
+        if origin in ALLOWED_ORIGINS:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+
+    def _static_target_for_request(self, request_path: str):
+        decoded = urllib.parse.unquote(request_path)
+        if "\x00" in decoded or "\\" in decoded:
+            return None
+        parts = [part for part in decoded.split("/") if part]
+        if any(part in {".", ".."} for part in parts):
+            return None
+
+        target = Path(self.translate_path(request_path)).resolve()
+        if target.is_dir():
+            return None
+
+        index_path = (DIR / "index.html").resolve()
+        assets_root = (DIR / "assets").resolve()
+        articles_root = ARTICLES_DIR.resolve()
+
+        if decoded in {"", "/", "/index.html"} and target == index_path:
+            return target
+        if decoded.startswith("/assets/") and _is_inside(target, assets_root):
+            return target
+        if decoded.startswith("/articles/") and _is_inside(target, articles_root):
+            return target
+        return None
+
     def end_headers(self):
         # Only set no-cache for API/HTML; allow caching for static assets (images, fonts, etc.)
         path = urllib.parse.urlsplit(self.path).path
@@ -689,8 +831,12 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
         super().end_headers()
 
     def do_OPTIONS(self):
+        if self._request_origin() not in ALLOWED_ORIGINS:
+            self.send_response(403)
+            self.end_headers()
+            return
         self.send_response(200)
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self._send_cors_headers()
         self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
@@ -704,7 +850,7 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
         elif request_path.startswith("/api/workspaces/") and request_path.endswith("/items"):
             self.handle_get_workspace_items()
         elif request_path == "/api/settings":
-            self.serve_json(load_runtime_config())
+            self.serve_json(public_runtime_config())
         elif request_path == "/api/llm-config":
             self.serve_json(public_llm_config())
         elif request_path == "/api/engine-available/marker":
@@ -792,7 +938,7 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
                     if name.endswith(".md") and name.startswith(f"{article_id}_"):
                         # e.g. {id}_pymupdf.md, {id}_marker.md, {id}_docmind.md
                         engine = name.rsplit("_", 1)[-1].replace(".md", "")
-                        if engine in {"pymupdf", "marker", "docmind", "docparser"}:
+                        if engine in {"pymupdf", "marker", "docmind", "docparser", "vision"}:
                             versions.append({"engine": engine, "file": name})
             self.serve_json({"history": history, "versions": versions})
         elif request_path.startswith("/api/articles/") and request_path.endswith("/attachments"):
@@ -810,6 +956,9 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             except Exception as e:
                 self.send_error(500, str(e))
         else:
+            if self._static_target_for_request(request_path) is None:
+                self.send_error(404)
+                return
             super().do_GET()
 
     def do_POST(self):
@@ -867,6 +1016,8 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
     def do_PUT(self):
         if self.path == "/save":
             self.handle_save_file()
+        elif self.path == "/api/settings":
+            self.handle_runtime_settings()
         elif self.path == "/api/llm-config":
             self.handle_llm_config()
         elif self.path == "/api/articles/update":
@@ -893,14 +1044,14 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
     def serve_json(self, data):
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self._send_cors_headers()
         self.end_headers()
         self.wfile.write(json.dumps(data, ensure_ascii=False).encode())
 
     def serve_error_json(self, status, message):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self._send_cors_headers()
         self.end_headers()
         self.wfile.write(json.dumps({"error": message}, ensure_ascii=False).encode())
 
@@ -910,9 +1061,16 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
         self.send_header("Cache-Control", "no-store")
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self._send_cors_headers()
         self.end_headers()
         self.wfile.write(data)
+
+    def handle_runtime_settings(self):
+        try:
+            body = self.read_json_body()
+            self.serve_json(save_runtime_config_from_public(body))
+        except Exception as e:
+            self.serve_error_json(400, str(e))
 
     def handle_llm_config(self):
         try:
@@ -977,7 +1135,7 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Cache-Control", "no-cache")
             self.send_header("Connection", "close")
             self.send_header("X-Accel-Buffering", "no")
-            self.send_header("Access-Control-Allow-Origin", "*")
+            self._send_cors_headers()
             self.end_headers()
             self.close_connection = True
 
@@ -1042,7 +1200,7 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Cache-Control", "no-cache")
         self.send_header("Connection", "close")
         self.send_header("X-Accel-Buffering", "no")
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self._send_cors_headers()
         self.end_headers()
         self.close_connection = True
 
@@ -1256,7 +1414,7 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
                     self.send_header("Cache-Control", "no-cache")
                     self.send_header("Connection", "close")
                     self.send_header("X-Accel-Buffering", "no")
-                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self._send_cors_headers()
                     self.end_headers()
                     self.close_connection = True
                     while True:
@@ -1272,7 +1430,7 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
                     result = resp.read()
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json")
-                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self._send_cors_headers()
                     self.end_headers()
                     self.wfile.write(result)
         except (BrokenPipeError, ConnectionResetError):
@@ -1281,7 +1439,7 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             if not response_started:
                 self.send_response(e.code)
                 self.send_header("Content-Type", e.headers.get("Content-Type", "application/json"))
-                self.send_header("Access-Control-Allow-Origin", "*")
+                self._send_cors_headers()
                 self.end_headers()
                 self.wfile.write(e.read())
         except Exception as e:
@@ -2177,7 +2335,7 @@ def start_server():
     print(f" Articles: {len(idx['articles'])}")
     print(f" Listening on http://localhost:{PORT}")
 
-    httpd = ReusableThreadingTCPServer(("", PORT), KBHandler)
+    httpd = ReusableThreadingTCPServer((HOST, PORT), KBHandler)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
     return httpd

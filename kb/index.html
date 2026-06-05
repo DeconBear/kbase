@@ -6,6 +6,7 @@
 <title>Knowledge Base - 论文知识库</title>
 <link rel="icon" type="image/png" href="assets/kbase-logo-64.png">
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
@@ -1311,6 +1312,7 @@ body { display: flex !important; flex-direction: column !important; height: 100v
 (function checkDeps() {
   const missing = [];
   if (typeof marked === 'undefined') missing.push('marked.js (Markdown 渲染)');
+  if (typeof DOMPurify === 'undefined') missing.push('DOMPurify (HTML 安全净化)');
   if (typeof Vditor === 'undefined') missing.push('Vditor (编辑器)');
   if (typeof katex === 'undefined') missing.push('KaTeX (数学公式)');
   if (typeof hljs === 'undefined') missing.push('highlight.js (代码高亮)');
@@ -1543,10 +1545,49 @@ function normalizeSettings(raw={}) {
   settings.device = settings.device === 'cpu' ? 'cpu' : 'cuda';
   settings.protect_pdf = settings.protect_pdf !== false;
   settings.auto_extract_info = settings.auto_extract_info !== false;
-  settings.vision_providers = settings.vision_providers || [{ id: 'default', name: '默认配置', type: 'openai', url: '', key: '', model: '' }];
+  settings.vision_providers = normalizeVisionProviders(settings.vision_providers);
   settings.active_vision_provider = settings.active_vision_provider || 'default';
+  if (!settings.vision_providers.some(p => p.id === settings.active_vision_provider)) {
+    settings.active_vision_provider = settings.vision_providers[0]?.id || 'default';
+  }
   settings.settings_version = SETTINGS_VERSION;
   return settings;
+}
+
+function normalizeVisionProviders(providers) {
+  const source = Array.isArray(providers) && providers.length
+    ? providers
+    : [{ id: 'default', name: '默认配置', type: 'openai', url: '', model: '' }];
+  return source.map((p, idx) => ({
+    id: String(p?.id || `provider_${idx + 1}`).replace(/[^A-Za-z0-9_-]+/g, '_') || `provider_${idx + 1}`,
+    name: p?.name || '未命名配置',
+    type: p?.type || 'openai',
+    url: p?.url || '',
+    model: p?.model || '',
+    key: p?.key || '',
+    key_set: !!(p?.key_set || p?.key),
+    key_hint: p?.key_hint || ''
+  }));
+}
+
+function publicSettingsForStorage(settings) {
+  const clean = {...settings};
+  clean.vision_providers = normalizeVisionProviders(clean.vision_providers).map(({key, ...provider}) => provider);
+  return clean;
+}
+
+function settingsPayloadForServer(settings) {
+  const payload = publicSettingsForStorage(settings);
+  payload.vision_providers = normalizeVisionProviders(settings.vision_providers).map(provider => ({
+    id: provider.id,
+    name: provider.name,
+    type: provider.type,
+    url: provider.url,
+    model: provider.model,
+    key: provider.key || '',
+    keep_key: !provider.key
+  }));
+  return payload;
 }
 
 function readLocalSettings() {
@@ -1581,7 +1622,9 @@ function renderVisionProviders() {
     document.getElementById('ocrApiType').value = active.type || 'openai';
     document.getElementById('ocrModelName').value = active.model || '';
     document.getElementById('ocrApiUrl').value = active.url || '';
-    document.getElementById('ocrApiKey').value = active.key || '';
+    const keyInput = document.getElementById('ocrApiKey');
+    keyInput.value = active.key || '';
+    keyInput.placeholder = active.key_set ? `已保存 ${active.key_hint || ''}，留空保留` : '输入 API Key';
   }
 }
 
@@ -1599,7 +1642,14 @@ function saveVisionProviderToMemory() {
     active.type = document.getElementById('ocrApiType').value;
     active.model = document.getElementById('ocrModelName').value.trim();
     active.url = document.getElementById('ocrApiUrl').value.trim();
-    active.key = document.getElementById('ocrApiKey').value.trim();
+    const key = document.getElementById('ocrApiKey').value.trim();
+    if (key) {
+      active.key = key;
+      active.key_set = true;
+      active.key_hint = '';
+    } else {
+      delete active.key;
+    }
     
     // Update select option text
     const sel = document.getElementById('visionProviderSelect');
@@ -1611,7 +1661,7 @@ function saveVisionProviderToMemory() {
 
 function addVisionProvider() {
   const newId = 'vp_' + Date.now();
-  visionProviders.push({ id: newId, name: '新配置', type: 'openai', url: '', key: '', model: '' });
+  visionProviders.push({ id: newId, name: '新配置', type: 'openai', url: '', model: '', key_set: false });
   activeVisionProvider = newId;
   renderVisionProviders();
 }
@@ -1656,20 +1706,11 @@ function applyTheme(theme) {
 function saveSettings(s) {
   s = normalizeSettings(s);
   applyTheme(s.theme);
-  localStorage.setItem('kb-settings', JSON.stringify(s));
-  // Also persist to server config file
-  const req = fetch('/save', {
+  localStorage.setItem('kb-settings', JSON.stringify(publicSettingsForStorage(s)));
+  const req = fetch('/api/settings', {
     method:'PUT',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({path:'low_memory_config.json', content:JSON.stringify({
-      device: s.protect_pdf ? 'cpu' : s.device,
-      protect_pdf: s.protect_pdf,
-      auto_extract_info: !!s.auto_extract_info,
-      theme: s.theme,
-      vision_providers: s.vision_providers,
-      active_vision_provider: s.active_vision_provider,
-      settings_version: SETTINGS_VERSION
-    }, null, 2)})
+    body:JSON.stringify(settingsPayloadForServer(s))
   }).catch(()=>{});
   const saved = document.getElementById('settingsSaved');
   if (saved) {
@@ -3405,6 +3446,14 @@ async function saveChatHistory(articleId, messages) {
   }
 }
 
+function sanitizeRenderedHtml(html) {
+  if (typeof DOMPurify === 'undefined') return '';
+  return DOMPurify.sanitize(html || '', {
+    ADD_ATTR: ['target', 'rel', 'data-language'],
+    ALLOW_DATA_ATTR: false
+  });
+}
+
 function renderChatMarkdown(text) {
   const mathBlocks=[], mathInlines=[], codeBlocks=[];
   // Protect code blocks before math replacement
@@ -3417,13 +3466,13 @@ function renderChatMarkdown(text) {
   html = html.replace(/@@CB(\d+)@@/g,(m,i)=>codeBlocks[+i]);
   html = html.replace(/@@MB(\d+)@@/g,(m,i)=>`<div class="math-block">$$${mathBlocks[+i]}$$</div>`);
   html = html.replace(/@@MI(\d+)@@/g,(m,i)=>`<span class="math-inline">$${mathInlines[+i]}$</span>`);
-  return html;
+  return sanitizeRenderedHtml(html);
 }
 
 function renderAssistantMsg(el, text, streaming=false) {
   const suffix = streaming ? '<span class="stream-cursor">▌</span>' : '';
   el.innerHTML = `<div class="msg-label">AI 助手</div>${renderChatMarkdown(text || '')}${suffix}`;
-  renderMathInElement(el,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\[',right:'\\]',display:true},{left:'$',right:'$',display:false},{left:'\\(',right:'\\)',display:false}],throwOnError:false,trust:true});
+  renderMathInElement(el,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\[',right:'\\]',display:true},{left:'$',right:'$',display:false},{left:'\\(',right:'\\)',display:false}],throwOnError:false,trust:false});
 }
 
 function extractStreamDelta(data) {
@@ -3794,7 +3843,7 @@ function renderReaderMarkdown(md, article, rebuildTOC) {
     return `src="articles/${article.id}/${src}"`;
   });
 
-  mdContent.innerHTML = html;
+  mdContent.innerHTML = sanitizeRenderedHtml(html);
   bindMarkdownInternalLinks(mdContent);
 
   if (rebuildTOC) {
@@ -3812,7 +3861,7 @@ function renderReaderMarkdown(md, article, rebuildTOC) {
   renderNoteMermaid(mdContent);
   renderNoteCodeHighlight(mdContent);
   renderWikiLinks(mdContent);
-  renderMathInElement(mdContent,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\[',right:'\\]',display:true},{left:'$',right:'$',display:false},{left:'\\(',right:'\\)',display:false}],throwOnError:false,trust:true});
+  renderMathInElement(mdContent,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\[',right:'\\]',display:true},{left:'$',right:'$',display:false},{left:'\\(',right:'\\)',display:false}],throwOnError:false,trust:false});
 }
 
 // ===== TRANSLATION (ReAct: AI-controlled, section by section) =====
@@ -3991,7 +4040,7 @@ function showTranslation() {
 function setSummaryMarkdown(text) {
   const body = document.getElementById('summary-body');
   body.innerHTML = renderChatMarkdown(text || '');
-  renderMathInElement(body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\[',right:'\\]',display:true},{left:'$',right:'$',display:false},{left:'\\(',right:'\\)',display:false}],throwOnError:false,trust:true});
+  renderMathInElement(body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\[',right:'\\]',display:true},{left:'$',right:'$',display:false},{left:'\\(',right:'\\)',display:false}],throwOnError:false,trust:false});
 }
 
 async function loadSavedSummary(show=false) {
@@ -4383,7 +4432,7 @@ function renderNotePreviewMath(el) {
         {left: '\\(', right: '\\)', display: false}
       ],
       throwOnError: false,
-      trust: true
+      trust: false
     });
   }
 }

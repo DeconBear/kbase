@@ -1,6 +1,7 @@
 private.py
 .DS_Store
 local.env
+node_modules/
 experiments
 test_data
 training
@@ -49,6 +50,7 @@ MANIFEST
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
+!kbase.spec
 
 # Installer logs
 pip-log.txt
@@ -183,12 +185,20 @@ cython_debug/
 models/
 
 # KB temporary / generated
+debug_screenshot.png
+*_backup.zip
+kb/.kbase/
 kb/upload_queue/
 kb/conversion_temp/
 kb/articles/
+kb/app.log
 kb/kb-index.json
 kb/low_memory_config.json
 kb/llm_config.json
 kb/library_chat_sessions.json
 kb/notes/
 kb/notes_index.json
+kb/patch_*.py
+kb/fix_html.py
+kb/find_lines.py
+kb/rm_button.py

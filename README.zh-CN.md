@@ -80,7 +80,6 @@ kbase/
 │   └── .kbase/              # SQLite 数据库（运行时）
 ├── marker/                  # Marker PDF 解析引擎源码
 ├── kbase.spec               # PyInstaller 打包配置
-└── static/fonts/            # 渲染字体
 ```
 
 ## API 端点
@@ -136,6 +135,7 @@ kbase/
 - **[marked](https://marked.js.org/)** — Markdown 解析
 - **[highlight.js](https://highlightjs.org/)** — 代码语法高亮
 - **[Mermaid](https://mermaid.js.org/)** — 图表渲染
+- **[DOMPurify](https://github.com/cure53/DOMPurify)** — Markdown 渲染后的 HTML 安全净化
 
 ## 许可
 
