@@ -5,6 +5,7 @@ ENGINES = {
     "marker": "engines.marker.MarkerEngine",
     "docmind": "engines.docmind.DocMindEngine",
     "docparser": "engines.docparser.DocParserEngine",
+    "vision": "engines.vision_ocr.VisionOcrEngine",
 }
 
 

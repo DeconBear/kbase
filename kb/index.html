@@ -1131,6 +1131,50 @@ body { display: flex !important; flex-direction: column !important; height: 100v
       </div>
     </div>
 
+    <div class="settings-section" id="visionOcrSettingsSection">
+      <div class="settings-section-head">
+        <h4>视觉大模型 OCR 配置</h4>
+      </div>
+      <div class="settings-grid">
+        <div class="settings-field">
+          <label for="visionProviderSelect">配置列表</label>
+          <select id="visionProviderSelect" onchange="onVisionProviderChange()"></select>
+        </div>
+        <div class="settings-field">
+          <label for="visionProviderName">配置名称</label>
+          <input type="text" id="visionProviderName" placeholder="例如：我的 DeepSeek" onchange="saveVisionProviderToMemory()">
+        </div>
+      </div>
+      <div class="settings-grid">
+        <div class="settings-field">
+          <label for="ocrApiType">API 类型</label>
+          <select id="ocrApiType" onchange="saveVisionProviderToMemory()">
+            <option value="openai">OpenAI 兼容 (DeepSeek/GPT-4o/Qwen 等)</option>
+            <option value="anthropic">Anthropic (Claude 3.5)</option>
+            <option value="minimax">Minimax</option>
+          </select>
+        </div>
+        <div class="settings-field">
+          <label for="ocrModelName">模型名称</label>
+          <input type="text" id="ocrModelName" placeholder="例如 deepseek-vl, gpt-4o" onchange="saveVisionProviderToMemory()">
+        </div>
+      </div>
+      <div class="settings-field">
+        <label for="ocrApiUrl">API Base URL</label>
+        <input type="url" id="ocrApiUrl" placeholder="例如 https://api.openai.com/v1" onchange="saveVisionProviderToMemory()">
+      </div>
+      <div class="settings-field">
+        <label for="ocrApiKey">API Key</label>
+        <input type="password" id="ocrApiKey" autocomplete="off" placeholder="输入 API Key" onchange="saveVisionProviderToMemory()">
+      </div>
+      <div class="llm-actions">
+        <button class="btn-outline" onclick="addVisionProvider()">新增配置</button>
+        <div class="llm-actions-right">
+          <button class="btn-outline" onclick="deleteVisionProvider()">删除配置</button>
+        </div>
+      </div>
+    </div>
+
     <div style="display:flex;gap:10px;justify-content:space-between;align-items:center;margin-top:20px">
       <span id="settingsSaved" style="font-size:11px;color:var(--emerald);display:none">✅ 已保存</span>
       <div style="display:flex;gap:10px;margin-left:auto">
@@ -1486,7 +1530,9 @@ const DEFAULT_SETTINGS = {
   protect_pdf: true,
   auto_extract_info: true,
   theme: 'light',
-  settings_version: SETTINGS_VERSION
+  settings_version: SETTINGS_VERSION,
+  vision_providers: [{ id: 'default', name: '默认配置', type: 'openai', url: '', key: '', model: '' }],
+  active_vision_provider: 'default'
 };
 let serverSettings = {};
 
@@ -1497,6 +1543,8 @@ function normalizeSettings(raw={}) {
   settings.device = settings.device === 'cpu' ? 'cpu' : 'cuda';
   settings.protect_pdf = settings.protect_pdf !== false;
   settings.auto_extract_info = settings.auto_extract_info !== false;
+  settings.vision_providers = settings.vision_providers || [{ id: 'default', name: '默认配置', type: 'openai', url: '', key: '', model: '' }];
+  settings.active_vision_provider = settings.active_vision_provider || 'default';
   settings.settings_version = SETTINGS_VERSION;
   return settings;
 }
@@ -1505,6 +1553,78 @@ function readLocalSettings() {
   try {
     return JSON.parse(localStorage.getItem('kb-settings')) || null;
   } catch(e) { return null; }
+}
+
+
+let visionProviders = [];
+let activeVisionProvider = '';
+
+function renderVisionProviders() {
+  const sel = document.getElementById('visionProviderSelect');
+  if (!sel) return;
+  sel.innerHTML = '';
+  if (!visionProviders || visionProviders.length === 0) {
+    visionProviders = [{ id: 'default', name: '默认配置', type: 'openai', url: '', key: '', model: '' }];
+    activeVisionProvider = 'default';
+  }
+  visionProviders.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = p.name || '未命名配置';
+    if (p.id === activeVisionProvider) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  
+  const active = visionProviders.find(p => p.id === activeVisionProvider) || visionProviders[0];
+  if (active) {
+    document.getElementById('visionProviderName').value = active.name || '';
+    document.getElementById('ocrApiType').value = active.type || 'openai';
+    document.getElementById('ocrModelName').value = active.model || '';
+    document.getElementById('ocrApiUrl').value = active.url || '';
+    document.getElementById('ocrApiKey').value = active.key || '';
+  }
+}
+
+function onVisionProviderChange() {
+  const sel = document.getElementById('visionProviderSelect');
+  if (!sel) return;
+  activeVisionProvider = sel.value;
+  renderVisionProviders();
+}
+
+function saveVisionProviderToMemory() {
+  const active = visionProviders.find(p => p.id === activeVisionProvider);
+  if (active) {
+    active.name = document.getElementById('visionProviderName').value.trim();
+    active.type = document.getElementById('ocrApiType').value;
+    active.model = document.getElementById('ocrModelName').value.trim();
+    active.url = document.getElementById('ocrApiUrl').value.trim();
+    active.key = document.getElementById('ocrApiKey').value.trim();
+    
+    // Update select option text
+    const sel = document.getElementById('visionProviderSelect');
+    if (sel && sel.options[sel.selectedIndex]) {
+        sel.options[sel.selectedIndex].textContent = active.name || '未命名配置';
+    }
+  }
+}
+
+function addVisionProvider() {
+  const newId = 'vp_' + Date.now();
+  visionProviders.push({ id: newId, name: '新配置', type: 'openai', url: '', key: '', model: '' });
+  activeVisionProvider = newId;
+  renderVisionProviders();
+}
+
+function deleteVisionProvider() {
+  if (visionProviders.length <= 1) {
+    alert("至少需要保留一个配置");
+    return;
+  }
+  if (!confirm("确定删除当前配置吗？")) return;
+  visionProviders = visionProviders.filter(p => p.id !== activeVisionProvider);
+  activeVisionProvider = visionProviders[0].id;
+  renderVisionProviders();
 }
 
 function loadSettings() {
@@ -1546,6 +1666,8 @@ function saveSettings(s) {
       protect_pdf: s.protect_pdf,
       auto_extract_info: !!s.auto_extract_info,
       theme: s.theme,
+      vision_providers: s.vision_providers,
+      active_vision_provider: s.active_vision_provider,
       settings_version: SETTINGS_VERSION
     }, null, 2)})
   }).catch(()=>{});
@@ -1734,6 +1856,9 @@ async function showSettings() {
   document.getElementById('setAutoExtractInfo').checked = s.auto_extract_info !== false;
   updateRadioCards();
   updateThemeCards();
+  visionProviders = s.vision_providers || [{ id: 'default', name: '默认配置', type: 'openai', url: '', key: '', model: '' }];
+  activeVisionProvider = s.active_vision_provider || visionProviders[0]?.id || 'default';
+  renderVisionProviders();
   await ensureLLMConfigLoaded();
   renderLLMSettings();
   document.getElementById('settingsModal').classList.add('active');
@@ -1770,7 +1895,9 @@ function readSettingsFromForm() {
     device: document.querySelector('input[name="device"]:checked')?.value || 'cuda',
     protect_pdf: document.getElementById('setProtectPdf').checked,
     auto_extract_info: document.getElementById('setAutoExtractInfo')?.checked || false,
-    theme: document.querySelector('input[name="theme"]:checked')?.value || 'light'
+    theme: document.querySelector('input[name="theme"]:checked')?.value || 'light',
+    vision_providers: visionProviders,
+    active_vision_provider: activeVisionProvider
   };
 }
 
@@ -2792,6 +2919,7 @@ async function initArticleTab(tabId, tabData) {
           <select id="engine-select">
             <option value="marker">Marker（本地）</option>
             <option value="docmind">DocMind（云端 API）</option>
+            <option value="vision">Vision OCR (大视觉模型)</option>
             <option value="docparser">DocParser（云端 GPU）</option>
           </select>
           <button class="btn-emerald btn-convert" onclick="startConvert()">开始解析</button>
@@ -2804,6 +2932,7 @@ async function initArticleTab(tabId, tabData) {
     const descs = {
       marker: 'Marker：本地 Surya 模型，~6GB 显存，离线可用',
       docmind: 'DocMind：阿里云文档解析 API，无需 GPU，需配置 RAM AccessKey',
+      vision: 'Vision OCR：使用兼容 OpenAI/Anthropic/Minimax 格式的多模态大模型进行高精度图文解析',
       docparser: 'DocParser：DeconBear 云端 GPU 加速解析，支持 struct/polyglot 引擎'
     };
     const sel = document.getElementById('engine-select');
@@ -5878,6 +6007,7 @@ async function showReconvert() {
   const descs = {
     marker: 'Marker：本地 Surya 模型，~6GB 显存，离线可用',
     docmind: 'DocMind：阿里云文档解析 API，无需 GPU，需配置 RAM AccessKey',
+    vision: 'Vision OCR：使用兼容 OpenAI/Anthropic/Minimax 格式的多模态大模型进行高精度图文解析',
     docparser: 'DocParser：DeconBear 云端 GPU 加速解析，支持 struct/polyglot 引擎'
   };
 
@@ -5913,6 +6043,7 @@ async function showReconvert() {
         <select id="engine-select">
           <option value="marker">Marker（本地）</option>
           <option value="docmind">DocMind（云端 API）</option>
+          <option value="vision">Vision OCR (大视觉模型)</option>
           <option value="docparser">DocParser（云端 GPU）</option>
         </select>
         <button class="btn-emerald btn-convert" onclick="startConvert()">开始解析</button>
