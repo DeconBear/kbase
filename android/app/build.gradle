@@ -1,0 +1,16 @@
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace "dev.klynx.kbase"
+    compileSdk 33
+
+    defaultConfig {
+        applicationId "dev.klynx.kbase"
+        minSdk 23
+        targetSdk 33
+        versionCode 2
+        versionName "0.2.0"
+    }
+}
