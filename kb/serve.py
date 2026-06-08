@@ -24,7 +24,10 @@ from llm_config import (
 
 PORT = 8765
 HOST = "127.0.0.1"
-DIR = Path(__file__).parent.absolute()
+if getattr(sys, 'frozen', False):
+    DIR = Path(sys._MEIPASS) / "kb"
+else:
+    DIR = Path(__file__).parent.absolute()
 ARTICLES_DIR = DIR / "articles"
 NOTES_DIR = DIR / "notes"
 INDEX_FILE = DIR / "kb-index.json"
