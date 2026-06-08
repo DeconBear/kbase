@@ -9,14 +9,14 @@ _SELF_DIR = os.path.dirname(os.path.abspath(__file__))
 if getattr(sys, 'frozen', False):
     _aliases = [
         ('kb.utils_yaml',     'utils_yaml'),
-        ('kb.llm_config',     'llm_config'),
-        ('kb.db_api',         'db_api'),
         ('kb.db_index',       'db_index'),
-        ('kb.document_info',  'document_info'),
-        ('kb.translate',      'translate'),
+        ('kb.db_api',         'db_api'),
+        ('kb.llm_config',     'llm_config'),
         ('kb.calibrate',      'calibrate'),
-        ('kb.library_chat',   'library_chat'),
+        ('kb.translate',      'translate'),
+        ('kb.document_info',  'document_info'),
         ('kb.engines',        'engines'),
+        ('kb.library_chat',   'library_chat'),
         ('kb.serve',          'serve'),
     ]
     for _fq_name, _alias in _aliases:
@@ -105,5 +105,11 @@ def main():
         httpd.shutdown()
         print("Server stopped.")
 
-if __name__ == "__main__":
-    main()
+try:
+    if __name__ == "__main__":
+        main()
+except Exception as e:
+    import traceback
+    with open('kbase-fatal.log', 'w') as f:
+        f.write(traceback.format_exc())
+    print('FATAL ERROR WRITTEN TO kbase-fatal.log')
