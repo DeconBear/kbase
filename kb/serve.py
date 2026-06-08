@@ -807,6 +807,10 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
         if any(part in {".", ".."} for part in parts):
             return None
 
+        if decoded in {"", "/"}:
+            decoded = "/index.html"
+            request_path = "/index.html"
+
         target = Path(self.translate_path(request_path)).resolve()
         if target.is_dir():
             return None
