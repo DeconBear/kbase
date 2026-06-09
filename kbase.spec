@@ -3,7 +3,7 @@ from PyInstaller.utils.hooks import collect_all
 
 datas = [('kb/index.html', 'kb'), ('kb/assets', 'kb/assets')]
 binaries = []
-hiddenimports = ['kb.utils_yaml', 'kb.llm_config', 'kb.db_api', 'kb.db_index', 'kb.document_info', 'kb.translate', 'kb.calibrate', 'kb.library_chat', 'kb.engines', 'kb.engines.marker', 'kb.engines.docmind', 'kb.engines.docparser', 'kb.engines.vision_ocr', 'kb.serve', 'webview', 'fitz', 'clr']
+hiddenimports = ['kb.utils_yaml', 'kb.storage', 'kb.engines._paths', 'kb.llm_config', 'kb.document_info', 'kb.translate', 'kb.calibrate', 'kb.library_chat', 'kb.engines', 'kb.engines.marker', 'kb.engines.docmind', 'kb.engines.docparser', 'kb.engines.vision_ocr', 'kb.serve', 'webview', 'fitz', 'clr']
 tmp_ret = collect_all('pythonnet')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('clr_loader')

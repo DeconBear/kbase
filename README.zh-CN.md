@@ -26,7 +26,7 @@
 pip install pymupdf pywebview
 
 # 2. 配置 LLM API（OpenAI 兼容格式）
-cp local.env.example local.env
+cp local.env.example local.env  # 仅旧版 v0.x 需要；当前版本会自动在 data/ 下生成
 # 编辑 local.env，填入 API key、URL、model
 
 # 3. 启动
@@ -44,12 +44,32 @@ python -m PyInstaller --noconfirm KBase.spec
 ```
 
 **数据存储机制：**
-- **源码运行**（`python serve.py`）：所有的论文资料、笔记和数据库文件都会自动保存在项目的 `kb/` 目录下（`kb/articles`, `kb/notes`, `kb/.kbase`）。
-- **打包运行**（`KBase.exe`）：KBase 会在其自身所在的同级目录下，寻找或自动创建一个 `data` 文件夹来存储所有的运行时资料。
+所有用户数据都集中存放在一个 `data/` 根目录下，首次启动时自动创建：
+- **源码运行**（`python serve.py`）：`data/` 创建在仓库根目录（即 `kb/` 的父目录），源码目录本身保持干净。
+- **打包运行**（`KBase.exe`）：`data/` 创建在可执行文件同级目录。
+
+```
+data/
+├── articles/                     # 每个上传文件一个文件夹
+├── notes/                        # note_*.md 笔记
+├── .kbase/
+│   ├── index.db                  # SQLite: articles, notes, tags, workspaces, translations
+│   ├── chat_sessions/            # 每个 library-chat 会话一个 JSON
+│   ├── chat_sessions_index.json
+│   └── logs/                     # 每个任务一个 *.log
+├── local.env                     # 首次启动自动生成，所有 key 为空
+└── llm_config.json               # UI 管理的 LLM provider 列表
+```
+
+**`local.env`：** 首次启动 KBase 时自动生成，包含八项已知 key（LLM、DocMind、DocParser）的空值。可直接编辑文件，也可在应用内"设置"页面填写——所有密钥在 UI 中以掩码显示，**绝不以明文展示**。
 
 **便携移动与数据迁移：**
-1. **多设备漫游**：由于所有数据集中存放在可执行文件旁边的 `data` 文件夹内，你可以将 `KBase.exe` 与 `data` 文件夹同时复制到 U盘、任意磁盘或其他 Windows 电脑上，直接双击运行，实现真正的“绿色便携式”个人知识库。
-2. **源码端向打包端迁移数据**：如果你最开始是在源码环境下使用，打包后请注意将原 `kb/` 目录下的 `articles/`、`notes/` 以及 `.kbase/` 三个文件夹完整复制到打包后生成的 `data/` 目录中，否则 `KBase.exe` 将会读取到一个新的空白文库。
+1. **多设备漫游**：将 `KBase.exe` 与 `data/` 文件夹同时复制到 U 盘、任意磁盘或其他 Windows 电脑，直接双击运行。
+2. **从旧版源码环境迁移（pre-SQLite 时代）**：若你曾使用旧版的 `kb/kb-index.json`、`kb/notes_index.json`、`kb/library_chat_sessions.json`，运行一次迁移脚本：
+   ```bash
+   python kb/migrate.py
+   ```
+   脚本会把 `kb/articles/`、`kb/notes/` 及 JSON 索引全部迁入 `data/`，导入 SQLite 数据库，然后把旧文件重命名为 `*.legacy.json` 保留备份。
 
 ## 解析引擎
 

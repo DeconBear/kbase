@@ -1,27 +1,26 @@
 """Background markdown translation for articles."""
-import json
+from __future__ import annotations
+
 import re
 import shutil
 import time
 from pathlib import Path
 
 from llm_config import call_chat_completion
-
-DIR = Path(__file__).parent.absolute()
-ARTICLES_DIR = DIR / "articles"
+import storage
 
 
-def _clean_llm_markdown(text):
+def _clean_llm_markdown(text: str) -> str:
     text = (text or "").strip()
-    fence = re.search(r"```(?:markdown|md)?\s*\n([\s\S]*?)\n?```", text, flags=re.I)
+    fence = re.fullmatch(r"```(?:markdown|md)?\s*\n([\s\S]*?)\n?```", text, flags=re.I)
     if fence:
         text = fence.group(1).strip()
     text = re.sub(r"^\s*(?:译文|翻译|Translation)\s*[:：]\s*", "", text, flags=re.I)
     return text.strip()
 
 
-def _split_large_text(text, max_chars):
-    parts = []
+def _split_large_text(text: str, max_chars: int) -> list[str]:
+    parts: list[str] = []
     cur = ""
     for piece in re.split(r"(\n{2,})", text):
         if len(cur) + len(piece) > max_chars and cur:
@@ -32,7 +31,7 @@ def _split_large_text(text, max_chars):
     if cur:
         parts.append(cur)
 
-    result = []
+    result: list[str] = []
     for part in parts:
         if len(part) <= max_chars:
             result.append(part)
@@ -42,10 +41,10 @@ def _split_large_text(text, max_chars):
     return [p for p in result if p]
 
 
-def chunk_markdown(md_text, max_chars=4500):
+def chunk_markdown(md_text: str, max_chars: int = 4500) -> list[str]:
     """Split markdown conservatively while preserving every source character."""
     sections = re.split(r"(?=^#{1,3}\s)", md_text, flags=re.M)
-    chunks = []
+    chunks: list[str] = []
     cur = ""
     for section in sections:
         if not section:
@@ -66,34 +65,21 @@ def chunk_markdown(md_text, max_chars=4500):
     return chunks or [md_text]
 
 
-def _state_path(article_id):
-    return ARTICLES_DIR / article_id / f"{article_id}_translation_state.json"
+def write_state(article_id: str, **updates) -> dict:
+    storage.save_translation_state(article_id, **updates)
+    return storage.load_translation_state(article_id) or {}
 
 
-def write_state(article_id, **updates):
-    path = _state_path(article_id)
-    state = {}
-    if path.exists():
-        try:
-            state = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            state = {}
-    state.update(updates)
-    state["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-    path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
-    return state
-
-
-def _translate_chunk(chunk, index, total, title_hint="", retries=2, old_md_text="", target_language="Simplified Chinese", extra_prompt=""):
-    # Dynamically adjust completeness thresholds based on target language.
-    # Chinese and similar languages are inherently more compact than English,
-    # so legitimate translations can be 30-40% the character count of the source.
-    _is_cjk = any(tag in target_language.lower() for tag in (
-        "chinese", "中文", "japanese", "日本語", "korean", "한국어",
-    ))
-    _min_ratio = 0.18 if _is_cjk else 0.35   # first pass: suspicious-too-short
-    _hard_ratio = 0.10 if _is_cjk else 0.18  # second pass: definitely truncated
-
+def _translate_chunk(
+    chunk: str,
+    index: int,
+    total: int,
+    title_hint: str = "",
+    retries: int = 2,
+    old_md_text: str = "",
+    target_language: str = "Simplified Chinese",
+    extra_prompt: str = "",
+) -> str:
     if old_md_text:
         prompt = f"""This document was previously translated, but the original text has been slightly modified or re-parsed by a different OCR engine.
 Please translate the following new Markdown chunk into {target_language}.
@@ -132,16 +118,14 @@ Chunk {index + 1}/{total}
 Markdown:
 {chunk}"""
 
-    def _is_truncated(source, output, min_ratio):
-        """Check if output appears truncated relative to source."""
+    def looks_incomplete(source: str, output: str) -> bool:
         if not output.strip():
             return True
         if re.search(r"\[(?:NEXT|DONE|FIX)\b", output, flags=re.I):
             return True
-        # Compare non-whitespace character counts
         compact_source = re.sub(r"\s+", "", source)
         compact_output = re.sub(r"\s+", "", output)
-        if len(compact_source) > 900 and len(compact_output) < len(compact_source) * min_ratio:
+        if len(compact_source) > 900 and len(compact_output) < len(compact_source) * 0.35:
             return True
         return False
 
@@ -155,21 +139,19 @@ Markdown:
                 max_tokens=8192,
                 timeout=300,
             )
-            translated = _clean_llm_markdown(data["choices"][0]["message"]["content"])
+            choices = data.get("choices") or []
+            translated = ""
+            if choices:
+                translated = _clean_llm_markdown(choices[0].get("message", {}).get("content") or "")
             last_translation = translated
-
-            # First pass: check with generous threshold
-            if _is_truncated(chunk, translated, _min_ratio):
+            if looks_incomplete(chunk, translated):
                 if attempt < retries:
                     prompt += "\n\nYour previous output looked incomplete. Translate every paragraph and do not emit control tags."
                     continue
                 return f"{translated}\n\n> [翻译可能不完整，以下保留原文]\n\n{chunk}".strip()
-
-            # Second pass: hard check for severely truncated output
-            if len(chunk) > 800 and len(translated) < len(chunk) * _hard_ratio and attempt < retries:
+            if len(chunk) > 800 and len(translated) < len(chunk) * 0.18 and attempt < retries:
                 prompt += "\n\nYour previous output was too short. Translate every line and preserve all content."
                 continue
-
             return translated or chunk
         except Exception as exc:
             last_error = exc
@@ -179,12 +161,18 @@ Markdown:
     return f"> [翻译失败，保留原文: {last_error}]\n\n{chunk}"
 
 
-def translate_article(article_id, mode="update", target_language="Simplified Chinese", extra_prompt="", log_callback=None):
-    def log(message):
+def translate_article(
+    article_id: str,
+    mode: str = "update",
+    target_language: str = "Simplified Chinese",
+    extra_prompt: str = "",
+    log_callback=None,
+) -> bool:
+    def log(message: str) -> None:
         if log_callback:
             log_callback(message)
 
-    art_dir = ARTICLES_DIR / article_id
+    art_dir = storage.ARTICLES_DIR / article_id
     md_path = art_dir / f"{article_id}_calibrated.md"
     if not md_path.exists():
         md_path = art_dir / f"{article_id}.md"
@@ -193,29 +181,29 @@ def translate_article(article_id, mode="update", target_language="Simplified Chi
         return False
 
     md_text = md_path.read_text(encoding="utf-8")
-    
+
     old_md_text = ""
     if mode == "update":
-        # 优先使用当前的译文作为修复上下文
         current_trans_path = art_dir / f"{article_id}_translated.md"
         old_trans_path = art_dir / f"{article_id}_translated_old.md"
         if current_trans_path.exists():
             old_md_text = current_trans_path.read_text(encoding="utf-8")
         elif old_trans_path.exists():
             old_md_text = old_trans_path.read_text(encoding="utf-8")
-        
+
     chunks = chunk_markdown(md_text)
     total = len(chunks)
-    translated_chunks = []
+    translated_chunks: list[str] = []
 
     write_state(
         article_id,
         status="running",
         message="翻译已开始",
         total=total,
-        done=0,
+        current=0,
         percent=0,
         started_at=time.strftime("%Y-%m-%d %H:%M:%S"),
+        target_language=target_language,
     )
     log(f"Translation started: {article_id}, {total} chunks")
 
@@ -229,36 +217,29 @@ def translate_article(article_id, mode="update", target_language="Simplified Chi
             status="running",
             message=f"正在翻译 {idx + 1}/{total}",
             total=total,
-            done=idx,
+            current=idx,
             percent=round(idx / max(total, 1) * 100, 1),
-            current=idx + 1,
         )
         log(f"Chunk {idx + 1}/{total}")
         translated_chunks.append(_translate_chunk(
-            chunk, idx, total, heading, 
-            old_md_text=old_md_text, 
-            target_language=target_language, 
-            extra_prompt=extra_prompt
+            chunk, idx, total, heading,
+            old_md_text=old_md_text,
+            target_language=target_language,
+            extra_prompt=extra_prompt,
         ))
 
     translated_md = "\n\n".join(translated_chunks).strip() + "\n"
     out_path = art_dir / f"{article_id}_translated.md"
-    if out_path.exists():
-        backup_path = art_dir / f"{article_id}_translated_old.md"
-        try:
-            shutil.copy2(str(out_path), str(backup_path))
-        except Exception:
-            pass
     out_path.write_text(translated_md, encoding="utf-8")
     write_state(
         article_id,
         status="done",
         message="翻译完成",
         total=total,
-        done=total,
+        current=total,
         percent=100,
-        output=out_path.name,
         completed_at=time.strftime("%Y-%m-%d %H:%M:%S"),
+        output_file=out_path.name,
     )
     log(f"Translation done: {out_path.name}, {len(translated_md)} chars")
     return True

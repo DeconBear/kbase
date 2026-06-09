@@ -6,10 +6,9 @@ import shutil
 import sys
 from pathlib import Path
 
-ARTICLES_DIR = Path(__file__).parent.parent / "articles"
-REPO_ROOT = Path(__file__).parent.parent.parent
-RUNTIME_CONFIG = ARTICLES_DIR.parent / "low_memory_config.json"
-MARKER_DEPS_INSTALLING = Path(__file__).parent.parent / ".marker_deps_installing"
+from engines._paths import ARTICLES_DIR, LOW_MEMORY_CONFIG as RUNTIME_CONFIG, REPO_ROOT
+from storage import DATA_ROOT as _DATA_ROOT
+MARKER_DEPS_INSTALLING = _DATA_ROOT / ".marker_deps_installing"
 
 
 def _load_runtime_config():

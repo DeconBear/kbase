@@ -9,7 +9,10 @@ from alibabacloud_docmind_api20220711 import models
 from alibabacloud_tea_openapi import models as open_api_models
 from alibabacloud_tea_util import models as util_models
 
-ARTICLES_DIR = Path(__file__).parent.parent / "articles"
+from engines._paths import ARTICLES_DIR
+from storage import load_local_env
+
+load_local_env()
 
 
 class DocMindEngine:

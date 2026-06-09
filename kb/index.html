@@ -884,6 +884,77 @@ body { display: flex !important; flex-direction: column !important; height: 100v
       </div>
     </div>
 
+    <div class="settings-section" id="apiKeysSection">
+      <div class="settings-section-head">
+        <h4>API 凭证 & 服务端点</h4>
+        <span id="apiKeysStatus" style="font-size:11px;color:var(--text-3)"></span>
+      </div>
+      <p style="font-size:11px;color:var(--text-3);margin:0 0 12px">所有密钥均以占位符形式展示，原始值仅写入 <code>data/local.env</code>。</p>
+      <div class="settings-field">
+        <label for="envLLMApiKey">LLM API Key</label>
+        <div style="display:flex;gap:6px">
+          <input type="password" id="envLLMApiKey" autocomplete="off" placeholder="留空保留原值">
+          <button class="btn-outline" type="button" onclick="toggleEnvReveal('envLLMApiKey', this)">显示</button>
+        </div>
+      </div>
+      <div class="settings-grid">
+        <div class="settings-field">
+          <label for="envLLMApiUrl">LLM API URL</label>
+          <input type="url" id="envLLMApiUrl" placeholder="https://api.deepseek.com/v1/chat/completions">
+        </div>
+        <div class="settings-field">
+          <label for="envLLMModel">LLM 模型</label>
+          <input type="text" id="envLLMModel" placeholder="deepseek-chat">
+        </div>
+      </div>
+      <div class="settings-grid">
+        <div class="settings-field">
+          <label for="envDocparserApiUrl">DocParser API URL</label>
+          <input type="url" id="envDocparserApiUrl" placeholder="https://your-cloud-parser.com">
+        </div>
+        <div class="settings-field">
+          <label for="envDocparserEngine">DocParser 引擎</label>
+          <select id="envDocparserEngine">
+            <option value="struct">struct (学术论文)</option>
+            <option value="polyglot">polyglot (中文/多语)</option>
+          </select>
+        </div>
+      </div>
+      <div class="settings-field">
+        <label for="envDocparserApiKey">DocParser API Key</label>
+        <div style="display:flex;gap:6px">
+          <input type="password" id="envDocparserApiKey" autocomplete="off" placeholder="留空保留原值">
+          <button class="btn-outline" type="button" onclick="toggleEnvReveal('envDocparserApiKey', this)">显示</button>
+        </div>
+      </div>
+      <div class="settings-grid">
+        <div class="settings-field">
+          <label for="envDocmindAkId">DocMind Access Key ID</label>
+          <div style="display:flex;gap:6px">
+            <input type="password" id="envDocmindAkId" autocomplete="off" placeholder="留空保留原值">
+            <button class="btn-outline" type="button" onclick="toggleEnvReveal('envDocmindAkId', this)">显示</button>
+          </div>
+        </div>
+        <div class="settings-field">
+          <label for="envDocmindAkSecret">DocMind Access Key Secret</label>
+          <div style="display:flex;gap:6px">
+            <input type="password" id="envDocmindAkSecret" autocomplete="off" placeholder="留空保留原值">
+            <button class="btn-outline" type="button" onclick="toggleEnvReveal('envDocmindAkSecret', this)">显示</button>
+          </div>
+        </div>
+      </div>
+      <div class="settings-field">
+        <label for="envDocmindRegion">DocMind Region</label>
+        <input type="text" id="envDocmindRegion" placeholder="cn-hangzhou">
+      </div>
+      <div class="llm-actions">
+        <div class="llm-actions-right">
+          <button class="btn-outline" onclick="loadApiKeys()">刷新</button>
+          <button class="btn-emerald" onclick="saveApiKeys()">保存凭证</button>
+        </div>
+      </div>
+    </div>
+
     <div style="display:flex;gap:10px;justify-content:space-between;align-items:center;margin-top:20px">
       <span id="settingsSaved" style="font-size:11px;color:var(--emerald);display:none">✅ 已保存</span>
       <div style="display:flex;gap:10px;margin-left:auto">
@@ -1625,6 +1696,7 @@ async function showSettings() {
   updateThemeCards();
   await ensureLLMConfigLoaded();
   renderLLMSettings();
+  await loadApiKeys();
   document.getElementById('settingsModal').classList.add('active');
 }
 
@@ -1637,10 +1709,84 @@ async function saveAndCloseSettings() {
   try {
     await saveSettings(s);
     await saveLLMConfigFromForm();
+    await saveApiKeys();
     hideSettings();
   } catch(e) {
     setLLMStatus('保存失败：' + e.message, 'error');
     document.getElementById('settingsSaved').style.display = 'none';
+  }
+}
+
+const ENV_KEY_TO_INPUT = {
+  LLM_API_KEY: 'envLLMApiKey',
+  LLM_API_URL: 'envLLMApiUrl',
+  LLM_MODEL: 'envLLMModel',
+  DOCPARSER_API_URL: 'envDocparserApiUrl',
+  DOCPARSER_API_KEY: 'envDocparserApiKey',
+  DOCPARSER_ENGINE: 'envDocparserEngine',
+  DOCMIND_ACCESS_KEY_ID: 'envDocmindAkId',
+  DOCMIND_ACCESS_KEY_SECRET: 'envDocmindAkSecret',
+  DOCMIND_REGION: 'envDocmindRegion',
+};
+
+function toggleEnvReveal(inputId, btn) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  if (input.type === 'password') {
+    input.type = 'text';
+    btn.textContent = '隐藏';
+  } else {
+    input.type = 'password';
+    btn.textContent = '显示';
+  }
+}
+
+async function loadApiKeys() {
+  const status = document.getElementById('apiKeysStatus');
+  status.textContent = '加载中…';
+  try {
+    const resp = await fetch('/api/local-env?ts=' + Date.now());
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    for (const [key, inputId] of Object.entries(ENV_KEY_TO_INPUT)) {
+      const el = document.getElementById(inputId);
+      if (!el) continue;
+      const entry = data[key];
+      el.value = entry && entry.set ? entry.value : '';
+      el.dataset.savedValue = el.value;
+    }
+    status.textContent = '已加载';
+  } catch (e) {
+    status.textContent = '加载失败：' + e.message;
+  }
+}
+
+async function saveApiKeys() {
+  const status = document.getElementById('apiKeysStatus');
+  status.textContent = '保存中…';
+  const payload = {};
+  for (const [key, inputId] of Object.entries(ENV_KEY_TO_INPUT)) {
+    const el = document.getElementById(inputId);
+    if (!el) continue;
+    if (el.value === '' && (el.dataset.savedValue || '') !== '') {
+      // User cleared a previously-set secret: send empty to wipe.
+      payload[key] = '';
+    } else if (el.value !== '') {
+      payload[key] = el.value;
+    }
+    // else: input empty and was empty before — don't include, server keeps existing.
+  }
+  try {
+    const resp = await fetch('/api/local-env', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    await loadApiKeys();
+    status.textContent = '已保存';
+  } catch (e) {
+    status.textContent = '保存失败：' + e.message;
   }
 }
 

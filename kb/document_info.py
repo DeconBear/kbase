@@ -1,4 +1,6 @@
 """Fast document ingestion and LLM metadata extraction."""
+from __future__ import annotations
+
 import json
 import mimetypes
 import re
@@ -6,10 +8,7 @@ import time
 from pathlib import Path
 
 from llm_config import call_chat_completion
-
-DIR = Path(__file__).parent.absolute()
-ARTICLES_DIR = DIR / "articles"
-INDEX_FILE = DIR / "kb-index.json"
+import storage
 
 TEXT_EXTS = {
     ".bib", ".c", ".cc", ".cfg", ".cpp", ".csv", ".h", ".hpp", ".ipynb",
@@ -18,24 +17,11 @@ TEXT_EXTS = {
 }
 
 
-def _load_index():
-    if INDEX_FILE.exists():
-        try:
-            return json.loads(INDEX_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    return {"articles": []}
+def _article_dir(article_id: str) -> Path:
+    return storage.ARTICLES_DIR / article_id
 
 
-def _save_index(idx):
-    INDEX_FILE.write_text(json.dumps(idx, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def _article_dir(article_id):
-    return ARTICLES_DIR / article_id
-
-
-def _preferred_markdown(article_id):
+def _preferred_markdown(article_id: str) -> Path | None:
     art_dir = _article_dir(article_id)
     for suffix in ("_calibrated.md", ".md", "_translated.md"):
         path = art_dir / f"{article_id}{suffix}"
@@ -44,25 +30,21 @@ def _preferred_markdown(article_id):
     return None
 
 
-def _clean_text(text):
+def _clean_text(text: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", (text or "").replace("\x00", "")).strip()
 
 
-def quick_parse_pdf(article_id, pdf_path, source_filename=""):
+def quick_parse_pdf(article_id: str, pdf_path: Path, source_filename: str = "") -> dict:
     """Create a first-pass Markdown file from PyMuPDF immediately after upload."""
     import fitz
 
     art_dir = _article_dir(article_id)
     doc = fitz.open(str(pdf_path))
     meta = doc.metadata or {}
-    pages = []
+    pages: list[dict] = []
     for i in range(doc.page_count):
         text = _clean_text(doc[i].get_text("text"))
-        pages.append({
-            "page": i + 1,
-            "chars": len(text),
-            "text": text,
-        })
+        pages.append({"page": i + 1, "chars": len(text), "text": text})
     doc.close()
 
     title = (meta.get("title") or "").strip()
@@ -72,7 +54,7 @@ def quick_parse_pdf(article_id, pdf_path, source_filename=""):
     markdown_parts = [
         f"# {title}",
         "",
-        f"> PyMuPDF 快速预解析结果。可点击“解析”选择 Marker 或 DocMind 进行精解析。",
+        "> PyMuPDF 快速预解析结果。可点击“解析”选择 Marker 或 DocMind 进行精解析。",
     ]
     for page in pages:
         markdown_parts.extend([
@@ -86,8 +68,8 @@ def quick_parse_pdf(article_id, pdf_path, source_filename=""):
     md_path.write_text("\n".join(markdown_parts).strip() + "\n", encoding="utf-8")
     versioned = art_dir / f"{article_id}_pymupdf.md"
     versioned.write_text(md_path.read_text(encoding="utf-8"), encoding="utf-8")
+    storage.record_article_history(article_id, "pymupdf", versioned)
 
-    meta_path = art_dir / f"{article_id}_meta.json"
     meta_payload = {
         "source": "pymupdf",
         "source_filename": source_filename,
@@ -96,6 +78,7 @@ def quick_parse_pdf(article_id, pdf_path, source_filename=""):
         "page_stats": [{"page": p["page"], "chars": p["chars"]} for p in pages],
         "table_of_contents": [{"title": title}],
     }
+    meta_path = art_dir / f"{article_id}_meta.json"
     meta_path.write_text(json.dumps(meta_payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return {
         "title": title,
@@ -105,7 +88,7 @@ def quick_parse_pdf(article_id, pdf_path, source_filename=""):
     }
 
 
-def material_kind_from_filename(filename):
+def material_kind_from_filename(filename: str) -> str:
     ext = Path(filename or "").suffix.lower()
     if ext == ".pdf":
         return "paper"
@@ -120,7 +103,7 @@ def material_kind_from_filename(filename):
     return "file"
 
 
-def ingest_non_pdf_file(article_id, file_path, source_filename=""):
+def ingest_non_pdf_file(article_id: str, file_path: Path, source_filename: str = "") -> dict:
     """Create a readable Markdown representation for supplementary/code uploads."""
     art_dir = _article_dir(article_id)
     ext = Path(source_filename or file_path).suffix.lower()
@@ -167,7 +150,7 @@ def ingest_non_pdf_file(article_id, file_path, source_filename=""):
     return {"title": title, "kind": kind, "meta": meta, "md_path": md_path}
 
 
-def _json_from_llm(text):
+def _json_from_llm(text: str) -> dict:
     text = (text or "").strip()
     fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", text, flags=re.I)
     if fence:
@@ -179,9 +162,15 @@ def _json_from_llm(text):
     return json.loads(text)
 
 
-def extract_document_info(article_id, log_callback=None, provider_id="", model="", reason="manual"):
-    """Extract bibliographic/material metadata with LLM and update kb-index.json."""
-    def log(msg):
+def extract_document_info(
+    article_id: str,
+    log_callback=None,
+    provider_id: str = "",
+    model: str = "",
+    reason: str = "manual",
+) -> dict:
+    """Extract bibliographic/material metadata with LLM and persist it."""
+    def log(msg: str) -> None:
         if log_callback:
             log_callback(msg)
 
@@ -198,8 +187,7 @@ def extract_document_info(article_id, log_callback=None, provider_id="", model="
         except Exception:
             meta = {}
 
-    idx = _load_index()
-    article = next((a for a in idx.get("articles", []) if a.get("id") == article_id), {})
+    existing = storage.get_article(article_id) or {"id": article_id}
     text = md_path.read_text(encoding="utf-8", errors="replace")
     text = re.sub(r"```[\s\S]*?```", "", text)
     text = text[:32000]
@@ -240,7 +228,7 @@ Rules:
 - Do not invent missing DOI or authors; leave unknown fields empty.
 
 Existing record:
-{json.dumps(article, ensure_ascii=False)}
+{json.dumps(existing, ensure_ascii=False)}
 
 Parser metadata:
 {json.dumps(meta, ensure_ascii=False)[:6000]}
@@ -259,7 +247,10 @@ Content:
         max_tokens=2048,
         timeout=240,
     )
-    raw = data["choices"][0]["message"]["content"]
+    choices = data.get("choices") or []
+    if not choices:
+        raise ValueError("LLM returned no choices")
+    raw = choices[0].get("message", {}).get("content") or ""
     info = _json_from_llm(raw)
     if not isinstance(info, dict):
         raise ValueError("LLM did not return a JSON object")
@@ -267,7 +258,7 @@ Content:
     if isinstance(info.get("authors"), str):
         info["authors"] = [a.strip() for a in re.split(r",|;| and ", info["authors"]) if a.strip()]
     elif isinstance(info.get("authors"), list):
-        authors = []
+        authors: list[str] = []
         for author in info["authors"]:
             if isinstance(author, dict):
                 name = author.get("name") or author.get("full_name") or author.get("author") or ""
@@ -308,21 +299,8 @@ Content:
     tags = info.get("tags") or info.get("keywords") or []
     if tags:
         update["tags"] = tags[:8]
-    update_index_article(article_id, update)
+    storage.update_article_fields(article_id, update)
+    if tags:
+        storage.replace_article_tags(article_id, tags[:8])
     log("Metadata extraction complete")
     return {"info": info, "updates": update}
-
-
-def update_index_article(article_id, updates):
-    idx = _load_index()
-    article = None
-    for item in idx.get("articles", []):
-        if item.get("id") == article_id:
-            article = item
-            break
-    if article is None:
-        article = {"id": article_id}
-        idx.setdefault("articles", []).append(article)
-    article.update(updates)
-    _save_index(idx)
-    return article

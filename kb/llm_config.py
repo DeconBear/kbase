@@ -9,12 +9,12 @@ import urllib.request
 from copy import deepcopy
 from pathlib import Path
 
-import sys
-if getattr(sys, 'frozen', False):
-    DIR = Path(sys.executable).parent / "data"
-else:
-    DIR = Path(__file__).parent.absolute()
-CONFIG_FILE = DIR / "llm_config.json"
+import storage
+
+storage.ensure_directories()
+storage.load_local_env()
+CONFIG_FILE = storage.LLM_CONFIG_FILE
+DIR = storage.DATA_ROOT
 
 DEFAULT_PROVIDERS = [
     {
@@ -62,15 +62,7 @@ DEFAULT_PROVIDERS = [
 
 def load_env_file() -> None:
     """Load local.env without overriding variables already set by the process."""
-    env_file = DIR.parent / "local.env"
-    if not env_file.exists():
-        return
-    for line in env_file.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, val = line.partition("=")
-        os.environ.setdefault(key.strip(), val.strip())
+    storage.load_local_env()
 
 
 def _safe_provider_id(value: str, fallback: str) -> str:

@@ -6,9 +6,7 @@ from pathlib import Path
 
 import fitz  # PyMuPDF
 
-KB_DIR = Path(__file__).resolve().parent.parent
-ARTICLES_DIR = KB_DIR / "articles"
-RUNTIME_CONFIG = KB_DIR / "low_memory_config.json"
+from engines._paths import ARTICLES_DIR, LOW_MEMORY_CONFIG as RUNTIME_CONFIG
 
 
 def image_to_base64(pix):

@@ -26,7 +26,7 @@ Or run from source:
 pip install pymupdf pywebview
 
 # 2. Configure LLM API (OpenAI-compatible)
-cp local.env.example local.env
+cp local.env.example local.env  # only required for the legacy v0.x release; current builds auto-generate data/local.env
 # Edit local.env with your API key, URL, and model
 
 # 3. Launch
@@ -44,12 +44,32 @@ python -m PyInstaller --noconfirm KBase.spec
 ```
 
 **Data Storage Mechanism:**
-- **Running from Source** (`python serve.py`): All papers, notes, and database files are automatically saved in the `kb/` directory of the project (`kb/articles`, `kb/notes`, `kb/.kbase`).
-- **Running Packaged App** (`KBase.exe`): KBase will look for or automatically create a `data` folder in the same directory as the executable to store all runtime data.
+All user data lives under a single `data/` root, which is created automatically on first launch:
+- **Running from Source** (`python serve.py`): `data/` is created at the repository root (the parent of `kb/`). The source tree itself stays clean.
+- **Running Packaged App** (`KBase.exe`): `data/` is created next to the executable.
+
+```
+data/
+├── articles/                     # one folder per uploaded paper / file
+├── notes/                        # note_*.md files
+├── .kbase/
+│   ├── index.db                  # SQLite: articles, notes, tags, workspaces, translations
+│   ├── chat_sessions/            # one JSON per library-chat session
+│   ├── chat_sessions_index.json
+│   └── logs/                     # per-task *.log files
+├── local.env                     # generated on first launch with empty API keys
+└── llm_config.json               # UI-managed LLM provider list
+```
+
+**`local.env`:** Generated automatically the first time KBase runs. Contains empty values for the eight known keys (LLM, DocMind, DocParser). Edit the file directly or use the in-app Settings page — secret values are masked in the UI, never displayed in plaintext.
 
 **Portable Moving & Data Migration:**
-1. **Multi-Device Roaming**: Because all data is centrally stored in the `data` folder next to the executable, you can copy both `KBase.exe` and the `data` folder to a USB drive or another Windows PC and simply double-click to run. This makes it a truly "portable" personal knowledge base.
-2. **Migrating Data from Source to Packaged App**: If you initially used KBase from the source code, please ensure you copy the `articles/`, `notes/`, and `.kbase/` folders from your original `kb/` directory into the newly generated `data/` directory next to your `.exe`. Otherwise, `KBase.exe` will read a brand new, empty library.
+1. **Multi-Device Roaming**: Copy `KBase.exe` and the `data` folder together to a USB drive, another disk, or another Windows PC. Double-click to run.
+2. **Migrating from an Older Source Build (pre-SQLite)**: If you previously used KBase with the legacy `kb/kb-index.json`, `kb/notes_index.json`, and `kb/library_chat_sessions.json` files, run the migration once:
+   ```bash
+   python kb/migrate.py
+   ```
+   The script copies your `kb/articles/`, `kb/notes/` and JSON indices into `data/`, imports everything into the SQLite database, and renames the legacy files to `*.legacy.json` so you keep a backup.
 
 ## Engines
 
