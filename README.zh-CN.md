@@ -33,6 +33,27 @@ cp local.env.example local.env
 python kb/desktop.py
 ```
 
+### Linux / macOS
+
+桌面入口 `kb/desktop.py` 依赖 **pywebview**，Linux 下需安装 GTK + WebKit2GTK 系统包：
+
+```bash
+# Ubuntu / Debian
+sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-webkit2-4.0
+pip install pymupdf pywebview
+
+# 启动
+./Start-KBase.sh
+```
+
+如果不需要原生桌面窗口，**纯 headless 启动**（仅 HTTP server，用浏览器访问 `http://localhost:8765`）也支持：
+
+```bash
+python3 scripts/serve-headless.py
+```
+
+仓库自带的 `kbase.spec` 是 Windows 打包配置（依赖 `pythonnet`/`.ico`），Linux/macOS 可用 `kbase-linux.spec` 替代。
+
 Marker 本地 PDF 引擎（PyTorch + Surya 模型）为**可选组件**，首次使用时在应用内按需下载。云端引擎（DocParser、DocMind）配置 API key 即可使用，无需本地 GPU。
 
 ## 解析引擎

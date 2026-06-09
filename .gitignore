@@ -16,6 +16,16 @@ CLAUDE.md
 uploads
 /cache
 
+# Backup archives and debug screenshots that should not be in the repo
+kb_backup.zip
+debug_screenshot.png
+node_modules/
+
+# Dev/test artifacts from scripts/verify.sh
+/tmp/kbase.log
+/tmp/kbase-server.log
+/tmp/kbase.pid
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
