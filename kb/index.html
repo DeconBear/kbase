@@ -21,6 +21,8 @@
 <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11/languages/css.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11/languages/sql.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script src="assets/docx/jszip.min.js"></script>
+<script src="assets/docx/docx-preview.min.js"></script>
 <style>
 :root{
   --bg:#0b1020;
@@ -882,6 +884,10 @@ body { display: flex !important; flex-direction: column !important; height: 100v
       <div id="pdf-container">
         <div id="pdf-placeholder"><div class="icon">📑</div><div>PDF 预览</div></div>
         <iframe id="pdf-embed" style="display:none"></iframe>
+        <div id="docx-container" style="display:none;width:100%;height:100%;overflow:auto;background:var(--surface)"></div>
+        <div id="code-container" style="display:none;width:100%;height:100%;overflow:auto;background:var(--surface);padding:16px;">
+            <pre style="margin:0;"><code id="code-embed" style="font-family:monospace;font-size:13px;line-height:1.5;"></code></pre>
+        </div>
       </div>
       <div id="pdf-gpu-warning" style="display:none;position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(15,23,42,.92);flex-direction:column;align-items:center;justify-content:center;z-index:10;text-align:center;padding:30px">
         <div style="font-size:3em;margin-bottom:12px;opacity:.6">🖥️</div>
@@ -3012,26 +3018,66 @@ async function initArticleTab(tabId, tabData) {
     if (loaded) document.getElementById('rbSummarize').disabled = false;
   }
 
-  // Load PDF — check GPU protection
+  // Fetch meta to determine real file type for non-PDFs
+  let fileType = 'pdf';
+  if (!article.pdf_available) {
+    try {
+      let metaResp = await fetch(`articles/${article.id}/${article.id}_meta.json`);
+      if (metaResp.ok) {
+        let meta = await metaResp.json();
+        fileType = meta.file_type || '';
+      }
+    } catch(e) {}
+  }
+
+  // Load Preview (PDF/Docx/Code) — check GPU protection
   const settings = loadSettings();
   const gpuBusy = article.converting && settings.device === 'cuda' && !settings.protect_pdf;
   const warnEl = document.getElementById('pdf-gpu-warning');
+  
+  // Reset all containers
+  document.getElementById('pdf-placeholder').style.display = 'none';
+  document.getElementById('pdf-embed').style.display = 'none';
+  document.getElementById('pdf-embed').src = '';
+  document.getElementById('docx-container').style.display = 'none';
+  document.getElementById('code-container').style.display = 'none';
+  document.getElementById('rbPDF').innerHTML = '📑 预览'; // Dynamic button name
+
   if (gpuBusy) {
     warnEl.style.display = 'flex';
-    document.getElementById('pdf-placeholder').style.display = 'none';
-    document.getElementById('pdf-embed').style.display = 'none';
-    document.getElementById('pdf-embed').src = '';
-  } else if (article.pdf_available) {
+  } else if (article.pdf_available || fileType === 'pdf') {
     warnEl.style.display = 'none';
-    document.getElementById('pdf-placeholder').style.display = 'none';
     document.getElementById('pdf-embed').style.display = 'block';
-    document.getElementById('pdf-embed').src = `articles/${article.id}/original.pdf`;
+    document.getElementById('rbPDF').innerHTML = '📑 PDF';
+    document.getElementById('pdf-embed').src = `assets/pdfjs/web/viewer.html?file=` + encodeURIComponent(`/articles/${article.id}/original.pdf`);
+  } else if (fileType === 'docx') {
+    warnEl.style.display = 'none';
+    document.getElementById('docx-container').style.display = 'block';
+    document.getElementById('docx-container').innerHTML = '';
+    document.getElementById('rbPDF').innerHTML = '📑 Word';
+    fetch(`articles/${article.id}/original.docx`)
+      .then(r => r.blob())
+      .then(blob => docx.renderAsync(blob, document.getElementById('docx-container')))
+      .catch(e => console.error("Error rendering docx:", e));
+  } else if (['py', 'js', 'json', 'txt', 'md', 'html', 'css', 'java', 'cpp', 'c', 'h', 'sh', 'sql', 'yaml', 'yml'].includes(fileType.toLowerCase())) {
+    warnEl.style.display = 'none';
+    document.getElementById('code-container').style.display = 'block';
+    document.getElementById('rbPDF').innerHTML = '📑 代码';
+    fetch(`articles/${article.id}/original.${fileType}`)
+      .then(r => r.text())
+      .then(text => {
+        const codeEl = document.getElementById('code-embed');
+        codeEl.textContent = text;
+        codeEl.className = `language-${fileType.toLowerCase()}`;
+        if (typeof hljs !== 'undefined') {
+          hljs.highlightElement(codeEl);
+        }
+      })
+      .catch(e => console.error("Error fetching code file:", e));
   } else {
     warnEl.style.display = 'none';
     document.getElementById('pdf-placeholder').style.display = '';
     document.getElementById('pdf-placeholder').innerHTML = '<div class="icon">📦</div><div>资料块</div>';
-    document.getElementById('pdf-embed').style.display = 'none';
-    document.getElementById('pdf-embed').src = '';
   }
 
   // Restore saved chat for this article
