@@ -8,15 +8,10 @@ from __future__ import annotations
 import os
 import sys
 
-import storage
-from storage import DATA_ROOT, LOGS_DIR
-
-storage.ensure_directories()
-storage.load_local_env()
-
-# In PyInstaller frozen bundles, kb modules are registered as `kb.serve`,
-# `kb.llm_config`, etc., but the source uses bare imports like
-# `from llm_config import ...`. Pre-alias them in dependency order.
+# In PyInstaller frozen bundles the bare imports used throughout ``kb/``
+# (``import storage``, ``from llm_config import ...``) cannot find the
+# top-level names, because PyInstaller only registers them as
+# ``kb.storage`` etc. Pre-alias them BEFORE the first import.
 if getattr(sys, "frozen", False):
     _aliases = [
         ("kb.utils_yaml", "utils_yaml"),
@@ -45,10 +40,16 @@ if getattr(sys, "frozen", False):
                 os.environ["DOTNET_ROOT"] = _c
                 break
 
-# Make sure the bundled kb package directory is importable.
+# Make sure the bundled kb package directory is importable in source mode.
 _SELF_DIR = os.path.dirname(os.path.abspath(__file__))
 if _SELF_DIR not in sys.path:
     sys.path.insert(0, _SELF_DIR)
+
+import storage
+from storage import DATA_ROOT, LOGS_DIR
+
+storage.ensure_directories()
+storage.load_local_env()
 
 # Redirect stdout/stderr to a log file in the data dir so windowless mode
 # does not crash and PyInstaller temp cleanup does not eat the log.
