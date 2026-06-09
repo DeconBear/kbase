@@ -10,6 +10,8 @@ ARTICLES_DIR = Path(__file__).parent.parent / "articles"
 
 API_BASE = os.environ.get("DOCPARSER_API_URL", "https://your-cloud-parser.com")
 
+def _api_base():
+    return os.environ.get("DOCPARSER_API_URL", "https://your-cloud-parser.com")
 
 def _api_key():
     return os.environ.get("DOCPARSER_API_KEY", "")
@@ -23,7 +25,8 @@ def _headers():
 
 def _request(method, path, *, data=None, files=None, timeout=60):
     """Make an HTTP request to the DocParser API."""
-    url = f"{API_BASE}{path}"
+    base_url = _api_base().rstrip("/")
+    url = f"{base_url}{path}"
     headers = _headers()
 
     if files:

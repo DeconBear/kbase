@@ -23,24 +23,12 @@ from llm_config import (
 )
 
 PORT = 8765
-HOST = "127.0.0.1"
-if getattr(sys, 'frozen', False):
-    DIR = Path(sys._MEIPASS) / "kb"
-    DATA_DIR = Path(sys.executable).parent / "data"
-else:
-    DIR = Path(__file__).parent.absolute()
-    DATA_DIR = DIR
-ARTICLES_DIR = DATA_DIR / "articles"
-NOTES_DIR = DATA_DIR / "notes"
-INDEX_FILE = DATA_DIR / "kb-index.json"
-NOTES_INDEX_FILE = DATA_DIR / "notes_index.json"
+DIR = Path(__file__).parent.absolute()
+ARTICLES_DIR = DIR / "articles"
+NOTES_DIR = DIR / "notes"
+INDEX_FILE = DIR / "kb-index.json"
+NOTES_INDEX_FILE = DIR / "notes_index.json"
 INVALID_ARTICLE_CHARS = set("/\\:*?\"<>|'")
-RUNTIME_CONFIG_FILE = DATA_DIR / "low_memory_config.json"
-ALLOWED_ORIGINS = {
-    f"http://localhost:{PORT}",
-    f"http://127.0.0.1:{PORT}",
-    f"http://[::1]:{PORT}",
-}
 
 
 def _is_inside(path: Path, base: Path) -> bool:
@@ -109,6 +97,10 @@ def resolve_save_path(filepath: str) -> Path:
     dir_root = DIR.resolve()
     articles_root = ARTICLES_DIR.resolve()
     notes_root = NOTES_DIR.resolve()
+    config_path = (DIR / "low_memory_config.json").resolve()
+
+    if target == config_path:
+        return target
     if _is_inside(target, articles_root) and target != articles_root:
         return target
     if _is_inside(target, notes_root) and target != notes_root:
@@ -128,7 +120,7 @@ def load_env():
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, _, val = line.partition("=")
-        os.environ.setdefault(key.strip(), val.strip())
+        os.environ[key.strip()] = val.strip()
 
 
 load_env()
@@ -136,130 +128,30 @@ load_env()
 os.chdir(str(DIR))
 
 
-import db_api
-
 def load_index():
-    return db_api.get_all_articles()
+    if INDEX_FILE.exists():
+        try:
+            return json.loads(INDEX_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {"articles": []}
+
 
 def save_index(idx):
-    # Fallback/stub for compatibility, actually we update individual items now
-    pass
+    INDEX_FILE.write_text(json.dumps(idx, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def load_runtime_config():
-    if RUNTIME_CONFIG_FILE.exists():
+    config_path = DIR / "low_memory_config.json"
+    conf = {}
+    if config_path.exists():
         try:
-            return json.loads(RUNTIME_CONFIG_FILE.read_text(encoding="utf-8"))
+            conf = json.loads(config_path.read_text(encoding="utf-8"))
         except Exception:
             pass
-    return {}
-
-
-def _mask_secret(value: str) -> str:
-    value = str(value or "")
-    if not value:
-        return ""
-    if len(value) <= 8:
-        return "configured"
-    return f"{value[:4]}...{value[-4:]}"
-
-
-def _safe_provider_id(value: str, fallback: str) -> str:
-    value = re.sub(r"[^A-Za-z0-9_-]+", "_", str(value or "").strip()).strip("_")
-    return value or fallback
-
-
-def _normalize_vision_provider(provider, fallback_id="default", old_key=""):
-    provider = provider if isinstance(provider, dict) else {}
-    provider_id = _safe_provider_id(provider.get("id"), fallback_id)
-    key = str(provider.get("key") or "").strip()
-    if not key and provider.get("keep_key", True):
-        key = old_key
-    return {
-        "id": provider_id,
-        "name": str(provider.get("name") or provider_id).strip() or provider_id,
-        "type": str(provider.get("type") or "openai").strip() or "openai",
-        "url": str(provider.get("url") or "").strip(),
-        "model": str(provider.get("model") or "").strip(),
-        "key": key,
-    }
-
-
-def public_runtime_config():
-    cfg = load_runtime_config()
-    public = dict(cfg)
-    providers = cfg.get("vision_providers") or []
-    if not isinstance(providers, list):
-        providers = []
-    public_providers = []
-    for idx, provider in enumerate(providers):
-        normalized = _normalize_vision_provider(provider, f"provider_{idx + 1}")
-        item = {k: v for k, v in normalized.items() if k != "key"}
-        item["key_set"] = bool(normalized.get("key"))
-        item["key_hint"] = _mask_secret(normalized.get("key", ""))
-        public_providers.append(item)
-    public["vision_providers"] = public_providers
-    return public
-
-
-def save_runtime_config_from_public(data):
-    data = data if isinstance(data, dict) else {}
-    current = load_runtime_config()
-    old_keys = {
-        str(p.get("id")): str(p.get("key") or "")
-        for p in current.get("vision_providers", [])
-        if isinstance(p, dict)
-    }
-
-    raw_providers = data.get("vision_providers") or []
-    providers = []
-    seen = set()
-    if isinstance(raw_providers, list):
-        for idx, provider in enumerate(raw_providers):
-            if not isinstance(provider, dict):
-                continue
-            fallback_id = f"provider_{idx + 1}"
-            normalized = _normalize_vision_provider(
-                provider,
-                fallback_id=fallback_id,
-                old_key=old_keys.get(str(provider.get("id") or ""), ""),
-            )
-            if normalized["id"] in seen:
-                normalized["id"] = _safe_provider_id(
-                    f"{normalized['id']}_{idx + 1}",
-                    fallback_id,
-                )
-            seen.add(normalized["id"])
-            providers.append(normalized)
-
-    if not providers:
-        providers = [{
-            "id": "default",
-            "name": "默认配置",
-            "type": "openai",
-            "url": "",
-            "model": "",
-            "key": old_keys.get("default", ""),
-        }]
-
-    active = str(data.get("active_vision_provider") or "").strip()
-    if not any(p["id"] == active for p in providers):
-        active = providers[0]["id"]
-
-    cfg = {
-        "device": "cpu" if data.get("device") == "cpu" else "cuda",
-        "protect_pdf": data.get("protect_pdf") is not False,
-        "auto_extract_info": data.get("auto_extract_info") is not False,
-        "theme": "dark" if data.get("theme") == "dark" else "light",
-        "vision_providers": providers,
-        "active_vision_provider": active,
-        "settings_version": int(data.get("settings_version") or 2),
-    }
-    RUNTIME_CONFIG_FILE.write_text(
-        json.dumps(cfg, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    return public_runtime_config()
+    conf["DOCPARSER_API_URL"] = os.environ.get("DOCPARSER_API_URL", "")
+    conf["DOCPARSER_ENGINE"] = os.environ.get("DOCPARSER_ENGINE", "")
+    return conf
 
 
 def _read_json_file(path):
@@ -423,10 +315,18 @@ def note_file_for(note_id: str) -> Path:
 
 
 def load_notes_index():
-    return db_api.get_all_notes()
+    if NOTES_INDEX_FILE.exists():
+        try:
+            return json.loads(NOTES_INDEX_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {"notes": []}
+
 
 def save_notes_index(idx):
-    pass
+    NOTES_INDEX_FILE.write_text(
+        json.dumps(idx, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
 
 def scan_articles(idx):
@@ -633,31 +533,28 @@ def run_conversion(pdf_path, article_id, engine_name="marker", docparser_engine=
             log("=== Conversion FAILED ===")
             _record_conv(article_id, engine_name, "fail")
             set_conv_status(article_id, "error", "解析失败，查看日志了解详情")
-            import db_api
-            db_api.update_article(article_id, {"converting": False})
             return
 
         # Update index
-        import db_api
-        db_api.update_article(article_id, {
-            "md_available": True,
-            "parser": engine_name,
-            "converting": False
-        })
+        idx = load_index()
+        for a in idx["articles"]:
+            if a["id"] == article_id:
+                md_file = ARTICLES_DIR / article_id / f"{article_id}.md"
+                a["md_available"] = md_file.exists()
+                a["parser"] = engine_name
+                a.pop("converting", None)
+                break
+        save_index(idx)
         _start_extract_info(article_id, reason=f"parsed:{engine_name}", allow_parallel=True)
 
     except ValueError as e:
         log(f"ERROR: {e}")
         set_conv_status(article_id, "error", str(e))
-        import db_api
-        db_api.update_article(article_id, {"converting": False})
     except Exception as e:
         import traceback
         log(f"FATAL ERROR: {e}")
         log(traceback.format_exc())
         set_conv_status(article_id, "error", f"系统错误: {e}")
-        import db_api
-        db_api.update_article(article_id, {"converting": False})
 
 
 def _run_calibrate(article_id, log_callback):
@@ -712,11 +609,12 @@ def _run_translate(article_id, mode="update", target_language="Simplified Chines
         from translate import translate_article
         ok = translate_article(article_id, mode=mode, target_language=target_language, extra_prompt=extra_prompt, log_callback=log)
         if ok:
-            import db_api
-            db_api.update_article(article_id, {
-                "translated": True,
-                "has_old_translation": True
-            })
+            idx = load_index()
+            for a in idx["articles"]:
+                if a["id"] == article_id:
+                    a["translated"] = True
+                    break
+            save_index(idx)
     except Exception as e:
         import traceback
         log(f"Translation error: {e}\n{traceback.format_exc()}")
@@ -788,115 +686,33 @@ def _record_conv(article_id, engine, status):
         "time": time.strftime("%Y-%m-%d %H:%M:%S"),
     })
     hist_file.write_text(json.dumps(history, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 # ===== HTTP Handler =====
 class KBHandler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, format, *args):
-        super().log_message(format, *args)
-
-    def _request_origin(self):
-        return (self.headers.get("Origin") or "").rstrip("/")
-
-    def _send_cors_headers(self):
-        origin = self._request_origin()
-        if origin in ALLOWED_ORIGINS:
-            self.send_header("Access-Control-Allow-Origin", origin)
-            self.send_header("Vary", "Origin")
-
-    def translate_path(self, path):
-        request_path = urllib.parse.urlparse(path).path
-        decoded = urllib.parse.unquote(request_path)
-        
-        if decoded.startswith("/articles/"):
-            rel = decoded[len("/articles/"):]
-            return str((ARTICLES_DIR / rel).resolve())
-        elif decoded.startswith("/notes/"):
-            rel = decoded[len("/notes/"):]
-            return str((NOTES_DIR / rel).resolve())
-        elif decoded in {"", "/", "/index.html"}:
-            return str((DIR / "index.html").resolve())
-        elif decoded == "/explorer.js":
-            return str((DIR / "explorer.js").resolve())
-        elif decoded.startswith("/assets/"):
-            rel = decoded[len("/assets/"):]
-            return str((DIR / "assets" / rel).resolve())
-        else:
-            return str((DIR / decoded.lstrip("/")).resolve())
-
-    def _static_target_for_request(self, request_path: str):
-        decoded = urllib.parse.unquote(request_path)
-        if "\x00" in decoded or "\\" in decoded:
-            return None
-        parts = [part for part in decoded.split("/") if part]
-        if any(part in {".", ".."} for part in parts):
-            return None
-
-        if decoded in {"", "/"}:
-            decoded = "/index.html"
-            request_path = "/index.html"
-
-        index_path = (DIR / "index.html").resolve()
-        assets_root = (DIR / "assets").resolve()
-        articles_root = ARTICLES_DIR.resolve()
-
-        if decoded.startswith("/articles/"):
-            rel = decoded[len("/articles/"):]
-            target = (ARTICLES_DIR / rel).resolve()
-            if _is_inside(target, articles_root) and not target.is_dir():
-                return target
-            return None
-
-        target = Path(self.translate_path(request_path)).resolve()
-        if target.is_dir():
-            return None
-
-        if decoded in {"", "/", "/index.html"} and target == index_path:
-            return target
-        if target == (DIR / "explorer.js").resolve():
-            return target
-        if decoded.startswith("/assets/") and _is_inside(target, assets_root):
-            return target
-        return None
+        print(f" [{self.client_address[0]}] {args[0]}")
 
     def end_headers(self):
+        # Prevent browser caching for all responses (single-page app, always up-to-date)
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
         super().end_headers()
 
     def do_OPTIONS(self):
-        if self._request_origin() not in ALLOWED_ORIGINS:
-            self.send_response(403)
-            self.end_headers()
-            return
         self.send_response(200)
-        self._send_cors_headers()
+        self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
 
     def do_GET(self):
-        try:
-            self._do_GET_impl()
-        except Exception as e:
-            import traceback
-            (DIR / "error.log").write_text(traceback.format_exc(), encoding="utf-8")
-            raise
-
-    def _do_GET_impl(self):
         request_path = urllib.parse.urlsplit(self.path).path
         if request_path == "/api/articles":
             self.serve_json(scan_articles(load_index()))
-        elif request_path == "/api/workspaces":
-            self.handle_get_workspaces()
-        elif request_path.startswith("/api/workspaces/") and request_path.endswith("/items"):
-            self.handle_get_workspace_items()
         elif request_path == "/api/settings":
-            self.serve_json(public_runtime_config())
+            self.serve_json(load_runtime_config())
         elif request_path == "/api/llm-config":
             self.serve_json(public_llm_config())
-        elif request_path == "/api/engine-available/marker":
-            try:
-                from engines import check_marker_available
-                self.serve_json({"available": check_marker_available()})
-            except Exception as e:
-                self.serve_error_json(500, str(e))
         elif request_path == "/api/library-chat/sessions":
             try:
                 from library_chat import list_sessions
@@ -976,7 +792,7 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
                     if name.endswith(".md") and name.startswith(f"{article_id}_"):
                         # e.g. {id}_pymupdf.md, {id}_marker.md, {id}_docmind.md
                         engine = name.rsplit("_", 1)[-1].replace(".md", "")
-                        if engine in {"pymupdf", "marker", "docmind", "docparser", "vision"}:
+                        if engine in {"pymupdf", "marker", "docmind", "docparser"}:
                             versions.append({"engine": engine, "file": name})
             self.serve_json({"history": history, "versions": versions})
         elif request_path.startswith("/api/articles/") and request_path.endswith("/attachments"):
@@ -985,24 +801,14 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             try:
                 from urllib.parse import parse_qs, urlsplit
                 qs = parse_qs(urlsplit(self.path).query)
-                raw_ids = qs.get("ids", [""])[0]
-                force_id_list = [i for i in raw_ids.split(",") if i.strip()] if raw_ids.strip() else []
                 self.handle_export(
-                    force_ids=force_id_list,
+                    force_ids=qs.get("ids", [""])[0].split(","), 
                     force_format=qs.get("format", [""])[0]
                 )
             except Exception as e:
                 self.send_error(500, str(e))
         else:
-            if self._static_target_for_request(request_path) is None:
-                self.send_error(404)
-                return
-            try:
-                super().do_GET()
-            except Exception as e:
-                import traceback
-                (DIR / "error.log").write_text(traceback.format_exc(), encoding="utf-8")
-                raise
+            super().do_GET()
 
     def do_POST(self):
         if self.path == "/api/upload":
@@ -1037,30 +843,16 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_article_delete()
         elif self.path == "/api/config/docparser":
             self.handle_config_docparser()
-        elif self.path == "/api/install-marker-deps":
-            self.handle_install_marker_deps()
         elif self.path == "/api/notes":
             self.handle_create_note()
         elif self.path.startswith("/api/articles/") and self.path.endswith("/attachments"):
             self.handle_upload_attachment()
-        elif self.path == "/api/workspaces":
-            self.handle_create_workspace()
-        elif self.path.startswith("/api/workspaces/") and self.path.endswith("/items"):
-            self.handle_add_workspace_items()
-        elif self.path == "/api/batch/delete":
-            self.handle_batch_delete()
-        elif self.path == "/api/batch/export":
-            self.handle_batch_export()
-        elif self.path == "/api/batch/import":
-            self.handle_batch_import()
         else:
             self.send_error(404)
 
     def do_PUT(self):
         if self.path == "/save":
             self.handle_save_file()
-        elif self.path == "/api/settings":
-            self.handle_runtime_settings()
         elif self.path == "/api/llm-config":
             self.handle_llm_config()
         elif self.path == "/api/articles/update":
@@ -1077,24 +869,20 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_delete_note()
         elif self.path.startswith("/api/articles/") and "/attachments/" in self.path:
             self.handle_delete_attachment()
-        elif self.path.startswith("/api/workspaces/") and self.path.endswith("/items"):
-            self.handle_remove_workspace_items()
-        elif self.path.startswith("/api/workspaces/"):
-            self.handle_delete_workspace()
         else:
             self.send_error(404)
 
     def serve_json(self, data):
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
-        self._send_cors_headers()
+        self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(json.dumps(data, ensure_ascii=False).encode())
 
     def serve_error_json(self, status, message):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
-        self._send_cors_headers()
+        self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(json.dumps({"error": message}, ensure_ascii=False).encode())
 
@@ -1104,16 +892,9 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
         self.send_header("Cache-Control", "no-store")
-        self._send_cors_headers()
+        self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(data)
-
-    def handle_runtime_settings(self):
-        try:
-            body = self.read_json_body()
-            self.serve_json(save_runtime_config_from_public(body))
-        except Exception as e:
-            self.serve_error_json(400, str(e))
 
     def handle_llm_config(self):
         try:
@@ -1127,6 +908,7 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
         try:
             body = self.read_json_body()
             api_key = body.get("api_key", "").strip()
+            api_url = body.get("api_url", "").strip()
             engine = body.get("engine", "").strip()
             
             env_file = DIR.parent / "local.env"
@@ -1137,16 +919,22 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             
             if api_key:
                 os.environ["DOCPARSER_API_KEY"] = api_key
+            if api_url:
+                os.environ["DOCPARSER_API_URL"] = api_url
             if engine:
                 os.environ["DOCPARSER_ENGINE"] = engine
             
             new_lines = []
             found_key = False
+            found_url = False
             found_engine = False
             for line in lines:
                 if line.startswith("DOCPARSER_API_KEY=") and api_key:
                     new_lines.append(f"DOCPARSER_API_KEY={api_key}")
                     found_key = True
+                elif line.startswith("DOCPARSER_API_URL=") and api_url:
+                    new_lines.append(f"DOCPARSER_API_URL={api_url}")
+                    found_url = True
                 elif line.startswith("DOCPARSER_ENGINE=") and engine:
                     new_lines.append(f"DOCPARSER_ENGINE={engine}")
                     found_engine = True
@@ -1155,6 +943,8 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             
             if api_key and not found_key:
                 new_lines.append(f"DOCPARSER_API_KEY={api_key}")
+            if api_url and not found_url:
+                new_lines.append(f"DOCPARSER_API_URL={api_url}")
             if engine and not found_engine:
                 new_lines.append(f"DOCPARSER_ENGINE={engine}")
                 
@@ -1162,53 +952,6 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             self.serve_json({"status": "ok"})
         except Exception as e:
             self.serve_error_json(400, str(e))
-
-    def handle_install_marker_deps(self):
-        """Install Marker engine dependencies (PyTorch + models) on demand."""
-        try:
-            from engines import check_marker_available, install_marker_deps
-
-            if check_marker_available():
-                self.serve_json({"status": "ok", "already_installed": True})
-                return
-
-            # Start installation in a background thread with SSE streaming
-            self.send_response(200)
-            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
-            self.send_header("Cache-Control", "no-cache")
-            self.send_header("Connection", "close")
-            self.send_header("X-Accel-Buffering", "no")
-            self._send_cors_headers()
-            self.end_headers()
-            self.close_connection = True
-
-            logs = []
-            def sse_send(data):
-                payload = json.dumps(data, ensure_ascii=False)
-                try:
-                    self.wfile.write(f"data: {payload}\n\n".encode("utf-8"))
-                    self.wfile.flush()
-                except Exception:
-                    pass
-
-            def log_callback(msg):
-                logs.append(msg)
-                try:
-                    sse_send({"type": "log", "message": msg})
-                except Exception:
-                    pass
-
-            sse_send({"type": "start", "message": "开始安装 Marker 引擎依赖..."})
-
-            result = install_marker_deps(log_callback=log_callback)
-
-            if result:
-                sse_send({"type": "done", "success": True, "message": "安装完成！Marker 引擎现在可以使用了。"})
-            else:
-                sse_send({"type": "done", "success": False, "message": "安装失败，请查看上方日志了解详情。"})
-            sse_send({"type": "end"})
-        except Exception as e:
-            self.serve_error_json(500, str(e))
 
     def read_json_body(self):
         content_len = int(self.headers.get("Content-Length", 0))
@@ -1231,7 +974,6 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
                 session_id=body.get("session_id") or "",
                 provider_id=body.get("provider_id") or body.get("provider") or "",
                 model=body.get("model") or "",
-                workspace_id=body.get("workspace_id") or "",
             )
             self.serve_json(result)
         except Exception as e:
@@ -1243,7 +985,7 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Cache-Control", "no-cache")
         self.send_header("Connection", "close")
         self.send_header("X-Accel-Buffering", "no")
-        self._send_cors_headers()
+        self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.close_connection = True
 
@@ -1289,7 +1031,6 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             session_id=body.get("session_id") or "",
             provider_id=provider_id,
             model=model,
-            workspace_id=body.get("workspace_id") or "",
         )
 
         self._send_sse_headers()
@@ -1436,7 +1177,6 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
         if "stream" in body:
             req_body["stream"] = body["stream"]
         stream_requested = bool(req_body.get("stream"))
-        response_started = False
 
         try:
             req = urllib.request.Request(
@@ -1451,43 +1191,37 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             with urllib.request.urlopen(req, timeout=300 if stream_requested else 120) as resp:
                 upstream_content_type = resp.headers.get("Content-Type", "")
                 if stream_requested and "text/event-stream" in upstream_content_type:
-                    response_started = True
                     self.send_response(200)
                     self.send_header("Content-Type", "text/event-stream; charset=utf-8")
                     self.send_header("Cache-Control", "no-cache")
                     self.send_header("Connection", "close")
                     self.send_header("X-Accel-Buffering", "no")
-                    self._send_cors_headers()
+                    self.send_header("Access-Control-Allow-Origin", "*")
                     self.end_headers()
                     self.close_connection = True
                     while True:
                         line = resp.readline()
                         if not line:
                             break
-                        try:
-                            self.wfile.write(line)
-                            self.wfile.flush()
-                        except (BrokenPipeError, ConnectionResetError):
-                            break
+                        self.wfile.write(line)
+                        self.wfile.flush()
                 else:
                     result = resp.read()
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json")
-                    self._send_cors_headers()
+                    self.send_header("Access-Control-Allow-Origin", "*")
                     self.end_headers()
                     self.wfile.write(result)
         except (BrokenPipeError, ConnectionResetError):
             pass
         except urllib.error.HTTPError as e:
-            if not response_started:
-                self.send_response(e.code)
-                self.send_header("Content-Type", e.headers.get("Content-Type", "application/json"))
-                self._send_cors_headers()
-                self.end_headers()
-                self.wfile.write(e.read())
+            self.send_response(e.code)
+            self.send_header("Content-Type", e.headers.get("Content-Type", "application/json"))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(e.read())
         except Exception as e:
-            if not response_started:
-                self.serve_error_json(500, str(e))
+            self.serve_error_json(500, str(e))
 
     def handle_upload(self):
         content_type = self.headers.get("Content-Type", "")
@@ -1496,9 +1230,6 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         content_len = int(self.headers.get("Content-Length", 0))
-        if not content_len:
-            self.send_error(411, "Content-Length required for upload")
-            return
         body = self.rfile.read(content_len)
 
         boundary = None
@@ -1512,15 +1243,8 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         boundary_bytes = boundary.encode()
-        # Use proper boundary markers with CRLF prefix per RFC 2046
-        delimiter = b"\r\n--" + boundary_bytes
-        # First part starts with --boundary (no leading CRLF)
-        parts = body.split(delimiter)
-        if parts and parts[0].startswith(b"--" + boundary_bytes):
-            parts[0] = parts[0][len(b"--" + boundary_bytes):]
-        for idx, part in enumerate(parts):
-            if idx == 0 and not part.strip():
-                continue
+        parts = body.split(b"--" + boundary_bytes)
+        for part in parts:
             if b"Content-Disposition" not in part:
                 continue
             header_end = part.find(b"\r\n\r\n")
@@ -1530,10 +1254,6 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             content = part[header_end + 4:]
             if content.endswith(b"\r\n"):
                 content = content[:-2]
-            # Strip trailing boundary close
-            close_marker = b"\r\n--" + boundary_bytes + b"--"
-            if content.endswith(close_marker):
-                content = content[:-len(close_marker)]
 
             if 'name="file"' not in headers_raw:
                 continue
@@ -1558,11 +1278,6 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             if not re.fullmatch(r"\.[a-z0-9]{1,12}", ext or ""):
                 ext = ".bin"
 
-            import db_api
-            db_api.update_article(article_id, {
-                "converting": False,
-                "has_old_translation": True
-            })
             idx = load_index()
             existing = [a for a in idx["articles"] if a["id"] == article_id]
             if existing:
@@ -1635,8 +1350,8 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             }
             if preparse_error:
                 article["preparse_error"] = preparse_error
-            import db_api
-            db_api.add_article(article)
+            idx["articles"].append(article)
+            save_index(idx)
 
             info_extraction = ""
             if md_available:
@@ -1866,7 +1581,8 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             docparser_engine = body.get("docparser_engine", "").strip()
 
             if engine == "docparser":
-                api_key = body.get("api_key", "").strip()
+                api_key = (body.get("api_key", "").strip() or body.get("docparser_api_key", "").strip())
+                api_url = body.get("docparser_api_url", "").strip()
                 env_file = DIR.parent / "local.env"
                 if env_file.exists():
                     lines = env_file.read_text(encoding="utf-8").splitlines()
@@ -1875,16 +1591,22 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
                 
                 if api_key:
                     os.environ["DOCPARSER_API_KEY"] = api_key
+                if api_url:
+                    os.environ["DOCPARSER_API_URL"] = api_url
                 if docparser_engine:
                     os.environ["DOCPARSER_ENGINE"] = docparser_engine
 
                 new_lines = []
                 found_key = False
+                found_url = False
                 found_engine = False
                 for line in lines:
                     if line.startswith("DOCPARSER_API_KEY=") and api_key:
                         new_lines.append(f"DOCPARSER_API_KEY={api_key}")
                         found_key = True
+                    elif line.startswith("DOCPARSER_API_URL=") and api_url:
+                        new_lines.append(f"DOCPARSER_API_URL={api_url}")
+                        found_url = True
                     elif line.startswith("DOCPARSER_ENGINE=") and docparser_engine:
                         new_lines.append(f"DOCPARSER_ENGINE={docparser_engine}")
                         found_engine = True
@@ -1892,6 +1614,8 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
                         new_lines.append(line)
                 if api_key and not found_key:
                     new_lines.append(f"DOCPARSER_API_KEY={api_key}")
+                if api_url and not found_url:
+                    new_lines.append(f"DOCPARSER_API_URL={api_url}")
                 if docparser_engine and not found_engine:
                     new_lines.append(f"DOCPARSER_ENGINE={docparser_engine}")
                 
@@ -1904,10 +1628,12 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
             # Set converting flag
-            import db_api
-            db_api.update_article(article_id, {
-                "converting": True
-            })
+            idx = load_index()
+            for a in idx["articles"]:
+                if a["id"] == article_id:
+                    a["converting"] = True
+                    break
+            save_index(idx)
 
             thread = threading.Thread(
                 target=run_conversion,
@@ -1926,6 +1652,7 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             article_id = validate_article_id(body.get("id", ""))
             updates = body.get("updates", {})
 
+            idx = load_index()
             allowed = {
                 "title", "author", "authors", "pages", "date_added", "category", "tags",
                 "translated", "summarized", "pdf_available", "md_available",
@@ -1933,10 +1660,13 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
                 "abstract", "metadata_extracted", "metadata_extracted_at",
                 "metadata_source", "file_available", "parser",
             }
-            filtered_updates = {k: v for k, v in updates.items() if k in allowed}
-            import db_api
-            db_api.update_article(article_id, filtered_updates)
-            
+            for a in idx["articles"]:
+                if a["id"] == article_id:
+                    for k, v in updates.items():
+                        if k in allowed:
+                            a[k] = v
+                    break
+            save_index(idx)
             self.serve_json({"status": "ok"})
         except Exception as e:
             self.send_error(500, str(e))
@@ -1947,8 +1677,9 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             body = json.loads(self.rfile.read(content_len))
             article_id = validate_article_id(body.get("id", ""))
 
-            import db_api
-            db_api.delete_article(article_id)
+            idx = load_index()
+            idx["articles"] = [a for a in idx["articles"] if a["id"] != article_id]
+            save_index(idx)
 
             article_dir = article_dir_for(article_id)
             if article_dir.exists():
@@ -1970,19 +1701,13 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
     def handle_get_note(self):
         try:
             note_id = self._note_id_from_path()
-            idx = load_notes_index()
-            note = next((n for n in idx["notes"] if n["id"] == note_id), None)
-            if not note:
+            md_path = note_file_for(note_id)
+            if not md_path.exists():
                 self.serve_error_json(404, "Note not found")
                 return
-                
-            md_path = note_file_for(note_id)
-            if md_path.exists():
-                from utils_yaml import parse_frontmatter
-                _, content = parse_frontmatter(md_path)
-            else:
-                content = ""
-                
+            content = md_path.read_text(encoding="utf-8")
+            idx = load_notes_index()
+            note = next((n for n in idx["notes"] if n["id"] == note_id), None)
             self.serve_json({"id": note_id, "content": content, "meta": note})
         except ValueError as e:
             self.serve_error_json(400, str(e))
@@ -2037,6 +1762,9 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             uid = os.urandom(4).hex()
             note_id = f"note_{ts}_{uid}"
 
+            md_path = note_file_for(note_id)
+            md_path.write_text(f"# {title}\n\n", encoding="utf-8")
+
             now = time.strftime("%Y-%m-%d %H:%M:%S")
             entry = {
                 "id": note_id,
@@ -2047,13 +1775,9 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
                 "folder": folder,
                 "links": [],
             }
-            import db_api
-            db_api.add_note(entry)
-            
-            # The add_note will create the file with frontmatter but empty content, so let's set initial content
-            md_path = note_file_for(note_id)
-            from utils_yaml import write_frontmatter
-            write_frontmatter(md_path, entry, f"# {title}\n\n")
+            idx = load_notes_index()
+            idx["notes"].append(entry)
+            save_notes_index(idx)
 
             self.serve_json(entry)
         except Exception as e:
@@ -2067,31 +1791,26 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             content = str(body.get("content") or "")
             title = str(body.get("title") or "").strip()[:200]
 
-            updates = {
-                "modified_at": time.strftime("%Y-%m-%d %H:%M:%S")
-            }
-            if title:
-                updates["title"] = title
-            if "tags" in body:
-                tags = body.get("tags")
-                updates["tags"] = [str(t).strip()[:50] for t in tags if str(t).strip()] if isinstance(tags, list) else []
-            if "folder" in body:
-                updates["folder"] = str(body.get("folder") or "").strip()[:200]
-                
-            import db_api
-            # db_api.update_note updates DB and frontmatter, but doesn't update content.
-            # We must update content directly
             md_path = note_file_for(note_id)
-            from utils_yaml import parse_frontmatter, write_frontmatter
-            if md_path.exists():
-                meta, _ = parse_frontmatter(md_path)
-            else:
-                meta = {"id": note_id, "type": "note"}
-            meta.update(updates)
-            write_frontmatter(md_path, meta, content)
-            
-            db_api.update_note(note_id, updates)
+            if not md_path.exists():
+                self.serve_error_json(404, "Note not found")
+                return
+            md_path.write_text(content, encoding="utf-8")
 
+            idx = load_notes_index()
+            for n in idx["notes"]:
+                if n["id"] == note_id:
+                    n["modified_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+                    if title:
+                        n["title"] = title
+                    if "tags" in body:
+                        tags = body.get("tags")
+                        n["tags"] = [str(t).strip()[:50] for t in tags if str(t).strip()] if isinstance(tags, list) else []
+                    if "folder" in body:
+                        folder = str(body.get("folder") or "").strip()[:200]
+                        n["folder"] = folder
+                    break
+            save_notes_index(idx)
             self.serve_json({"status": "ok"})
         except ValueError as e:
             self.serve_error_json(400, str(e))
@@ -2104,8 +1823,9 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             md_path = note_file_for(note_id)
             if md_path.exists():
                 md_path.unlink()
-            import db_api
-            db_api.delete_note(note_id)
+            idx = load_notes_index()
+            idx["notes"] = [n for n in idx["notes"] if n["id"] != note_id]
+            save_notes_index(idx)
             self.serve_json({"status": "ok"})
         except ValueError as e:
             self.serve_error_json(400, str(e))
@@ -2120,8 +1840,13 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             if not new_title:
                 self.serve_error_json(400, "Title is required")
                 return
-            import db_api
-            db_api.update_note(note_id, {"title": new_title, "modified_at": time.strftime("%Y-%m-%d %H:%M:%S")})
+            idx = load_notes_index()
+            for n in idx["notes"]:
+                if n["id"] == note_id:
+                    n["title"] = new_title
+                    n["modified_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+                    break
+            save_notes_index(idx)
             self.serve_json({"status": "ok", "title": new_title})
         except ValueError as e:
             self.serve_error_json(400, str(e))
@@ -2179,15 +1904,9 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
             boundary_bytes = boundary.encode()
-            # Use proper boundary markers with CRLF prefix per RFC 2046
-            delimiter = b"\r\n--" + boundary_bytes
-            form_parts = body.split(delimiter)
-            if form_parts and form_parts[0].startswith(b"--" + boundary_bytes):
-                form_parts[0] = form_parts[0][len(b"--" + boundary_bytes):]
+            form_parts = body.split(b"--" + boundary_bytes)
             uploaded_filenames = []
-            for idx, part in enumerate(form_parts):
-                if idx == 0 and not part.strip():
-                    continue
+            for part in form_parts:
                 if b"Content-Disposition" not in part:
                     continue
                 header_end = part.find(b"\r\n\r\n")
@@ -2197,10 +1916,6 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
                 content = part[header_end + 4:]
                 if content.endswith(b"\r\n"):
                     content = content[:-2]
-                # Strip trailing boundary close
-                close_marker = b"\r\n--" + boundary_bytes + b"--"
-                if content.endswith(close_marker):
-                    content = content[:-len(close_marker)]
 
                 if 'name="file"' not in headers_raw:
                     continue
@@ -2247,128 +1962,6 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
                 self.serve_error_json(404, "File not found")
         except Exception as e:
             self.serve_error_json(500, str(e))
-    def handle_get_workspaces(self):
-        try:
-            import db_api
-            ws = db_api.get_all_workspaces()
-            self.serve_json({"workspaces": ws})
-        except Exception as e:
-            self.serve_error_json(500, str(e))
-
-    def handle_create_workspace(self):
-        try:
-            body = self.read_json_body()
-            name = str(body.get("name") or "Unnamed Workspace").strip()[:100]
-            ws_id = f"ws_{int(time.time())}_{os.urandom(2).hex()}"
-            import db_api
-            ws = db_api.add_workspace(ws_id, name)
-            self.serve_json(ws)
-        except Exception as e:
-            self.serve_error_json(500, str(e))
-
-    def handle_delete_workspace(self):
-        try:
-            parts = urllib.parse.urlsplit(self.path).path.rstrip("/").split("/")
-            ws_id = urllib.parse.unquote(parts[-1])
-            import db_api
-            db_api.delete_workspace(ws_id)
-            self.serve_json({"status": "ok"})
-        except Exception as e:
-            self.serve_error_json(500, str(e))
-
-    def handle_get_workspace_items(self):
-        try:
-            parts = urllib.parse.urlsplit(self.path).path.rstrip("/").split("/")
-            ws_id = urllib.parse.unquote(parts[-2])
-            import db_api
-            items = db_api.get_workspace_items(ws_id)
-            self.serve_json({"items": items})
-        except Exception as e:
-            self.serve_error_json(500, str(e))
-
-    def handle_add_workspace_items(self):
-        try:
-            parts = urllib.parse.urlsplit(self.path).path.rstrip("/").split("/")
-            ws_id = urllib.parse.unquote(parts[-2])
-            body = self.read_json_body()
-            items = body.get("items", [])
-            import db_api
-            for item in items:
-                db_api.add_item_to_workspace(ws_id, item["item_id"], item["item_type"])
-            self.serve_json({"status": "ok"})
-        except Exception as e:
-            self.serve_error_json(500, str(e))
-
-    def handle_remove_workspace_items(self):
-        try:
-            parts = urllib.parse.urlsplit(self.path).path.rstrip("/").split("/")
-            ws_id = urllib.parse.unquote(parts[-2])
-            body = self.read_json_body()
-            items = body.get("items", [])
-            import db_api
-            for item_id in items:
-                db_api.remove_item_from_workspace(ws_id, item_id)
-            self.serve_json({"status": "ok"})
-        except Exception as e:
-            self.serve_error_json(500, str(e))
-
-    def handle_batch_delete(self):
-        try:
-            body = self.read_json_body()
-            items = body.get("items", [])
-            import db_api
-            for item in items:
-                item_id = item["item_id"]
-                if item["item_type"] == "paper":
-                    db_api.delete_article(item_id)
-                    article_dir = article_dir_for(item_id)
-                    if article_dir.exists():
-                        shutil.rmtree(article_dir)
-                elif item["item_type"] == "note":
-                    md_path = note_file_for(item_id)
-                    if md_path.exists():
-                        md_path.unlink()
-                    db_api.delete_note(item_id)
-            self.serve_json({"status": "ok"})
-        except Exception as e:
-            self.serve_error_json(500, str(e))
-
-    def handle_batch_export(self):
-        try:
-            body = self.read_json_body()
-            items = body.get("items", [])
-            
-            import zipfile
-            import io
-            zip_buffer = io.BytesIO()
-            
-            with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
-                for item in items:
-                    item_id = item["item_id"]
-                    if item["item_type"] == "paper":
-                        article_dir = article_dir_for(item_id)
-                        md_file = article_dir / f"{item_id}.md"
-                        pdf_file = article_dir / "original.pdf"
-                        if md_file.exists():
-                            zip_file.write(md_file, f"papers/{item_id}/{item_id}.md")
-                        if pdf_file.exists():
-                            zip_file.write(pdf_file, f"papers/{item_id}/original.pdf")
-                    elif item["item_type"] == "note":
-                        md_path = note_file_for(item_id)
-                        if md_path.exists():
-                            zip_file.write(md_path, f"notes/{item_id}.md")
-                            
-            zip_data = zip_buffer.getvalue()
-            filename = f"kbase_export_{int(time.time())}.zip"
-            self.serve_download(zip_data, filename, "application/zip")
-        except Exception as e:
-            self.serve_error_json(500, str(e))
-
-    def handle_batch_import(self):
-        # Batch import implementation would handle multipart/form-data with multiple files.
-        # It parses them, saves to notes dir, extracts frontmatter and adds to DB.
-        # Since this involves parsing multipart, we can use cgi.FieldStorage or just return not implemented.
-        self.serve_error_json(501, "Batch import not fully implemented yet in backend")
 
 def start_server():
     """Start the HTTP server. Returns the httpd instance."""
@@ -2378,7 +1971,7 @@ def start_server():
     print(f" Articles: {len(idx['articles'])}")
     print(f" Listening on http://localhost:{PORT}")
 
-    httpd = ReusableThreadingTCPServer((HOST, PORT), KBHandler)
+    httpd = ReusableThreadingTCPServer(("", PORT), KBHandler)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
     return httpd
