@@ -5,7 +5,11 @@ from pathlib import Path
 from db_index import ARTICLE_COLUMNS, DB_DIR, DB_PATH, init_db
 from utils_yaml import parse_frontmatter, write_frontmatter
 
-KB_DIR = Path(__file__).resolve().parent
+import sys
+if getattr(sys, 'frozen', False):
+    KB_DIR = Path(sys.executable).parent / "data"
+else:
+    KB_DIR = Path(__file__).resolve().parent
 
 ARTICLE_BOOL_FIELDS = {
     "translated",

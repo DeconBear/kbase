@@ -26,14 +26,16 @@ PORT = 8765
 HOST = "127.0.0.1"
 if getattr(sys, 'frozen', False):
     DIR = Path(sys._MEIPASS) / "kb"
+    DATA_DIR = Path(sys.executable).parent / "data"
 else:
     DIR = Path(__file__).parent.absolute()
-ARTICLES_DIR = DIR / "articles"
-NOTES_DIR = DIR / "notes"
-INDEX_FILE = DIR / "kb-index.json"
-NOTES_INDEX_FILE = DIR / "notes_index.json"
+    DATA_DIR = DIR
+ARTICLES_DIR = DATA_DIR / "articles"
+NOTES_DIR = DATA_DIR / "notes"
+INDEX_FILE = DATA_DIR / "kb-index.json"
+NOTES_INDEX_FILE = DATA_DIR / "notes_index.json"
 INVALID_ARTICLE_CHARS = set("/\\:*?\"<>|'")
-RUNTIME_CONFIG_FILE = DIR / "low_memory_config.json"
+RUNTIME_CONFIG_FILE = DATA_DIR / "low_memory_config.json"
 ALLOWED_ORIGINS = {
     f"http://localhost:{PORT}",
     f"http://127.0.0.1:{PORT}",
@@ -786,12 +788,10 @@ def _record_conv(article_id, engine, status):
         "time": time.strftime("%Y-%m-%d %H:%M:%S"),
     })
     hist_file.write_text(json.dumps(history, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
 # ===== HTTP Handler =====
 class KBHandler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, format, *args):
-        print(f" [{self.client_address[0]}] {args[0]}")
+        super().log_message(format, *args)
 
     def _request_origin(self):
         return (self.headers.get("Origin") or "").rstrip("/")
@@ -801,6 +801,26 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
         if origin in ALLOWED_ORIGINS:
             self.send_header("Access-Control-Allow-Origin", origin)
             self.send_header("Vary", "Origin")
+
+    def translate_path(self, path):
+        request_path = urllib.parse.urlparse(path).path
+        decoded = urllib.parse.unquote(request_path)
+        
+        if decoded.startswith("/articles/"):
+            rel = decoded[len("/articles/"):]
+            return str((ARTICLES_DIR / rel).resolve())
+        elif decoded.startswith("/notes/"):
+            rel = decoded[len("/notes/"):]
+            return str((NOTES_DIR / rel).resolve())
+        elif decoded in {"", "/", "/index.html"}:
+            return str((DIR / "index.html").resolve())
+        elif decoded == "/explorer.js":
+            return str((DIR / "explorer.js").resolve())
+        elif decoded.startswith("/assets/"):
+            rel = decoded[len("/assets/"):]
+            return str((DIR / "assets" / rel).resolve())
+        else:
+            return str((DIR / decoded.lstrip("/")).resolve())
 
     def _static_target_for_request(self, request_path: str):
         decoded = urllib.parse.unquote(request_path)
@@ -814,27 +834,30 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             decoded = "/index.html"
             request_path = "/index.html"
 
-        target = Path(self.translate_path(request_path)).resolve()
-        if target.is_dir():
-            return None
-
         index_path = (DIR / "index.html").resolve()
         assets_root = (DIR / "assets").resolve()
         articles_root = ARTICLES_DIR.resolve()
 
+        if decoded.startswith("/articles/"):
+            rel = decoded[len("/articles/"):]
+            target = (ARTICLES_DIR / rel).resolve()
+            if _is_inside(target, articles_root) and not target.is_dir():
+                return target
+            return None
+
+        target = Path(self.translate_path(request_path)).resolve()
+        if target.is_dir():
+            return None
+
         if decoded in {"", "/", "/index.html"} and target == index_path:
             return target
-        if decoded.startswith("/assets/") and _is_inside(target, assets_root):
+        if target == (DIR / "explorer.js").resolve():
             return target
-        if decoded.startswith("/articles/") and _is_inside(target, articles_root):
+        if decoded.startswith("/assets/") and _is_inside(target, assets_root):
             return target
         return None
 
     def end_headers(self):
-        # Only set no-cache for API/HTML; allow caching for static assets (images, fonts, etc.)
-        path = urllib.parse.urlsplit(self.path).path
-        if path.startswith("/api/") or path.endswith(".html") or path == "/":
-            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
         super().end_headers()
 
     def do_OPTIONS(self):
@@ -849,6 +872,14 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        try:
+            self._do_GET_impl()
+        except Exception as e:
+            import traceback
+            (DIR / "error.log").write_text(traceback.format_exc(), encoding="utf-8")
+            raise
+
+    def _do_GET_impl(self):
         request_path = urllib.parse.urlsplit(self.path).path
         if request_path == "/api/articles":
             self.serve_json(scan_articles(load_index()))
@@ -966,7 +997,12 @@ class KBHandler(http.server.SimpleHTTPRequestHandler):
             if self._static_target_for_request(request_path) is None:
                 self.send_error(404)
                 return
-            super().do_GET()
+            try:
+                super().do_GET()
+            except Exception as e:
+                import traceback
+                (DIR / "error.log").write_text(traceback.format_exc(), encoding="utf-8")
+                raise
 
     def do_POST(self):
         if self.path == "/api/upload":

@@ -35,6 +35,22 @@ python kb/desktop.py
 
 The local Marker PDF engine (PyTorch + Surya models) is **optional** and can be downloaded on-demand from within the app when first used. Cloud engines (DocParser, DocMind) work out of the box with an API key.
 
+## 📦 Packaging & Portable Usage
+
+KBase supports being packaged into a standalone Windows executable or directory via PyInstaller:
+
+```bash
+python -m PyInstaller --noconfirm KBase.spec
+```
+
+**Data Storage Mechanism:**
+- **Running from Source** (`python serve.py`): All papers, notes, and database files are automatically saved in the `kb/` directory of the project (`kb/articles`, `kb/notes`, `kb/.kbase`).
+- **Running Packaged App** (`KBase.exe`): KBase will look for or automatically create a `data` folder in the same directory as the executable to store all runtime data.
+
+**Portable Moving & Data Migration:**
+1. **Multi-Device Roaming**: Because all data is centrally stored in the `data` folder next to the executable, you can copy both `KBase.exe` and the `data` folder to a USB drive or another Windows PC and simply double-click to run. This makes it a truly "portable" personal knowledge base.
+2. **Migrating Data from Source to Packaged App**: If you initially used KBase from the source code, please ensure you copy the `articles/`, `notes/`, and `.kbase/` folders from your original `kb/` directory into the newly generated `data/` directory next to your `.exe`. Otherwise, `KBase.exe` will read a brand new, empty library.
+
 ## Engines
 
 | Engine | Type | GPU | Setup |
@@ -143,6 +159,24 @@ Following Marker's licensing:
 
 - **Code**: [GNU General Public License v3.0](https://www.gnu.org/licenses/gpl-3.0.html)
 - **Models**: [OpenRAIL-M](https://www.datalab.to/pricing)
+
+## Android Preview
+
+The `android/` folder contains a first-pass standalone Android app. It does not require the Python backend server. The app calls an OpenAI-compatible `chat/completions` endpoint directly after the user enters an endpoint, API key, and model name on the device.
+
+Current Android scope:
+
+- Direct cloud chat through an OpenAI-compatible API
+- Local API key/model/endpoint settings saved on the device
+- Optional text/Markdown/JSON/XML file selection as chat context
+- No bundled Marker/PDF/OCR pipeline in the APK yet
+
+Build from Android Studio by opening the `android/` folder, or from a shell with Android SDK and JDK 17 configured:
+
+```powershell
+cd android
+.\gradlew.bat :app:assembleDebug
+```
 
 ## For AI Agents
 

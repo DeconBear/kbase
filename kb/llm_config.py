@@ -9,7 +9,11 @@ import urllib.request
 from copy import deepcopy
 from pathlib import Path
 
-DIR = Path(__file__).parent.absolute()
+import sys
+if getattr(sys, 'frozen', False):
+    DIR = Path(sys.executable).parent / "data"
+else:
+    DIR = Path(__file__).parent.absolute()
 CONFIG_FILE = DIR / "llm_config.json"
 
 DEFAULT_PROVIDERS = [

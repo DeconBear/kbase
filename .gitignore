@@ -181,6 +181,13 @@ cython_debug/
 
 .vscode/
 
+# Android build output
+android/.gradle/
+android/.jdk/
+android/build/
+android/app/build/
+android/local.properties
+
 # Model files (large)
 models/
 

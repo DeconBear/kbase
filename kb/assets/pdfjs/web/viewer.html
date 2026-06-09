@@ -493,5 +493,77 @@ See https://github.com/adobe-type-tools/cmap-resources
     <div id="printContainer"></div>
 
     <input type="file" id="fileInput" class="hidden">
+
+    <!-- KBase Highlight Feature Injection -->
+    <style>
+      #kbase-highlight-btn {
+        position: fixed;
+        display: none;
+        background: #10b981;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        padding: 8px 16px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        z-index: 2147483647;
+        transition: transform 0.1s, background 0.1s;
+      }
+      #kbase-highlight-btn:hover {
+        background: #059669;
+        transform: scale(1.05);
+      }
+      #kbase-highlight-btn:active {
+        transform: scale(0.95);
+      }
+    </style>
+    <button id="kbase-highlight-btn">📝 提取到笔记</button>
+    <script>
+      (function() {
+        const btn = document.getElementById('kbase-highlight-btn');
+        let currentText = '';
+
+        document.addEventListener('selectionchange', () => {
+          const sel = window.getSelection();
+          if (!sel || sel.isCollapsed || sel.toString().trim() === '') {
+            btn.style.display = 'none';
+            return;
+          }
+          currentText = sel.toString().trim();
+          
+          try {
+            const range = sel.getRangeAt(0);
+            const rect = range.getBoundingClientRect();
+            
+            btn.style.display = 'block';
+            btn.style.left = Math.max(10, rect.left + (rect.width / 2) - 60) + 'px';
+            btn.style.top = Math.max(10, rect.top - 50) + 'px';
+          } catch(e) {}
+        });
+
+        document.addEventListener('mousedown', (e) => {
+          if (e.target !== btn) {
+            btn.style.display = 'none';
+          }
+        });
+
+        btn.addEventListener('mousedown', (e) => {
+          e.preventDefault(); // Prevent losing selection
+          e.stopPropagation();
+        });
+
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (window.parent && window.parent.appendPdfHighlightToNote && currentText) {
+            window.parent.appendPdfHighlightToNote(currentText);
+            btn.style.display = 'none';
+            window.getSelection().removeAllRanges();
+          }
+        });
+      })();
+    </script>
   </body>
 </html>

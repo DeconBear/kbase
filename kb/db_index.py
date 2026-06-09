@@ -5,7 +5,11 @@ from pathlib import Path
 
 from utils_yaml import parse_frontmatter
 
-KB_DIR = Path(__file__).resolve().parent
+import sys
+if getattr(sys, 'frozen', False):
+    KB_DIR = Path(sys.executable).parent / "data"
+else:
+    KB_DIR = Path(__file__).resolve().parent
 DB_DIR = KB_DIR / ".kbase"
 DB_PATH = DB_DIR / "index.db"
 

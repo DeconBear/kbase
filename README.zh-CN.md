@@ -35,6 +35,22 @@ python kb/desktop.py
 
 Marker 本地 PDF 引擎（PyTorch + Surya 模型）为**可选组件**，首次使用时在应用内按需下载。云端引擎（DocParser、DocMind）配置 API key 即可使用，无需本地 GPU。
 
+## 📦 打包与便携化使用
+
+KBase 支持使用 PyInstaller 打包为独立的 Windows 单文件可执行程序或目录：
+
+```bash
+python -m PyInstaller --noconfirm KBase.spec
+```
+
+**数据存储机制：**
+- **源码运行**（`python serve.py`）：所有的论文资料、笔记和数据库文件都会自动保存在项目的 `kb/` 目录下（`kb/articles`, `kb/notes`, `kb/.kbase`）。
+- **打包运行**（`KBase.exe`）：KBase 会在其自身所在的同级目录下，寻找或自动创建一个 `data` 文件夹来存储所有的运行时资料。
+
+**便携移动与数据迁移：**
+1. **多设备漫游**：由于所有数据集中存放在可执行文件旁边的 `data` 文件夹内，你可以将 `KBase.exe` 与 `data` 文件夹同时复制到 U盘、任意磁盘或其他 Windows 电脑上，直接双击运行，实现真正的“绿色便携式”个人知识库。
+2. **源码端向打包端迁移数据**：如果你最开始是在源码环境下使用，打包后请注意将原 `kb/` 目录下的 `articles/`、`notes/` 以及 `.kbase/` 三个文件夹完整复制到打包后生成的 `data/` 目录中，否则 `KBase.exe` 将会读取到一个新的空白文库。
+
 ## 解析引擎
 
 | 引擎 | 类型 | GPU | 说明 |
@@ -143,6 +159,24 @@ kbase/
 
 - **代码**：[GNU General Public License v3.0](https://www.gnu.org/licenses/gpl-3.0.html)
 - **模型**：[OpenRAIL-M](https://www.datalab.to/pricing)
+
+## Android 预览版
+
+`android/` 目录包含第一版独立 Android 应用。它不依赖 Python 后端服务器；用户在手机端填写 OpenAI-compatible `chat/completions` endpoint、API key 和模型名后，应用直接联网调用云端 API。
+
+当前 Android 范围：
+
+- 通过 OpenAI-compatible API 直接云端聊天
+- API key、模型名、endpoint 保存在手机本地
+- 可选择文本/Markdown/JSON/XML 文件作为聊天上下文
+- APK 暂不内置 Marker/PDF/OCR 解析管线
+
+可以用 Android Studio 打开 `android/` 目录构建，也可以在已配置 Android SDK 和 JDK 17 的命令行中执行：
+
+```powershell
+cd android
+.\gradlew.bat :app:assembleDebug
+```
 
 ## AI 请看这里
 
