@@ -770,13 +770,47 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             self._error(404, f"Not a file: {path}")
             return
         data = target.read_bytes()
-        ctype = "text/html; charset=utf-8" if target.suffix == ".html" else "application/octet-stream"
+        ctype = self._guess_content_type(target)
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(data)
+
+    @staticmethod
+    def _guess_content_type(target: Path) -> str:
+        suffix = target.suffix.lower()
+        if suffix == ".html":
+            return "text/html; charset=utf-8"
+        if suffix == ".pdf":
+            return "application/pdf"
+        if suffix == ".js":
+            return "application/javascript; charset=utf-8"
+        if suffix == ".css":
+            return "text/css; charset=utf-8"
+        if suffix in {".json", ".geojson"}:
+            return "application/json; charset=utf-8"
+        if suffix in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".svg"}:
+            return {
+                ".png": "image/png",
+                ".jpg": "image/jpeg",
+                ".jpeg": "image/jpeg",
+                ".gif": "image/gif",
+                ".webp": "image/webp",
+                ".bmp": "image/bmp",
+                ".ico": "image/x-icon",
+                ".svg": "image/svg+xml",
+            }[suffix]
+        if suffix in {".woff", ".woff2", ".ttf", ".otf", ".eot"}:
+            return {
+                ".woff": "font/woff",
+                ".woff2": "font/woff2",
+                ".ttf": "font/ttf",
+                ".otf": "font/otf",
+                ".eot": "application/vnd.ms-fontobject",
+            }[suffix]
+        return "application/octet-stream"
 
     # POST ---------------------------------------------------------------
 
