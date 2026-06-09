@@ -4077,7 +4077,7 @@ function toggleTOC() { document.getElementById('toc-panel').classList.toggle('vi
 function toggleNotes() {
   if (!currentArticle) return;
   const win = document.getElementById('floating-note-window');
-  if ((win && win.style.display === 'flex') || floatingPipWindow) {
+  if ((win && win.style.display === 'flex') || floatingNotePinned) {
     closeFloatingNote();
     document.getElementById('rbNotes').classList.remove('active');
   } else {
@@ -6230,7 +6230,6 @@ async function deleteAttachment(name) {
 // ==================== FLOATING NOTE ====================
 let floatingEditor = null;
 let currentFloatingNote = null;
-let floatingPipWindow = null;
 
 async function createArticleNote() {
   const name = await uiPrompt('请输入笔记文件名 (不含后缀):', '新笔记');
@@ -6308,10 +6307,7 @@ async function saveFloatingNote() {
 }
 
 function closeFloatingNote() {
-  if (floatingPipWindow) {
-    floatingPipWindow.close();
-    floatingPipWindow = null;
-  } else {
+  {
     document.getElementById('floating-note-window').style.display = 'none';
   }
   if (floatingEditor) {
@@ -6323,60 +6319,29 @@ function closeFloatingNote() {
   if (rbNotes) rbNotes.classList.remove('active');
 }
 
-// PiP / Document PiP Support
+// Toggle the floating note's "always on top within the app" state.
+// The previous implementation used Document Picture-in-Picture, which
+// moves the entire window out of the main app — users reported that the
+// editor (with its title bar) was being "taken away". This version just
+// bumps the z-index and adds a visual marker so the window stays put
+// inside the app but stays clickable above other panels.
+let floatingNotePinned = false;
+const PINNED_Z = 10000;
+const UNPINNED_Z = 9998;
+
 async function toggleFloatingNotePiP() {
-  if (!('documentPictureInPicture' in window)) {
-    uiAlert('当前浏览器不支持系统级置顶功能 (Document PiP)。请升级至最新版 Chrome (v116+)。');
-    return;
+  const win = document.getElementById('floating-note-window');
+  if (!win || win.style.display === 'none') return;
+  floatingNotePinned = !floatingNotePinned;
+  win.style.zIndex = floatingNotePinned ? PINNED_Z : UNPINNED_Z;
+  const btn = document.getElementById('floating-note-pip-btn');
+  if (btn) {
+    btn.textContent = floatingNotePinned ? '📍' : '📌';
+    btn.title = floatingNotePinned ? '已置顶（点击取消）' : '在主界面内置顶（不会进画中画）';
   }
-  try {
-    if (floatingPipWindow) {
-      floatingPipWindow.close();
-      return;
-    }
-    
-    floatingPipWindow = await documentPictureInPicture.requestWindow({
-      width: 600,
-      height: 700
-    });
-    
-    // Copy styles
-    [...document.styleSheets].forEach((styleSheet) => {
-      try {
-        const cssRules = [...styleSheet.cssRules].map((rule) => rule.cssText).join('');
-        const style = document.createElement('style');
-        style.textContent = cssRules;
-        floatingPipWindow.document.head.appendChild(style);
-      } catch(e){}
-    });
-    
-    const body = document.getElementById('floating-note-body');
-    const header = document.getElementById('floating-note-header');
-    
-    // Move body and header to PiP
-    floatingPipWindow.document.body.style.display = 'flex';
-    floatingPipWindow.document.body.style.flexDirection = 'column';
-    floatingPipWindow.document.body.style.height = '100vh';
-    floatingPipWindow.document.body.style.margin = '0';
-    floatingPipWindow.document.body.style.background = 'var(--surface)';
-    
-    floatingPipWindow.document.body.appendChild(header);
-    floatingPipWindow.document.body.appendChild(body);
-    
-    document.getElementById('floating-note-window').style.display = 'none';
-    
-    floatingPipWindow.addEventListener('pagehide', () => {
-      // Restore to DOM
-      const win = document.getElementById('floating-note-window');
-      win.insertBefore(header, win.firstChild);
-      win.insertBefore(body, document.getElementById('floating-note-resizer'));
-      win.style.display = 'flex';
-      floatingPipWindow = null;
-    });
-    
-  } catch(e) {
-    uiAlert('系统置顶请求失败: ' + e.message);
-  }
+  win.style.boxShadow = floatingNotePinned
+    ? '0 0 0 2px var(--emerald), var(--shadow-xl)'
+    : 'var(--shadow-xl)';
 }
 
 // Drag & Resize logic for DOM window
