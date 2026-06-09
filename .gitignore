@@ -211,3 +211,14 @@ kb/find_lines.py
 kb/rm_button.py
 data/
 playwright_test*
+
+kb/.kbase/
+kb/articles/
+kb/notes/
+kb/conversion_temp/
+kb/upload_queue/
+kb/*.json
+kb/app.log
+kb_backup.zip
+debug_screenshot.png
+kbase-alias-err.log
