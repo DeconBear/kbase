@@ -1,8 +1,8 @@
 """LLM + PyMuPDF calibration — chunk-based, no fragile protocol."""
 import re
-from pathlib import Path
 
 from llm_config import call_chat_completion
+import storage
 
 CALIBRATION_TAG_RE = re.compile(
     r"\[\s*/?\s*(?:FIX|FIXED|CORRECTED|CORRECTION|REWRITE|REWRITTEN|UNCHANGED|NO\s*CHANGE|KEEP|KEEP\s*ORIGINAL)\b[^\]\n]*\]",
@@ -79,7 +79,7 @@ def calibrate(article_id, log_callback=None):
         if log_callback:
             log_callback(msg)
 
-    art_dir = Path(__file__).parent / "articles" / article_id
+    art_dir = storage.ARTICLES_DIR / article_id
     md_path = art_dir / f"{article_id}.md"
     pdf_path = art_dir / "original.pdf"
 

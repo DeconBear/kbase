@@ -1,8 +1,0 @@
-{
-  "scripts": {
-    "test": "node scripts/check-inline-js.cjs"
-  },
-  "devDependencies": {
-    "playwright": "^1.60.0"
-  }
-}

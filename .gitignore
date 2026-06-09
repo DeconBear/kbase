@@ -191,34 +191,19 @@ android/local.properties
 # Model files (large)
 models/
 
-# KB temporary / generated
-debug_screenshot.png
-*_backup.zip
-kb/.kbase/
-kb/upload_queue/
-kb/conversion_temp/
-kb/articles/
-kb/app.log
-kb/kb-index.json
-kb/low_memory_config.json
-kb/llm_config.json
-kb/library_chat_sessions.json
-kb/notes/
-kb/notes_index.json
-kb/patch_*.py
-kb/fix_html.py
-kb/find_lines.py
-kb/rm_button.py
+# KB runtime data — generated under data/ on first launch
 data/
 playwright_test*
 
+# Legacy local-state files that may still be present in some clones
+# (will be removed once the user runs the migration script)
 kb/.kbase/
+kb/upload_queue/
+kb/conversion_temp/
 kb/articles/
 kb/notes/
-kb/conversion_temp/
-kb/upload_queue/
-kb/*.json
 kb/app.log
+kb/*.json
 kb_backup.zip
 debug_screenshot.png
 kbase-alias-err.log

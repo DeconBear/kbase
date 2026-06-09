@@ -8,11 +8,18 @@ import uuid
 from pathlib import Path
 
 from llm_config import call_chat_completion
-
-DIR = Path(__file__).parent.absolute()
-ARTICLES_DIR = DIR / "articles"
-INDEX_FILE = DIR / "kb-index.json"
-SESSIONS_FILE = DIR / "library_chat_sessions.json"
+import storage
+from storage import (
+    ARTICLES_DIR,
+    CHAT_SESSIONS_DIR,
+    CHAT_SESSIONS_INDEX,
+    delete_chat_session_file,
+    get_all_articles,
+    list_chat_sessions,
+    load_chat_session_file,
+    save_chat_index,
+    save_chat_session_file,
+)
 
 SESSION_LOCK = threading.Lock()
 MAX_CONTEXT_CHARS = 38000
@@ -38,15 +45,13 @@ def _estimate_tokens(text):
     return int(cn / 1.5 + other / 3) + 1
 
 
-import db_api
+from storage import get_all_notes, get_workspace_items, get_all_articles as load_index
 
-def load_index():
-    return db_api.get_all_articles()
 
 def get_workspace_items_dict(workspace_id):
     if not workspace_id:
         return None
-    items = db_api.get_workspace_items(workspace_id)
+    items = get_workspace_items(workspace_id)
     return { (item['item_type'], item['item_id']) for item in items }
 
 
@@ -83,52 +88,107 @@ def _make_session(title="新会话"):
 
 
 def _load_store_unlocked():
-    if SESSIONS_FILE.exists():
-        try:
-            data = json.loads(SESSIONS_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            data = {}
-    else:
-        data = {}
-    sessions = data.get("sessions")
-    if not isinstance(sessions, list):
-        sessions = []
+    storage.ensure_directories()
+    state = list_chat_sessions()
+    sessions_meta = state.get("sessions") or []
     cleaned_sessions = []
-    for session in sessions:
-        if not isinstance(session, dict):
+    for meta in sessions_meta:
+        if not isinstance(meta, dict):
             continue
-        sid = str(session.get("id", "")).strip()
+        sid = str(meta.get("id", "")).strip()
         if not sid:
             continue
+        session_file = load_chat_session_file(sid)
         messages = []
-        for msg in session.get("messages") or []:
+        for msg in session_file.get("messages") or []:
             if isinstance(msg, dict):
                 cleaned = _clean_message(msg)
                 if cleaned:
                     messages.append(cleaned)
         cleaned_sessions.append({
             "id": sid,
-            "title": str(session.get("title") or "新会话"),
-            "created_at": session.get("created_at") or _now(),
-            "updated_at": session.get("updated_at") or _now(),
+            "title": str(meta.get("title") or session_file.get("title") or "新会话"),
+            "created_at": meta.get("created_at") or session_file.get("created_at") or _now(),
+            "updated_at": meta.get("updated_at") or session_file.get("updated_at") or _now(),
             "messages": messages,
-            "memory_summary": str(session.get("memory_summary") or ""),
-            "compacted_count": int(session.get("compacted_count") or 0),
+            "memory_summary": session_file.get("memory_summary") or meta.get("memory_summary") or "",
+            "compacted_count": int(session_file.get("compacted_count") or meta.get("compacted_count") or 0),
         })
-
     if not cleaned_sessions:
-        cleaned_sessions.append(_make_session())
-    active = str(data.get("active_session_id") or cleaned_sessions[0]["id"])
+        default = _make_session()
+        cleaned_sessions.append(default)
+        save_chat_session_file(default["id"], default)
+    active = str(state.get("active_session_id") or cleaned_sessions[0]["id"])
     if active not in {s["id"] for s in cleaned_sessions}:
         active = cleaned_sessions[0]["id"]
+    index = {
+        "active_session_id": active,
+        "sessions": [
+            {
+                "id": s["id"],
+                "title": s["title"],
+                "created_at": s["created_at"],
+                "updated_at": s["updated_at"],
+                "compacted_count": s["compacted_count"],
+            }
+            for s in cleaned_sessions
+        ],
+    }
+    save_chat_index(index)
     return {"active_session_id": active, "sessions": cleaned_sessions}
 
 
-def _save_store_unlocked(store):
-    SESSIONS_FILE.write_text(
-        json.dumps(store, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+def _save_session_unlocked(session: dict) -> None:
+    save_chat_session_file(session["id"], session)
+    state = list_chat_sessions()
+    meta_list = state.get("sessions") or []
+    existing_ids = {m.get("id") for m in meta_list}
+    if session["id"] not in existing_ids:
+        meta_list.insert(0, {
+            "id": session["id"],
+            "title": session.get("title", ""),
+            "created_at": session.get("created_at", ""),
+            "updated_at": session.get("updated_at", ""),
+            "compacted_count": session.get("compacted_count", 0),
+        })
+    else:
+        for m in meta_list:
+            if m.get("id") == session["id"]:
+                m["title"] = session.get("title", m.get("title", ""))
+                m["updated_at"] = session.get("updated_at", m.get("updated_at", ""))
+                m["compacted_count"] = session.get("compacted_count", m.get("compacted_count", 0))
+                break
+    meta_list.sort(key=lambda m: m.get("updated_at", ""), reverse=True)
+    save_chat_index({"active_session_id": state.get("active_session_id", session["id"]), "sessions": meta_list})
+
+
+def _delete_session_unlocked(sid: str) -> None:
+    delete_chat_session_file(sid)
+    state = list_chat_sessions()
+    state["sessions"] = [m for m in (state.get("sessions") or []) if m.get("id") != sid]
+    save_chat_index(state)
+
+
+def _save_store_unlocked(store: dict) -> None:
+    """Persist the per-session files and update the index. ``store`` is the
+    in-memory representation that ``_load_store_unlocked`` returns."""
+    for session in store.get("sessions") or []:
+        save_chat_session_file(session["id"], session)
+    state = list_chat_sessions()
+    meta_list = []
+    for session in store.get("sessions") or []:
+        meta_list.append({
+            "id": session["id"],
+            "title": session.get("title", ""),
+            "created_at": session.get("created_at", ""),
+            "updated_at": session.get("updated_at", ""),
+            "compacted_count": session.get("compacted_count", 0),
+        })
+    meta_list.sort(key=lambda m: m.get("updated_at", ""), reverse=True)
+    save_chat_index({
+        "active_session_id": store.get("active_session_id", ""),
+        "sessions": meta_list,
+    })
 
 
 def _find_session(store, session_id):
@@ -203,6 +263,7 @@ def delete_session(session_id):
         if store["active_session_id"] == session_id:
             store["active_session_id"] = store["sessions"][0]["id"]
         active = _find_session(store, store["active_session_id"])
+        _delete_session_unlocked(session_id)
         _save_store_unlocked(store)
         return {
             "active_session_id": store["active_session_id"],
@@ -324,8 +385,10 @@ def search_library(query, limit=MAX_SOURCES, context_chars=MAX_CONTEXT_CHARS, wo
     ws_items = get_workspace_items_dict(workspace_id)
     
     idx = load_index()
-    articles = idx.get("articles") or []
-    notes = db_api.get_all_notes().get("notes") or []
+    articles = idx.get("articles") if isinstance(idx, dict) else idx
+    if not isinstance(articles, list):
+        articles = []
+    notes = get_all_notes() or []
     
     results = []
     source_no = 1

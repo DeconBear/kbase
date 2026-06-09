@@ -1,23 +1,29 @@
-import sys
+"""KBase desktop entry point.
+
+Launches the local HTTP server inside a pywebview window. In PyInstaller
+bundles, kb modules are pre-aliased so source-style bare imports still work.
+"""
+from __future__ import annotations
+
 import os
+import sys
 
-_SELF_DIR = os.path.dirname(os.path.abspath(__file__))
-
-# In PyInstaller frozen bundles, kb/ modules are registered as `kb.serve`,
-# `kb.llm_config`, etc., but the source uses bare imports like
-# `from llm_config import ...`. Pre-alias them in dependency order.
-if getattr(sys, 'frozen', False):
+# In PyInstaller frozen bundles the bare imports used throughout ``kb/``
+# (``import storage``, ``from llm_config import ...``) cannot find the
+# top-level names, because PyInstaller only registers them as
+# ``kb.storage`` etc. Pre-alias them BEFORE the first import.
+if getattr(sys, "frozen", False):
     _aliases = [
-        ('kb.utils_yaml',     'utils_yaml'),
-        ('kb.db_index',       'db_index'),
-        ('kb.db_api',         'db_api'),
-        ('kb.llm_config',     'llm_config'),
-        ('kb.calibrate',      'calibrate'),
-        ('kb.translate',      'translate'),
-        ('kb.document_info',  'document_info'),
-        ('kb.engines',        'engines'),
-        ('kb.library_chat',   'library_chat'),
-        ('kb.serve',          'serve'),
+        ("kb.utils_yaml", "utils_yaml"),
+        ("kb.storage", "storage"),
+        ("kb.engines._paths", "engines._paths"),
+        ("kb.llm_config", "llm_config"),
+        ("kb.calibrate", "calibrate"),
+        ("kb.translate", "translate"),
+        ("kb.document_info", "document_info"),
+        ("kb.engines", "engines"),
+        ("kb.library_chat", "library_chat"),
+        ("kb.serve", "serve"),
     ]
     for _fq_name, _alias in _aliases:
         try:
@@ -27,61 +33,73 @@ if getattr(sys, 'frozen', False):
             pass
 
     # Help pythonnet find the .NET runtime inside PyInstaller bundles
-    _dotnet_root = os.environ.get('DOTNET_ROOT', '')
+    _dotnet_root = os.environ.get("DOTNET_ROOT", "")
     if not _dotnet_root or not os.path.isdir(_dotnet_root):
-        for _c in [r'C:\Program Files\dotnet', r'C:\Program Files (x86)\dotnet']:
+        for _c in (r"C:\Program Files\dotnet", r"C:\Program Files (x86)\dotnet"):
             if os.path.isdir(_c):
-                os.environ['DOTNET_ROOT'] = _c
+                os.environ["DOTNET_ROOT"] = _c
                 break
 
+# Make sure the bundled kb package directory is importable in source mode.
+_SELF_DIR = os.path.dirname(os.path.abspath(__file__))
 if _SELF_DIR not in sys.path:
     sys.path.insert(0, _SELF_DIR)
 
-# Redirect stdout/stderr to a log file so we don't crash in windowless mode
-log_path = os.path.join(_SELF_DIR, 'app.log')
+import storage
+from storage import DATA_ROOT, LOGS_DIR
+
+storage.ensure_directories()
+storage.load_local_env()
+
+# Redirect stdout/stderr to a log file in the data dir so windowless mode
+# does not crash and PyInstaller temp cleanup does not eat the log.
+log_path = str(LOGS_DIR / "app.log")
 try:
-    sys.stdout = sys.stderr = open(log_path, 'a', encoding='utf-8')
+    sys.stdout = sys.stderr = open(log_path, "a", encoding="utf-8")
 except Exception:
     pass
 
+import ctypes
 import time
 import webview
-import ctypes
 
-# Use the aliased serve module (frozen) or bare import (dev mode)
-serve_mod = sys.modules.get('serve')
+serve_mod = sys.modules.get("serve")
 if serve_mod is None:
-    import serve as _serve
-    serve_mod = _serve
+    import serve as serve_mod  # type: ignore
 start_server = serve_mod.start_server
 PORT = serve_mod.PORT
 
-try:
-    # Tell Windows this is a separate app, not a generic Python process
-    myappid = 'kbase.desktop.app.1'
-    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
-except Exception:
-    pass
 
-def main():
+def _set_app_user_model_id() -> None:
+    if not sys.platform.startswith("win"):
+        return
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("kbase.desktop.app.1")
+    except Exception:
+        pass
+
+
+def main() -> None:
     print("Starting Knowledge Base server...")
     httpd = start_server()
 
+    _set_app_user_model_id()
     ts = int(time.time())
     url = f"http://localhost:{PORT}/?v={ts}"
     print(f"Opening desktop window at {url}")
 
     class Api:
-        def save_file(self, content, suggested_name):
+        def save_file(self, content: str, suggested_name: str):
             try:
                 result = webview.windows[0].create_file_dialog(
-                    webview.SAVE_DIALOG, directory='', save_filename=suggested_name)
+                    webview.SAVE_DIALOG, directory="", save_filename=suggested_name
+                )
                 if result:
-                    with open(result[0], 'wb') as f:
-                        f.write(content.encode('utf-8'))
+                    with open(result[0], "wb") as f:
+                        f.write(content.encode("utf-8"))
                     return True
-            except Exception as e:
-                return str(e)
+            except Exception as exc:  # noqa: BLE001
+                return str(exc)
             return False
 
     window = webview.create_window(
@@ -96,20 +114,15 @@ def main():
     )
 
     try:
-        icon_path = os.path.join(os.path.dirname(__file__), 'assets', 'kbase-logo.ico')
+        icon_path = os.path.join(_SELF_DIR, "assets", "kbase-logo.ico")
         webview.start(private_mode=False, debug=False, icon=icon_path)
-    except Exception as e:
-        print(f"Webview error: {e}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"Webview error: {exc}")
     finally:
         print("\nShutting down...")
         httpd.shutdown()
         print("Server stopped.")
 
-try:
-    if __name__ == "__main__":
-        main()
-except Exception as e:
-    import traceback
-    with open('kbase-fatal.log', 'w') as f:
-        f.write(traceback.format_exc())
-    print('FATAL ERROR WRITTEN TO kbase-fatal.log')
+
+if __name__ == "__main__":
+    main()

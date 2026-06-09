@@ -6,7 +6,10 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-ARTICLES_DIR = Path(__file__).parent.parent / "articles"
+from engines._paths import ARTICLES_DIR
+from storage import load_local_env
+
+load_local_env()
 
 API_BASE = os.environ.get("DOCPARSER_API_URL", "https://your-cloud-parser.com")
 
