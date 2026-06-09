@@ -209,3 +209,4 @@ kb/patch_*.py
 kb/fix_html.py
 kb/find_lines.py
 kb/rm_button.py
+data/
