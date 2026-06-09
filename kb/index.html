@@ -6,7 +6,6 @@
 <title>Knowledge Base - 论文知识库</title>
 <link rel="icon" type="image/png" href="assets/kbase-logo-64.png">
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
@@ -21,8 +20,6 @@
 <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11/languages/css.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11/languages/sql.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
-<script src="assets/docx/jszip.min.js"></script>
-<script src="assets/docx/docx-preview.min.js"></script>
 <style>
 :root{
   --bg:#0b1020;
@@ -451,8 +448,7 @@ select option{background:var(--surface-2);color:var(--text)}
 
 /* ===== Markdown content ===== */
 /* ===== Markdown Typography (dark-theme, Feishu inspired) ===== */
-.markdown-content,.vditor-ir{font-size:15px;line-height:1.82;color:var(--text) !important}
-.vditor-ir p, .vditor-ir span, .vditor-ir div { color: var(--text); }
+.markdown-content,.vditor-ir{font-size:15px;line-height:1.82;color:var(--text)}
 .markdown-content h1,.vditor-ir h1{font-size:1.75em;margin:1.3em 0 .5em;padding-bottom:.3em;border-bottom:none !important;color:var(--text-strong);font-weight:700;letter-spacing:-.3px;scroll-margin-top:16px}
 .markdown-content h2,.vditor-ir h2{font-size:1.35em;margin:1.4em 0 .4em;border-bottom:none !important;color:var(--text-strong);font-weight:600;letter-spacing:-.2px;scroll-margin-top:16px}
 .markdown-content h3,.vditor-ir h3{font-size:1.1em;margin:1.2em 0 .35em;color:var(--text-strong);font-weight:600;scroll-margin-top:16px}
@@ -713,93 +709,6 @@ body { display: flex !important; flex-direction: column !important; height: 100v
     #library-side.collapsed { width: 42px; }
     #pdf-column { display: none; }
   }
-
-  /* ===== LEFT SIDEBAR (Codex Style) ===== */
-  #left-sidebar {
-    width: 260px;
-    background: #f8f9fa;
-    border-right: 1px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    z-index: 10;
-  }
-  .ls-header {
-    padding: 16px;
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-  .ls-header h2 {
-    font-size: 16px; margin: 0; font-weight: 600; color: var(--text-strong);
-  }
-  .ls-new-btn {
-    width: calc(100% - 32px);
-    margin: 16px;
-    padding: 10px;
-    background: var(--accent);
-    color: white;
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-    font-weight: 500;
-    font-size: 14px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-  }
-  .ls-new-btn:hover {
-    background: #4752c4;
-  }
-  .ls-section {
-    flex: 1;
-    overflow-y: auto;
-    padding: 8px 16px;
-  }
-  .ls-section-title {
-    font-size: 12px;
-    color: var(--text-3);
-    margin: 16px 0 8px 0;
-    text-transform: uppercase;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-  }
-  .ls-item {
-    padding: 8px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 13px;
-    color: var(--text-2);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 4px;
-  }
-  .ls-item:hover {
-    background: #e9ecef;
-  }
-  .ls-item.active {
-    background: #e3e5e8;
-    color: var(--text-strong);
-    font-weight: 500;
-  }
-  .ls-item .icon { font-size: 14px; }
-  .ls-item .actions { margin-left: auto; opacity: 0; }
-  .ls-item:hover .actions { opacity: 1; }
-  
-  /* ===== Explorer Tree Styles ===== */
-  #explorer-tree { padding: 12px; font-size: 13px; color: var(--text-2); overflow-y: auto; flex:1;}
-  .explorer-section { margin-bottom: 24px; }
-  .explorer-section-title { font-size: 12px; font-weight: bold; margin-bottom: 8px; color: var(--text-3); text-transform: uppercase; }
-  .explorer-folder { margin-bottom: 8px; }
-  .explorer-folder-title { font-weight: 600; cursor: pointer; padding: 4px; border-radius: 4px; }
-  .explorer-folder-title:hover { background: var(--surface-hover); }
-  .explorer-folder-content { padding-left: 16px; margin-top: 4px; }
-  .explorer-item { display: flex; align-items: center; padding: 4px; cursor: pointer; border-radius: 4px; gap: 8px;}
-  .explorer-item:hover { background: var(--surface-hover); color: var(--accent); }
-  .explorer-checkbox { cursor: pointer; }
 </style>
 </head>
 <body>
@@ -815,149 +724,6 @@ body { display: flex !important; flex-direction: column !important; height: 100v
   </div>
 </div>
 <div id="views-container">
-<!-- ==================== READER VIEW ==================== -->
-<div id="reader-view" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="handleReaderDrop(event)">
-  <div id="reader-topbar">
-    <span style="color:var(--text-strong);font-size:13px;font-weight:600;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="readerTitle"></span>
-    <span id="readerVenue" style="font-size:11px;color:var(--text-3);margin-left:8px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="期刊/会议"></span>
-    <span id="readerDoi" style="font-size:11px;color:var(--text-3);margin-left:8px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="DOI"></span>
-    <span style="color:var(--border);margin:0 4px">|</span>
-    <button class="ctrl-btn active col-toggle" id="rbMD" onclick="toggleColumn('md')">📄 文献</button>
-    <button class="ctrl-btn active col-toggle" id="rbChat" onclick="toggleColumn('chat')">💬 AI 对话</button>
-    <button class="ctrl-btn active col-toggle" id="rbPDF" onclick="toggleColumn('pdf')">📑 PDF</button>
-    <button id="layout-btn" title="切换排版布局" onclick="cycleLayout()">🔄</button>
-    <span style="color:var(--border);margin:0 4px">|</span>
-    <button class="ctrl-btn" id="rbToc" onclick="toggleTOC()">📑 目录</button>
-    <button class="ctrl-btn" id="rbNotes" onclick="toggleNotes()">📝 笔记</button>
-    <button class="ctrl-btn" id="rbAttachments" onclick="toggleAttachments()">📎 素材</button>
-    <button class="ctrl-btn" id="rbEdit" onclick="toggleEdit()">✏️ 编辑</button>
-    <button class="btn-rose" id="rbTranslate" onclick="openTranslateModal()">🌐 翻译</button>
-    <button class="ctrl-btn" id="rbShowOrig" onclick="showOriginal()" style="display:none">📄 原文</button>
-    <button class="ctrl-btn active" id="rbShowTrans" onclick="showTranslation()" style="display:none">🌐 译文</button>
-    <button class="btn-emerald" id="rbSummarize" onclick="doSummarize()">🤖 总结</button>
-    <button class="btn-outline" id="rbReconvert" onclick="showReconvert()" style="display:none">🔄 解析</button>
-    <button class="btn-outline" id="rbCalibrate" onclick="doCalibrate()" style="display:none">🔍 校准</button>
-    <span id="statusMsg"></span>
-  </div>
-  <div id="reader-main">
-    <!-- MD Column -->
-    <div id="md-column">
-      <div id="toc-panel"><h4>目录</h4><div id="toc-list"></div></div>
-      <div id="md-scroll">
-        <div id="md-container" style="display:none">
-          <div id="md-loading"><div class="spinner"></div>加载中...</div>
-          <div id="md-error">❌ 加载失败</div>
-          <div class="markdown-content" id="md-content"></div>
-        </div>
-      </div>
-
-      <div id="attachments-panel" style="display:none; flex-direction:column; border-left:1px solid var(--border); background:var(--surface); width:280px; flex-shrink:0; overflow:hidden;">
-        <div style="padding:10px 14px;border-bottom:1px solid var(--border);font-weight:600;font-size:13px;color:var(--text-strong);display:flex;justify-content:space-between;align-items:center">
-          <span>📎 相关素材与笔记</span>
-          <button onclick="toggleAttachments()" style="background:none;border:none;color:var(--text-3);cursor:pointer;font-size:14px">✕</button>
-        </div>
-        <div style="padding:8px 14px;border-bottom:1px solid var(--border);display:flex;gap:8px">
-          <button class="btn-emerald" style="flex:1;font-size:12px;padding:6px" onclick="document.getElementById('attachFileInput').click()">＋ 上传文件</button>
-          <button class="btn-outline" style="flex:1;font-size:12px;padding:6px" onclick="createArticleNote()">📝 新建笔记</button>
-          <input type="file" id="attachFileInput" style="display:none" multiple onchange="handleAttachUpload(event)">
-        </div>
-        <div id="attachments-list" style="flex:1;overflow-y:auto;padding:8px 14px;display:flex;flex-direction:column;gap:8px;">
-          <!-- Items will be generated here -->
-        </div>
-      </div>
-      <div id="summary-panel">
-        <div id="summary-header">
-          <h4>🤖 总结</h4>
-          <div style="display:flex;align-items:center;gap:8px">
-            <button onclick="doSummarize(true)" title="重新生成总结" style="background:none;border:none;color:var(--text-3);cursor:pointer;font-size:14px">↻</button>
-            <button onclick="toggleSummary()" title="关闭总结" style="background:none;border:none;color:var(--text-3);cursor:pointer;font-size:14px">✕</button>
-          </div>
-        </div>
-        <div id="summary-body"></div>
-      </div>
-    </div>
-
-    <!-- Divider MD ↔ PDF -->
-    <div class="resize-handle" id="handle1"></div>
-
-    <!-- PDF Column -->
-    <div id="pdf-column">
-      <div id="pdf-container">
-        <div id="pdf-placeholder"><div class="icon">📑</div><div>PDF 预览</div></div>
-        <iframe id="pdf-embed" style="display:none"></iframe>
-        <div id="docx-container" style="display:none;width:100%;height:100%;overflow:auto;background:var(--surface)"></div>
-        <div id="code-container" style="display:none;width:100%;height:100%;overflow:auto;background:var(--surface);padding:16px;">
-            <pre style="margin:0;"><code id="code-embed" style="font-family:monospace;font-size:13px;line-height:1.5;"></code></pre>
-        </div>
-      </div>
-      <div id="pdf-gpu-warning" style="display:none;position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(15,23,42,.92);flex-direction:column;align-items:center;justify-content:center;z-index:10;text-align:center;padding:30px">
-        <div style="font-size:3em;margin-bottom:12px;opacity:.6">🖥️</div>
-        <div style="color:var(--text-strong);font-size:14px;font-weight:600;margin-bottom:8px">GPU 显存被解析占用</div>
-        <div style="color:var(--text-3);font-size:12px;line-height:1.7;max-width:280px">
-          Marker 正在使用 GPU 解析 PDF，显存已占满，PDF 暂时无法渲染。<br>
-          解析完成后自动恢复。<br><br>
-          💡 可在 <b>设置</b> 中开启「保护 PDF 可读」<br>解析时自动使用 CPU 以保证 PDF 正常显示。
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
-
-<!-- ==================== NOTES VIEW ==================== -->
-<div id="notes-view">
-  <div id="notes-topbar">
-    <div id="notes-topbar-left">
-      
-      <span id="notes-breadcrumb"></span>
-      <span id="notes-save-indicator" style="font-size:11px;color:var(--text-3)"></span>
-    </div>
-    <div id="notes-topbar-right">
-      <button class="ctrl-btn" onclick="openDailyNote()" title="每日笔记">📅</button>
-      <button class="ctrl-btn" onclick="toggleShortcutHelp(event)" title="快捷键帮助">⌨️</button>
-      <button class="btn-emerald" onclick="createNote()">＋ 新建笔记</button>
-      <button class="ctrl-btn" onclick="saveCurrentNote()">💾 保存</button>
-    </div>
-  </div>
-  <div id="notes-main">
-    <div id="notes-sidebar">
-      <div id="notes-sidebar-header">
-        <span>📝 笔记</span>
-        <button class="icon-btn" onclick="createNote()" title="新建笔记">＋</button>
-      </div>
-      <div id="notes-search-box" style="padding:8px 12px;border-bottom:1px solid var(--border)">
-        <input type="text" id="notes-search-input" placeholder="🔍 搜索笔记..." style="width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;font-size:12px;color:var(--text);outline:none" oninput="filterNotesTree(this.value)">
-      </div>
-      <div id="notes-tree"></div>
-      <div id="notes-sidebar-footer" style="padding:8px 12px;border-top:1px solid var(--border);font-size:11px;color:var(--text-3);display:flex;justify-content:space-between;align-items:center">
-        <span id="notes-count">0 笔记</span>
-        <button class="icon-btn" onclick="createNote()" title="新建" style="width:24px;height:24px;font-size:12px">＋</button>
-      </div>
-    </div>
-    <div id="notes-resize-handle" onmousedown="startNotesResize(event)"></div>
-    <div id="notes-editor-column">
-      <div id="notes-editor-breadcrumb" style="display:none;padding:6px 16px;font-size:12px;color:var(--text-3);border-bottom:1px solid var(--border);background:var(--surface);flex-direction:column;gap:4px">
-        <span id="notes-editor-breadcrumb-text"></span>
-        <div id="note-tags-row" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;min-height:18px"></div>
-      </div>
-      <div id="notes-editor-container"></div>
-    </div>
-    <div id="notes-outline-panel" style="width:220px;flex-shrink:0;border-left:1px solid var(--border);background:var(--surface);display:flex;flex-direction:column;overflow:hidden">
-      <div style="padding:10px 14px;border-bottom:1px solid var(--border);font-weight:600;font-size:12px;color:var(--text-2);display:flex;justify-content:space-between;align-items:center">
-        <span>📋 大纲</span>
-        <button onclick="toggleNoteOutline()" style="background:none;border:none;color:var(--text-3);cursor:pointer;font-size:12px">✕</button>
-      </div>
-      <div id="note-outline-list" style="flex:1;overflow-y:auto;padding:6px 0;font-size:12px;min-height:80px"></div>
-      <div style="padding:10px 14px;border-top:1px solid var(--border);border-bottom:1px solid var(--border);font-weight:600;font-size:12px;color:var(--text-2);display:flex;justify-content:space-between;align-items:center">
-        <span>🔗 反向链接</span>
-      </div>
-      <div id="note-backlinks-list" style="flex:1;overflow-y:auto;padding:6px 0;font-size:12px;min-height:80px">
-        <div style="padding:12px 16px;font-size:12px;color:var(--text-3)">打开笔记查看反向链接</div>
-      </div>
-    </div>
-  </div>
-</div>
-
 
 
 <!-- ==================== LIBRARY VIEW ==================== -->
@@ -1005,27 +771,6 @@ body { display: flex !important; flex-direction: column !important; height: 100v
             <span class="stats" id="selectionStats" style="display:none"></span>
           </div>
         </div>
-
-        <div id="library-tabs-switcher" style="display:flex; gap:8px; margin-bottom:8px; padding:0 16px;">
-            <button id="tab-btn-grid" class="ctrl-btn active" onclick="switchLibraryTab('grid')">所有资料</button>
-            <button id="tab-btn-tree" class="ctrl-btn" onclick="switchLibraryTab('tree')">知识库目录</button>
-        </div>
-        <script>
-        function switchLibraryTab(tab) {
-            if (tab === 'grid') {
-                document.getElementById('library-grid').style.display = 'grid';
-                document.getElementById('explorer-tree').style.display = 'none';
-                document.getElementById('tab-btn-grid').classList.add('active');
-                document.getElementById('tab-btn-tree').classList.remove('active');
-            } else {
-                document.getElementById('library-grid').style.display = 'none';
-                document.getElementById('explorer-tree').style.display = 'block';
-                document.getElementById('tab-btn-grid').classList.remove('active');
-                document.getElementById('tab-btn-tree').classList.add('active');
-            }
-        }
-        </script>
-        <div id="explorer-tree" style="display:none;"></div>
         <div id="library-grid"></div>
         <div id="board-view"></div>
       </div>
@@ -1139,50 +884,6 @@ body { display: flex !important; flex-direction: column !important; height: 100v
       </div>
     </div>
 
-    <div class="settings-section" id="visionOcrSettingsSection">
-      <div class="settings-section-head">
-        <h4>视觉大模型 OCR 配置</h4>
-      </div>
-      <div class="settings-grid">
-        <div class="settings-field">
-          <label for="visionProviderSelect">配置列表</label>
-          <select id="visionProviderSelect" onchange="onVisionProviderChange()"></select>
-        </div>
-        <div class="settings-field">
-          <label for="visionProviderName">配置名称</label>
-          <input type="text" id="visionProviderName" placeholder="例如：我的 DeepSeek" onchange="saveVisionProviderToMemory()">
-        </div>
-      </div>
-      <div class="settings-grid">
-        <div class="settings-field">
-          <label for="ocrApiType">API 类型</label>
-          <select id="ocrApiType" onchange="saveVisionProviderToMemory()">
-            <option value="openai">OpenAI 兼容 (DeepSeek/GPT-4o/Qwen 等)</option>
-            <option value="anthropic">Anthropic (Claude 3.5)</option>
-            <option value="minimax">Minimax</option>
-          </select>
-        </div>
-        <div class="settings-field">
-          <label for="ocrModelName">模型名称</label>
-          <input type="text" id="ocrModelName" placeholder="例如 deepseek-vl, gpt-4o" onchange="saveVisionProviderToMemory()">
-        </div>
-      </div>
-      <div class="settings-field">
-        <label for="ocrApiUrl">API Base URL</label>
-        <input type="url" id="ocrApiUrl" placeholder="例如 https://api.openai.com/v1" onchange="saveVisionProviderToMemory()">
-      </div>
-      <div class="settings-field">
-        <label for="ocrApiKey">API Key</label>
-        <input type="password" id="ocrApiKey" autocomplete="off" placeholder="输入 API Key" onchange="saveVisionProviderToMemory()">
-      </div>
-      <div class="llm-actions">
-        <button class="btn-outline" onclick="addVisionProvider()">新增配置</button>
-        <div class="llm-actions-right">
-          <button class="btn-outline" onclick="deleteVisionProvider()">删除配置</button>
-        </div>
-      </div>
-    </div>
-
     <div style="display:flex;gap:10px;justify-content:space-between;align-items:center;margin-top:20px">
       <span id="settingsSaved" style="font-size:11px;color:var(--emerald);display:none">✅ 已保存</span>
       <div style="display:flex;gap:10px;margin-left:auto">
@@ -1255,9 +956,93 @@ body { display: flex !important; flex-direction: column !important; height: 100v
   </div>
 </div>
 
+<!-- ==================== READER VIEW ==================== -->
+<div id="reader-view" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="handleReaderDrop(event)">
+  <div id="reader-topbar">
+    <span style="color:var(--text-strong);font-size:13px;font-weight:600;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="readerTitle"></span>
+    <span id="readerVenue" style="font-size:11px;color:var(--text-3);margin-left:8px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="期刊/会议"></span>
+    <span id="readerDoi" style="font-size:11px;color:var(--text-3);margin-left:8px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="DOI"></span>
+    <span style="color:var(--border);margin:0 4px">|</span>
+    <button class="ctrl-btn active col-toggle" id="rbMD" onclick="toggleColumn('md')">📄 文献</button>
+    <button class="ctrl-btn active col-toggle" id="rbChat" onclick="toggleColumn('chat')">💬 AI 对话</button>
+    <button class="ctrl-btn active col-toggle" id="rbPDF" onclick="toggleColumn('pdf')">📑 PDF</button>
+    <button id="layout-btn" title="切换排版布局" onclick="cycleLayout()">🔄</button>
+    <span style="color:var(--border);margin:0 4px">|</span>
+    <button class="ctrl-btn" id="rbToc" onclick="toggleTOC()">📑 目录</button>
+    <button class="ctrl-btn" id="rbNotes" onclick="toggleNotes()">📝 笔记</button>
+    <button class="ctrl-btn" id="rbAttachments" onclick="toggleAttachments()">📎 素材</button>
+    <button class="ctrl-btn" id="rbEdit" onclick="toggleEdit()">✏️ 编辑</button>
+    <button class="btn-rose" id="rbTranslate" onclick="openTranslateModal()">🌐 翻译</button>
+    <button class="ctrl-btn" id="rbShowOrig" onclick="showOriginal()" style="display:none">📄 原文</button>
+    <button class="ctrl-btn active" id="rbShowTrans" onclick="showTranslation()" style="display:none">🌐 译文</button>
+    <button class="btn-emerald" id="rbSummarize" onclick="doSummarize()">🤖 总结</button>
+    <button class="btn-outline" id="rbReconvert" onclick="showReconvert()" style="display:none">🔄 解析</button>
+    <button class="btn-outline" id="rbCalibrate" onclick="doCalibrate()" style="display:none">🔍 校准</button>
+    <span id="statusMsg"></span>
+  </div>
+  <div id="reader-main">
+    <!-- MD Column -->
+    <div id="md-column">
+      <div id="toc-panel"><h4>目录</h4><div id="toc-list"></div></div>
+      <div id="md-scroll">
+        <div id="md-container" style="display:none">
+          <div id="md-loading"><div class="spinner"></div>加载中...</div>
+          <div id="md-error">❌ 加载失败</div>
+          <div class="markdown-content" id="md-content"></div>
+        </div>
+      </div>
+
+      <div id="attachments-panel" style="display:none; flex-direction:column; border-left:1px solid var(--border); background:var(--surface); width:280px; flex-shrink:0; overflow:hidden;">
+        <div style="padding:10px 14px;border-bottom:1px solid var(--border);font-weight:600;font-size:13px;color:var(--text-strong);display:flex;justify-content:space-between;align-items:center">
+          <span>📎 相关素材与笔记</span>
+          <button onclick="toggleAttachments()" style="background:none;border:none;color:var(--text-3);cursor:pointer;font-size:14px">✕</button>
+        </div>
+        <div style="padding:8px 14px;border-bottom:1px solid var(--border);display:flex;gap:8px">
+          <button class="btn-emerald" style="flex:1;font-size:12px;padding:6px" onclick="document.getElementById('attachFileInput').click()">＋ 上传文件</button>
+          <button class="btn-outline" style="flex:1;font-size:12px;padding:6px" onclick="createArticleNote()">📝 新建笔记</button>
+          <input type="file" id="attachFileInput" style="display:none" multiple onchange="handleAttachUpload(event)">
+        </div>
+        <div id="attachments-list" style="flex:1;overflow-y:auto;padding:8px 14px;display:flex;flex-direction:column;gap:8px;">
+          <!-- Items will be generated here -->
+        </div>
+      </div>
+      <div id="summary-panel">
+        <div id="summary-header">
+          <h4>🤖 总结</h4>
+          <div style="display:flex;align-items:center;gap:8px">
+            <button onclick="doSummarize(true)" title="重新生成总结" style="background:none;border:none;color:var(--text-3);cursor:pointer;font-size:14px">↻</button>
+            <button onclick="toggleSummary()" title="关闭总结" style="background:none;border:none;color:var(--text-3);cursor:pointer;font-size:14px">✕</button>
+          </div>
+        </div>
+        <div id="summary-body"></div>
+      </div>
+    </div>
+
+    <!-- Divider MD ↔ PDF -->
+    <div class="resize-handle" id="handle1"></div>
+
+    <!-- PDF Column -->
+    <div id="pdf-column">
+      <div id="pdf-container">
+        <div id="pdf-placeholder"><div class="icon">📑</div><div>PDF 预览</div></div>
+        <iframe id="pdf-embed" style="display:none"></iframe>
+      </div>
+      <div id="pdf-gpu-warning" style="display:none;position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(15,23,42,.92);flex-direction:column;align-items:center;justify-content:center;z-index:10;text-align:center;padding:30px">
+        <div style="font-size:3em;margin-bottom:12px;opacity:.6">🖥️</div>
+        <div style="color:var(--text-strong);font-size:14px;font-weight:600;margin-bottom:8px">GPU 显存被解析占用</div>
+        <div style="color:var(--text-3);font-size:12px;line-height:1.7;max-width:280px">
+          Marker 正在使用 GPU 解析 PDF，显存已占满，PDF 暂时无法渲染。<br>
+          解析完成后自动恢复。<br><br>
+          💡 可在 <b>设置</b> 中开启「保护 PDF 可读」<br>解析时自动使用 CPU 以保证 PDF 正常显示。
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+  <div class="resize-handle" id="global-chat-handle" style="display:none;"></div>
   
   <!-- Chat Column (Global) -->
-  <div class="resize-handle" id="global-chat-handle" style="display:none;"></div>
   <div id="chat-column" style="display:none;">
     <div id="chat-header">
       <h4>💬 AI 对话</h4>
@@ -1279,6 +1064,60 @@ body { display: flex !important; flex-direction: column !important; height: 100v
       <button id="chat-send" onclick="sendChat()">➤</button>
     </div>
   </div>
+
+<!-- ==================== NOTES VIEW ==================== -->
+<div id="notes-view">
+  <div id="notes-topbar">
+    <div id="notes-topbar-left">
+      <button class="ctrl-btn" onclick="backFromNotesView()">← 文库</button>
+      <span id="notes-breadcrumb"></span>
+      <span id="notes-save-indicator" style="font-size:11px;color:var(--text-3)"></span>
+    </div>
+    <div id="notes-topbar-right">
+      <button class="ctrl-btn" onclick="openDailyNote()" title="每日笔记">📅</button>
+      <button class="ctrl-btn" onclick="toggleShortcutHelp(event)" title="快捷键帮助">⌨️</button>
+      <button class="btn-emerald" onclick="createNote()">＋ 新建笔记</button>
+      <button class="ctrl-btn" onclick="saveCurrentNote()">💾 保存</button>
+    </div>
+  </div>
+  <div id="notes-main">
+    <div id="notes-sidebar">
+      <div id="notes-sidebar-header">
+        <span>📝 笔记</span>
+        <button class="icon-btn" onclick="createNote()" title="新建笔记">＋</button>
+      </div>
+      <div id="notes-search-box" style="padding:8px 12px;border-bottom:1px solid var(--border)">
+        <input type="text" id="notes-search-input" placeholder="🔍 搜索笔记..." style="width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;font-size:12px;color:var(--text);outline:none" oninput="filterNotesTree(this.value)">
+      </div>
+      <div id="notes-tree"></div>
+      <div id="notes-sidebar-footer" style="padding:8px 12px;border-top:1px solid var(--border);font-size:11px;color:var(--text-3);display:flex;justify-content:space-between;align-items:center">
+        <span id="notes-count">0 笔记</span>
+        <button class="icon-btn" onclick="createNote()" title="新建" style="width:24px;height:24px;font-size:12px">＋</button>
+      </div>
+    </div>
+    <div id="notes-resize-handle" onmousedown="startNotesResize(event)"></div>
+    <div id="notes-editor-column">
+      <div id="notes-editor-breadcrumb" style="display:none;padding:6px 16px;font-size:12px;color:var(--text-3);border-bottom:1px solid var(--border);background:var(--surface);flex-direction:column;gap:4px">
+        <span id="notes-editor-breadcrumb-text"></span>
+        <div id="note-tags-row" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;min-height:18px"></div>
+      </div>
+      <div id="notes-editor-container"></div>
+    </div>
+    <div id="notes-outline-panel" style="width:220px;flex-shrink:0;border-left:1px solid var(--border);background:var(--surface);display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:10px 14px;border-bottom:1px solid var(--border);font-weight:600;font-size:12px;color:var(--text-2);display:flex;justify-content:space-between;align-items:center">
+        <span>📋 大纲</span>
+        <button onclick="toggleNoteOutline()" style="background:none;border:none;color:var(--text-3);cursor:pointer;font-size:12px">✕</button>
+      </div>
+      <div id="note-outline-list" style="flex:1;overflow-y:auto;padding:6px 0;font-size:12px;min-height:80px"></div>
+      <div style="padding:10px 14px;border-top:1px solid var(--border);border-bottom:1px solid var(--border);font-weight:600;font-size:12px;color:var(--text-2);display:flex;justify-content:space-between;align-items:center">
+        <span>🔗 反向链接</span>
+      </div>
+      <div id="note-backlinks-list" style="flex:1;overflow-y:auto;padding:6px 0;font-size:12px;min-height:80px">
+        <div style="padding:12px 16px;font-size:12px;color:var(--text-3)">打开笔记查看反向链接</div>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- ==================== FLOATING NOTE ==================== -->
 <div id="floating-note-window" style="display:none; position:fixed; top:100px; left:100px; width:500px; height:600px; background:var(--surface); border-radius:var(--radius-lg); box-shadow:var(--shadow-xl); border:1px solid var(--border); z-index:9998; flex-direction:column; overflow:hidden;">
@@ -1319,7 +1158,6 @@ body { display: flex !important; flex-direction: column !important; height: 100v
 (function checkDeps() {
   const missing = [];
   if (typeof marked === 'undefined') missing.push('marked.js (Markdown 渲染)');
-  if (typeof DOMPurify === 'undefined') missing.push('DOMPurify (HTML 安全净化)');
   if (typeof Vditor === 'undefined') missing.push('Vditor (编辑器)');
   if (typeof katex === 'undefined') missing.push('KaTeX (数学公式)');
   if (typeof hljs === 'undefined') missing.push('highlight.js (代码高亮)');
@@ -1466,9 +1304,7 @@ const TabManager = {
        cycleLayout(); cycleLayout(); cycleLayout(); // Ensure layout applies correctly
     } else if (tab.type === 'note' || tab.type === 'md') {
        document.getElementById('notes-view').classList.add('active');
-       if (window.currentNoteId !== tab.data.id) {
-           openNote(tab.data.id);
-       }
+       // init notes view
     } else if (tab.type === 'url' || tab.type === 'pdf_direct') {
        const iframe = document.getElementById('iframe-' + id);
        if (iframe) iframe.classList.add('active');
@@ -1539,9 +1375,7 @@ const DEFAULT_SETTINGS = {
   protect_pdf: true,
   auto_extract_info: true,
   theme: 'light',
-  settings_version: SETTINGS_VERSION,
-  vision_providers: [{ id: 'default', name: '默认配置', type: 'openai', url: '', key: '', model: '' }],
-  active_vision_provider: 'default'
+  settings_version: SETTINGS_VERSION
 };
 let serverSettings = {};
 
@@ -1552,136 +1386,14 @@ function normalizeSettings(raw={}) {
   settings.device = settings.device === 'cpu' ? 'cpu' : 'cuda';
   settings.protect_pdf = settings.protect_pdf !== false;
   settings.auto_extract_info = settings.auto_extract_info !== false;
-  settings.vision_providers = normalizeVisionProviders(settings.vision_providers);
-  settings.active_vision_provider = settings.active_vision_provider || 'default';
-  if (!settings.vision_providers.some(p => p.id === settings.active_vision_provider)) {
-    settings.active_vision_provider = settings.vision_providers[0]?.id || 'default';
-  }
   settings.settings_version = SETTINGS_VERSION;
   return settings;
-}
-
-function normalizeVisionProviders(providers) {
-  const source = Array.isArray(providers) && providers.length
-    ? providers
-    : [{ id: 'default', name: '默认配置', type: 'openai', url: '', model: '' }];
-  return source.map((p, idx) => ({
-    id: String(p?.id || `provider_${idx + 1}`).replace(/[^A-Za-z0-9_-]+/g, '_') || `provider_${idx + 1}`,
-    name: p?.name || '未命名配置',
-    type: p?.type || 'openai',
-    url: p?.url || '',
-    model: p?.model || '',
-    key: p?.key || '',
-    key_set: !!(p?.key_set || p?.key),
-    key_hint: p?.key_hint || ''
-  }));
-}
-
-function publicSettingsForStorage(settings) {
-  const clean = {...settings};
-  clean.vision_providers = normalizeVisionProviders(clean.vision_providers).map(({key, ...provider}) => provider);
-  return clean;
-}
-
-function settingsPayloadForServer(settings) {
-  const payload = publicSettingsForStorage(settings);
-  payload.vision_providers = normalizeVisionProviders(settings.vision_providers).map(provider => ({
-    id: provider.id,
-    name: provider.name,
-    type: provider.type,
-    url: provider.url,
-    model: provider.model,
-    key: provider.key || '',
-    keep_key: !provider.key
-  }));
-  return payload;
 }
 
 function readLocalSettings() {
   try {
     return JSON.parse(localStorage.getItem('kb-settings')) || null;
   } catch(e) { return null; }
-}
-
-
-let visionProviders = [];
-let activeVisionProvider = '';
-
-function renderVisionProviders() {
-  const sel = document.getElementById('visionProviderSelect');
-  if (!sel) return;
-  sel.innerHTML = '';
-  if (!visionProviders || visionProviders.length === 0) {
-    visionProviders = [{ id: 'default', name: '默认配置', type: 'openai', url: '', key: '', model: '' }];
-    activeVisionProvider = 'default';
-  }
-  visionProviders.forEach(p => {
-    const opt = document.createElement('option');
-    opt.value = p.id;
-    opt.textContent = p.name || '未命名配置';
-    if (p.id === activeVisionProvider) opt.selected = true;
-    sel.appendChild(opt);
-  });
-  
-  const active = visionProviders.find(p => p.id === activeVisionProvider) || visionProviders[0];
-  if (active) {
-    document.getElementById('visionProviderName').value = active.name || '';
-    document.getElementById('ocrApiType').value = active.type || 'openai';
-    document.getElementById('ocrModelName').value = active.model || '';
-    document.getElementById('ocrApiUrl').value = active.url || '';
-    const keyInput = document.getElementById('ocrApiKey');
-    keyInput.value = active.key || '';
-    keyInput.placeholder = active.key_set ? `已保存 ${active.key_hint || ''}，留空保留` : '输入 API Key';
-  }
-}
-
-function onVisionProviderChange() {
-  const sel = document.getElementById('visionProviderSelect');
-  if (!sel) return;
-  activeVisionProvider = sel.value;
-  renderVisionProviders();
-}
-
-function saveVisionProviderToMemory() {
-  const active = visionProviders.find(p => p.id === activeVisionProvider);
-  if (active) {
-    active.name = document.getElementById('visionProviderName').value.trim();
-    active.type = document.getElementById('ocrApiType').value;
-    active.model = document.getElementById('ocrModelName').value.trim();
-    active.url = document.getElementById('ocrApiUrl').value.trim();
-    const key = document.getElementById('ocrApiKey').value.trim();
-    if (key) {
-      active.key = key;
-      active.key_set = true;
-      active.key_hint = '';
-    } else {
-      delete active.key;
-    }
-    
-    // Update select option text
-    const sel = document.getElementById('visionProviderSelect');
-    if (sel && sel.options[sel.selectedIndex]) {
-        sel.options[sel.selectedIndex].textContent = active.name || '未命名配置';
-    }
-  }
-}
-
-function addVisionProvider() {
-  const newId = 'vp_' + Date.now();
-  visionProviders.push({ id: newId, name: '新配置', type: 'openai', url: '', model: '', key_set: false });
-  activeVisionProvider = newId;
-  renderVisionProviders();
-}
-
-function deleteVisionProvider() {
-  if (visionProviders.length <= 1) {
-    alert("至少需要保留一个配置");
-    return;
-  }
-  if (!confirm("确定删除当前配置吗？")) return;
-  visionProviders = visionProviders.filter(p => p.id !== activeVisionProvider);
-  activeVisionProvider = visionProviders[0].id;
-  renderVisionProviders();
 }
 
 function loadSettings() {
@@ -1713,11 +1425,18 @@ function applyTheme(theme) {
 function saveSettings(s) {
   s = normalizeSettings(s);
   applyTheme(s.theme);
-  localStorage.setItem('kb-settings', JSON.stringify(publicSettingsForStorage(s)));
-  const req = fetch('/api/settings', {
+  localStorage.setItem('kb-settings', JSON.stringify(s));
+  // Also persist to server config file
+  const req = fetch('/save', {
     method:'PUT',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify(settingsPayloadForServer(s))
+    body:JSON.stringify({path:'low_memory_config.json', content:JSON.stringify({
+      device: s.protect_pdf ? 'cpu' : s.device,
+      protect_pdf: s.protect_pdf,
+      auto_extract_info: !!s.auto_extract_info,
+      theme: s.theme,
+      settings_version: SETTINGS_VERSION
+    }, null, 2)})
   }).catch(()=>{});
   const saved = document.getElementById('settingsSaved');
   if (saved) {
@@ -1904,9 +1623,6 @@ async function showSettings() {
   document.getElementById('setAutoExtractInfo').checked = s.auto_extract_info !== false;
   updateRadioCards();
   updateThemeCards();
-  visionProviders = s.vision_providers || [{ id: 'default', name: '默认配置', type: 'openai', url: '', key: '', model: '' }];
-  activeVisionProvider = s.active_vision_provider || visionProviders[0]?.id || 'default';
-  renderVisionProviders();
   await ensureLLMConfigLoaded();
   renderLLMSettings();
   document.getElementById('settingsModal').classList.add('active');
@@ -1943,9 +1659,7 @@ function readSettingsFromForm() {
     device: document.querySelector('input[name="device"]:checked')?.value || 'cuda',
     protect_pdf: document.getElementById('setProtectPdf').checked,
     auto_extract_info: document.getElementById('setAutoExtractInfo')?.checked || false,
-    theme: document.querySelector('input[name="theme"]:checked')?.value || 'light',
-    vision_providers: visionProviders,
-    active_vision_provider: activeVisionProvider
+    theme: document.querySelector('input[name="theme"]:checked')?.value || 'light'
   };
 }
 
@@ -2967,7 +2681,6 @@ async function initArticleTab(tabId, tabData) {
           <select id="engine-select">
             <option value="marker">Marker（本地）</option>
             <option value="docmind">DocMind（云端 API）</option>
-            <option value="vision">Vision OCR (大视觉模型)</option>
             <option value="docparser">DocParser（云端 GPU）</option>
           </select>
           <button class="btn-emerald btn-convert" onclick="startConvert()">开始解析</button>
@@ -2980,7 +2693,6 @@ async function initArticleTab(tabId, tabData) {
     const descs = {
       marker: 'Marker：本地 Surya 模型，~6GB 显存，离线可用',
       docmind: 'DocMind：阿里云文档解析 API，无需 GPU，需配置 RAM AccessKey',
-      vision: 'Vision OCR：使用兼容 OpenAI/Anthropic/Minimax 格式的多模态大模型进行高精度图文解析',
       docparser: 'DocParser：DeconBear 云端 GPU 加速解析，支持 struct/polyglot 引擎'
     };
     const sel = document.getElementById('engine-select');
@@ -3019,66 +2731,26 @@ async function initArticleTab(tabId, tabData) {
     if (loaded) document.getElementById('rbSummarize').disabled = false;
   }
 
-  // Fetch meta to determine real file type for non-PDFs
-  let fileType = 'pdf';
-  if (!article.pdf_available) {
-    try {
-      let metaResp = await fetch(`articles/${article.id}/${article.id}_meta.json`);
-      if (metaResp.ok) {
-        let meta = await metaResp.json();
-        fileType = meta.file_type || '';
-      }
-    } catch(e) {}
-  }
-
-  // Load Preview (PDF/Docx/Code) — check GPU protection
+  // Load PDF — check GPU protection
   const settings = loadSettings();
   const gpuBusy = article.converting && settings.device === 'cuda' && !settings.protect_pdf;
   const warnEl = document.getElementById('pdf-gpu-warning');
-  
-  // Reset all containers
-  document.getElementById('pdf-placeholder').style.display = 'none';
-  document.getElementById('pdf-embed').style.display = 'none';
-  document.getElementById('pdf-embed').src = '';
-  document.getElementById('docx-container').style.display = 'none';
-  document.getElementById('code-container').style.display = 'none';
-  document.getElementById('rbPDF').innerHTML = '📑 预览'; // Dynamic button name
-
   if (gpuBusy) {
     warnEl.style.display = 'flex';
-  } else if (article.pdf_available || fileType === 'pdf') {
+    document.getElementById('pdf-placeholder').style.display = 'none';
+    document.getElementById('pdf-embed').style.display = 'none';
+    document.getElementById('pdf-embed').src = '';
+  } else if (article.pdf_available) {
     warnEl.style.display = 'none';
+    document.getElementById('pdf-placeholder').style.display = 'none';
     document.getElementById('pdf-embed').style.display = 'block';
-    document.getElementById('rbPDF').innerHTML = '📑 PDF';
-    document.getElementById('pdf-embed').src = `assets/pdfjs/web/viewer.html?v=${Date.now()}&file=` + encodeURIComponent(`/articles/${article.id}/original.pdf`);
-  } else if (fileType === 'docx') {
-    warnEl.style.display = 'none';
-    document.getElementById('docx-container').style.display = 'block';
-    document.getElementById('docx-container').innerHTML = '';
-    document.getElementById('rbPDF').innerHTML = '📑 Word';
-    fetch(`articles/${article.id}/original.docx`)
-      .then(r => r.blob())
-      .then(blob => docx.renderAsync(blob, document.getElementById('docx-container')))
-      .catch(e => console.error("Error rendering docx:", e));
-  } else if (['py', 'js', 'json', 'txt', 'md', 'html', 'css', 'java', 'cpp', 'c', 'h', 'sh', 'sql', 'yaml', 'yml'].includes(fileType.toLowerCase())) {
-    warnEl.style.display = 'none';
-    document.getElementById('code-container').style.display = 'block';
-    document.getElementById('rbPDF').innerHTML = '📑 代码';
-    fetch(`articles/${article.id}/original.${fileType}`)
-      .then(r => r.text())
-      .then(text => {
-        const codeEl = document.getElementById('code-embed');
-        codeEl.textContent = text;
-        codeEl.className = `language-${fileType.toLowerCase()}`;
-        if (typeof hljs !== 'undefined') {
-          hljs.highlightElement(codeEl);
-        }
-      })
-      .catch(e => console.error("Error fetching code file:", e));
+    document.getElementById('pdf-embed').src = `articles/${article.id}/original.pdf`;
   } else {
     warnEl.style.display = 'none';
     document.getElementById('pdf-placeholder').style.display = '';
     document.getElementById('pdf-placeholder').innerHTML = '<div class="icon">📦</div><div>资料块</div>';
+    document.getElementById('pdf-embed').style.display = 'none';
+    document.getElementById('pdf-embed').src = '';
   }
 
   // Restore saved chat for this article
@@ -3493,14 +3165,6 @@ async function saveChatHistory(articleId, messages) {
   }
 }
 
-function sanitizeRenderedHtml(html) {
-  if (typeof DOMPurify === 'undefined') return '';
-  return DOMPurify.sanitize(html || '', {
-    ADD_ATTR: ['target', 'rel', 'data-language'],
-    ALLOW_DATA_ATTR: false
-  });
-}
-
 function renderChatMarkdown(text) {
   const mathBlocks=[], mathInlines=[], codeBlocks=[];
   // Protect code blocks before math replacement
@@ -3513,13 +3177,13 @@ function renderChatMarkdown(text) {
   html = html.replace(/@@CB(\d+)@@/g,(m,i)=>codeBlocks[+i]);
   html = html.replace(/@@MB(\d+)@@/g,(m,i)=>`<div class="math-block">$$${mathBlocks[+i]}$$</div>`);
   html = html.replace(/@@MI(\d+)@@/g,(m,i)=>`<span class="math-inline">$${mathInlines[+i]}$</span>`);
-  return sanitizeRenderedHtml(html);
+  return html;
 }
 
 function renderAssistantMsg(el, text, streaming=false) {
   const suffix = streaming ? '<span class="stream-cursor">▌</span>' : '';
   el.innerHTML = `<div class="msg-label">AI 助手</div>${renderChatMarkdown(text || '')}${suffix}`;
-  renderMathInElement(el,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\[',right:'\\]',display:true},{left:'$',right:'$',display:false},{left:'\\(',right:'\\)',display:false}],throwOnError:false,trust:false});
+  renderMathInElement(el,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\[',right:'\\]',display:true},{left:'$',right:'$',display:false},{left:'\\(',right:'\\)',display:false}],throwOnError:false,trust:true});
 }
 
 function extractStreamDelta(data) {
@@ -3766,17 +3430,9 @@ document.getElementById('global-chat-input').addEventListener('input', function(
 function fixPreviewImages(preview, articleId) {
   preview.querySelectorAll('img').forEach(img => {
     let src = img.getAttribute('src');
-    if (!src) return;
-    // Already absolute or inlined — skip
-    if (src.startsWith('http') || src.startsWith('data:') || src.startsWith('blob:')) return;
-    // Already pointing into the article dir — skip
-    if (src.startsWith('articles/') && src.includes(articleId)) return;
-    // Strip leading ./ or / prefix
-    src = src.replace(/^\.?\//, '');
-    // Skip if already fully qualified for this article
-    const prefix = `articles/${articleId}/`;
-    if (src.startsWith(prefix)) return;
-    img.setAttribute('src', prefix + src);
+    if (src && !src.startsWith('http') && !src.startsWith('data:') && !src.startsWith('articles/')) {
+      img.setAttribute('src', `articles/${articleId}/${src}`);
+    }
   });
 }
 
@@ -3890,7 +3546,7 @@ function renderReaderMarkdown(md, article, rebuildTOC) {
     return `src="articles/${article.id}/${src}"`;
   });
 
-  mdContent.innerHTML = sanitizeRenderedHtml(html);
+  mdContent.innerHTML = html;
   bindMarkdownInternalLinks(mdContent);
 
   if (rebuildTOC) {
@@ -3908,7 +3564,7 @@ function renderReaderMarkdown(md, article, rebuildTOC) {
   renderNoteMermaid(mdContent);
   renderNoteCodeHighlight(mdContent);
   renderWikiLinks(mdContent);
-  renderMathInElement(mdContent,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\[',right:'\\]',display:true},{left:'$',right:'$',display:false},{left:'\\(',right:'\\)',display:false}],throwOnError:false,trust:false});
+  renderMathInElement(mdContent,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\[',right:'\\]',display:true},{left:'$',right:'$',display:false},{left:'\\(',right:'\\)',display:false}],throwOnError:false,trust:true});
 }
 
 // ===== TRANSLATION (ReAct: AI-controlled, section by section) =====
@@ -4087,7 +3743,7 @@ function showTranslation() {
 function setSummaryMarkdown(text) {
   const body = document.getElementById('summary-body');
   body.innerHTML = renderChatMarkdown(text || '');
-  renderMathInElement(body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\[',right:'\\]',display:true},{left:'$',right:'$',display:false},{left:'\\(',right:'\\)',display:false}],throwOnError:false,trust:false});
+  renderMathInElement(body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\[',right:'\\]',display:true},{left:'$',right:'$',display:false},{left:'\\(',right:'\\)',display:false}],throwOnError:false,trust:true});
 }
 
 async function loadSavedSummary(show=false) {
@@ -4341,7 +3997,7 @@ function renderNoteTreeItem(n, hlQ) {
     }
   }
   return `<div class="note-tree-item${n.id === currentNoteId ? ' active' : ''}" data-id="${esc(n.id)}"
-       onclick="openNoteTab('${esc(n.id)}')"
+       onclick="openNote('${esc(n.id)}')"
        oncontextmenu="showNoteContextMenu(event,'${esc(n.id)}')">
     <label onclick="event.stopPropagation()" title="选择" style="display:flex;align-items:center;margin-right:2px">
       <input class="article-select" type="checkbox" ${selectedNoteIds.has(n.id)?'checked':''} onchange="toggleNoteSelection(event,'${esc(n.id)}')">
@@ -4479,7 +4135,7 @@ function renderNotePreviewMath(el) {
         {left: '\\(', right: '\\)', display: false}
       ],
       throwOnError: false,
-      trust: false
+      trust: true
     });
   }
 }
@@ -4653,7 +4309,7 @@ async function updateBacklinks() {
       return;
     }
     panel.innerHTML = backlinks.map(n => `
-      <div class="note-backlink-item" onclick="openNoteTab('${esc(n.id)}')">
+      <div class="note-backlink-item" onclick="openNote('${esc(n.id)}')">
         <span style="opacity:.5;font-size:11px">📄</span> ${esc(n.title)}
       </div>`).join('');
   } catch(e) {
@@ -4868,7 +4524,7 @@ function showNoteContextMenu(e, id) {
     const note = notesIndex.find(n => n.id === singleId);
     const folderLabel = note?.folder ? ` (${note.folder})` : '';
     menuHtml += `
-      <div class="menu-item" onclick="openNoteTab('${esc(singleId)}');this.parentElement.remove()">打开</div>
+      <div class="menu-item" onclick="openNote('${esc(singleId)}');this.parentElement.remove()">打开</div>
       <div class="menu-item" onclick="renameNotePrompt('${esc(singleId)}');this.parentElement.remove()">重命名</div>
       <div class="menu-item" onclick="moveNoteToFolderPrompt('${esc(singleId)}');this.parentElement.remove()">移动到文件夹${esc(folderLabel)}</div>
     `;
@@ -6041,40 +5697,12 @@ async function checkGpuConflict() {
         warnEl.style.display = 'none';
         pdfPlaceholder.style.display = 'none';
         pdfEmbed.style.display = 'block';
-        pdfEmbed.src = currentArticle.pdf_available ? `assets/pdfjs/web/viewer.html?v=${Date.now()}&file=` + encodeURIComponent(`/api/pdf/${currentArticle.id}`) : '';
+        pdfEmbed.src = currentArticle.pdf_available ? `articles/${currentArticle.id}/original.pdf` : '';
         stopGpuMonitor();
       }
     }
   } catch(e) {}
 }
-
-window.appendPdfHighlightToNote = function(text) {
-  if (!text || text.trim() === '') return;
-  if (!colVisible.md) toggleColumn('md');
-  
-  let currentActiveTab = TabManager.tabs.find(t => t.id === TabManager.activeTabId);
-  if (!currentActiveTab || currentActiveTab.type !== 'note') {
-    let noteTab = TabManager.tabs.find(t => t.type === 'note');
-    if (noteTab) {
-      TabManager.activateTab(noteTab.id);
-    } else {
-      createNewNote();
-    }
-  }
-  
-  setTimeout(() => {
-    if (typeof markdownEditor !== 'undefined' && markdownEditor) {
-      markdownEditor.insertValue(`\n> ${text.trim()}\n\n`);
-      showToast('📝 已添加至右侧笔记', 'success');
-    } else if (typeof floatingEditor !== 'undefined' && floatingEditor) {
-      floatingEditor.insertValue(`\n> ${text.trim()}\n\n`);
-      showToast('📝 已添加至浮窗笔记', 'success');
-    } else if (window.editor) {
-      window.editor.insertText(`\n> ${text.trim()}\n\n`);
-      showToast('📝 已添加至笔记', 'success');
-    }
-  }, 300);
-};
 
 async function doCalibrate() {
   if (!currentArticle) return;
@@ -6131,7 +5759,6 @@ async function showReconvert() {
   const descs = {
     marker: 'Marker：本地 Surya 模型，~6GB 显存，离线可用',
     docmind: 'DocMind：阿里云文档解析 API，无需 GPU，需配置 RAM AccessKey',
-    vision: 'Vision OCR：使用兼容 OpenAI/Anthropic/Minimax 格式的多模态大模型进行高精度图文解析',
     docparser: 'DocParser：DeconBear 云端 GPU 加速解析，支持 struct/polyglot 引擎'
   };
 
@@ -6167,19 +5794,19 @@ async function showReconvert() {
         <select id="engine-select">
           <option value="marker">Marker（本地）</option>
           <option value="docmind">DocMind（云端 API）</option>
-          <option value="vision">Vision OCR (大视觉模型)</option>
           <option value="docparser">DocParser（云端 GPU）</option>
         </select>
         <button class="btn-emerald btn-convert" onclick="startConvert()">开始解析</button>
       </div>
       <p class="engine-desc" id="engine-desc" style="margin-top:8px">Marker：本地 Surya 模型，~6GB 显存，离线可用</p>
       <div id="docparser-key-container" style="display:none; margin-top:12px; flex-direction:row; gap:8px;">
+        <input type="text" id="docparser-url-input" placeholder="输入 Base URL (如: https://docparser.deconbear.cn)" style="flex:1; padding:8px; border:1px solid var(--border); border-radius:4px; font-size:13px;" />
         <input type="password" id="docparser-key-input" placeholder="输入 DeconBear DocParser API Key (若已配置可留空)" style="flex:1; padding:8px; border:1px solid var(--border); border-radius:4px; font-size:13px;" />
         <select id="docparser-engine-input" style="padding:8px; border:1px solid var(--border); border-radius:4px; font-size:13px;">
           <option value="struct">struct 引擎</option>
           <option value="polyglot">polyglot 引擎</option>
         </select>
-        <button class="btn-secondary" onclick="saveDocParserKey()" style="padding:8px 16px; border-radius:4px; border:1px solid var(--border); background:var(--surface); cursor:pointer; font-size:13px;">保存配置</button>
+        <button class="btn-secondary" onclick="saveDocParserKey()" style="padding:8px 16px; border-radius:4px; border:1px solid var(--border); background:var(--surface); cursor:pointer; font-size:13px; white-space:nowrap;">保存配置</button>
       </div>
       ${verHtml}
     </div>`;
@@ -6191,6 +5818,14 @@ async function showReconvert() {
     document.getElementById('engine-desc').textContent = descs[sel.value] || '';
     if (sel.value === 'docparser') {
       keyContainer.style.display = 'flex';
+      const urlInput = document.getElementById('docparser-url-input');
+      const engineInput = document.getElementById('docparser-engine-input');
+      if (urlInput && window.serverSettings && window.serverSettings.DOCPARSER_API_URL) {
+          urlInput.value = window.serverSettings.DOCPARSER_API_URL;
+      }
+      if (engineInput && window.serverSettings && window.serverSettings.DOCPARSER_ENGINE) {
+          engineInput.value = window.serverSettings.DOCPARSER_ENGINE;
+      }
     } else {
       keyContainer.style.display = 'none';
     }
@@ -6198,13 +5833,14 @@ async function showReconvert() {
 }
 
 async function saveDocParserKey() {
+  const url = document.getElementById('docparser-url-input').value.trim();
   const key = document.getElementById('docparser-key-input').value.trim();
   const subEngine = document.getElementById('docparser-engine-input').value;
   try {
     const resp = await fetch('/api/config/docparser', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ api_key: key, engine: subEngine })
+      body: JSON.stringify({ api_url: url, api_key: key, engine: subEngine })
     });
     if (resp.ok) {
       alert('保存成功！');
@@ -6254,9 +5890,13 @@ async function startConvert() {
   try {
     const payload = { id: article.id, engine: engine };
     if (engine === 'docparser') {
+      const urlInput = document.getElementById('docparser-url-input');
+      if (urlInput && urlInput.value.trim() !== '') {
+        payload.docparser_api_url = urlInput.value.trim();
+      }
       const keyInput = document.getElementById('docparser-key-input');
       if (keyInput && keyInput.value.trim() !== '') {
-        payload.api_key = keyInput.value.trim();
+        payload.docparser_api_key = keyInput.value.trim();
       }
       const engineInput = document.getElementById('docparser-engine-input');
       if (engineInput) {
@@ -6485,11 +6125,12 @@ async function openFloatingNote(filename, isNew=false) {
   floatingEditor = new Vditor('floating-editor-container', {
     value: initialContent,
     mode: 'ir',
+    toolbarConfig: { hide: true },
     cache: { enable: false },
     outline: { enable: false },
     height: '100%',
     icon: 'material',
-    theme: document.body.classList.contains('theme-light') ? 'classic' : 'dark'
+    theme: 'dark'
   });
 }
 
@@ -6553,15 +6194,15 @@ async function toggleFloatingNotePiP() {
       height: 700
     });
     
-    // Copy all stylesheets
-    [...document.querySelectorAll('style, link[rel="stylesheet"]')].forEach((el) => {
-      floatingPipWindow.document.head.appendChild(el.cloneNode(true));
+    // Copy styles
+    [...document.styleSheets].forEach((styleSheet) => {
+      try {
+        const cssRules = [...styleSheet.cssRules].map((rule) => rule.cssText).join('');
+        const style = document.createElement('style');
+        style.textContent = cssRules;
+        floatingPipWindow.document.head.appendChild(style);
+      } catch(e){}
     });
-    
-    // Copy theme
-    if (document.body.classList.contains('theme-light')) {
-      floatingPipWindow.document.body.classList.add('theme-light');
-    }
     
     const body = document.getElementById('floating-note-body');
     const header = document.getElementById('floating-note-header');
@@ -6668,41 +6309,5 @@ document.addEventListener('keydown', e => {
 });
 </script>
 
-  <script src="explorer.js"></script>
-
-<script>
-document.addEventListener('DOMContentLoaded', () => {
-    const librarySide = document.getElementById('library-side');
-    if(librarySide) {
-        const libraryHandle = document.createElement('div');
-        libraryHandle.className = 'resize-handle';
-        libraryHandle.style.left = '0';
-        libraryHandle.style.cursor = 'col-resize';
-        librarySide.appendChild(libraryHandle);
-
-        let isResizingLibrary = false;
-        libraryHandle.addEventListener('mousedown', (e) => {
-          isResizingLibrary = true;
-          document.body.style.cursor = 'col-resize';
-        });
-        document.addEventListener('mousemove', (e) => {
-          if (!isResizingLibrary) return;
-          const newWidth = document.body.clientWidth - e.clientX;
-          if (newWidth > 200 && newWidth < 800) {
-            librarySide.style.transition = 'none';
-            librarySide.style.width = newWidth + 'px';
-          }
-        });
-        document.addEventListener('mouseup', () => {
-          if (isResizingLibrary) {
-            isResizingLibrary = false;
-            document.body.style.cursor = 'default';
-            librarySide.style.transition = 'width 0.3s';
-          }
-        });
-    }
-});
-</script>
 </body>
-
 </html>
