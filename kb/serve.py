@@ -44,6 +44,9 @@ from storage import (
     get_article,
     get_conn,
     get_note_blocks,
+    get_note_backlinks,
+    inject_block_anchors,
+    sync_note_links,
     list_article_attachments,
     list_article_history,
     list_chat_sessions,
@@ -1409,25 +1412,23 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             self._error(400, "Invalid path")
             return
         note_id = urllib.parse.unquote(parts[3])
-        current = next((n for n in get_all_notes() if n["id"] == note_id), None)
-        if not current or not current.get("title"):
-            self._json({"backlinks": []})
-            return
-        title = current["title"]
-        pattern = re.compile(r"\[\[" + re.escape(title) + r"\]\]")
-        backlinks = []
-        for n in get_all_notes():
-            if n["id"] == note_id:
+        # Use the indexed note_links table — it has target_note_id +
+        # target_anchor + source note title, all in one query.
+        links = get_note_backlinks(note_id)
+        out = []
+        seen_source = set()
+        for lk in links:
+            sid = lk["id"]
+            if sid in seen_source:
                 continue
-            md_path = note_file_for(n["id"])
-            if not md_path.exists():
-                continue
-            try:
-                if pattern.search(md_path.read_text(encoding="utf-8")):
-                    backlinks.append({"id": n["id"], "title": n.get("title", "")})
-            except OSError:
-                continue
-        self._json({"backlinks": backlinks})
+            seen_source.add(sid)
+            out.append({
+                "id": sid,
+                "title": lk.get("title") or sid,
+                "target_anchor": lk.get("target_anchor"),
+                "anchor_heading": lk.get("heading"),
+            })
+        self._json({"backlinks": out})
 
     def handle_create_note(self):
         body = self._read_json()
@@ -1460,7 +1461,6 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         if not md_path.exists():
             self._error(404, "Note not found")
             return
-        md_path.write_text(content, encoding="utf-8")
         now = time.strftime("%Y-%m-%d %H:%M:%S")
         existing = next((n for n in get_all_notes() if n["id"] == note_id), {"id": note_id})
         existing["title"] = title or existing.get("title", "")
@@ -1476,13 +1476,27 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             existing["doc_icon"] = str(body.get("doc_icon") or "").strip()[:16]
         existing.setdefault("created_at", now)
         upsert_note(existing)
-        # Rebuild block anchors so `[[note-id#anchor]]` cross-links
-        # stay valid after the document is edited.
         try:
-            sync_note_blocks(note_id, content)
+            # Rebuild block anchors. We then rewrite the saved file
+            # with stable `<!--kb-block:anchor-->` markers so the
+            # frontend can map the rendered DOM back to anchors.
+            rows = sync_note_blocks(note_id, content)
+            annotated = inject_block_anchors(content, rows)
+            if annotated != content:
+                md_path.write_text(annotated, encoding="utf-8")
+            # Build the cross-note link index used by the backlinks
+            # panel.
+            sync_note_links(note_id, annotated)
         except Exception as exc:  # noqa: BLE001
-            print(f"sync_note_blocks failed for {note_id}: {exc}")
-        self._json({"status": "ok"})
+            print(f"sync_note_blocks/links failed for {note_id}: {exc}")
+        # Return the annotated content so the client cache stays
+        # in sync with disk.
+        try:
+            with open(md_path, "r", encoding="utf-8") as f:
+                saved = f.read()
+        except OSError:
+            saved = content
+        self._json({"status": "ok", "content": saved})
 
     def handle_delete_note(self):
         note_id = self._note_id_from_path()

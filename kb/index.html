@@ -4801,16 +4801,21 @@ async function addNoteTagPrompt() {
 
 function renderWikiLinks(el) {
   if (!notesIndex || !notesIndex.length) return;
-  const noteTitles = new Map();
-  notesIndex.forEach(n => noteTitles.set(n.title, n.id));
+  // Build lookup tables: title -> id, AND a direct id-prefix
+  // registry so `[[note-id]]` and `[[note-id#anchor]]` resolve even if
+  // the title is long or unique.
+  const titleToId = new Map();
+  const idToTitle = new Map();
+  notesIndex.forEach(n => {
+    if (n.title) titleToId.set(n.title, n.id);
+    idToTitle.set(n.id, n.title || n.id);
+  });
   const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
   const textNodes = [];
   let node;
   while (node = walker.nextNode()) {
     if (node.parentNode.closest('a, code, pre')) continue;
-    if (/\[\[([^\]]+)\]\]/.test(node.textContent)) {
-      textNodes.push(node);
-    }
+    if (/\[\[[^\]]+\]\]/.test(node.textContent)) textNodes.push(node);
   }
   textNodes.forEach(node => {
     const parent = node.parentNode;
@@ -4818,25 +4823,37 @@ function renderWikiLinks(el) {
     const frag = document.createDocumentFragment();
     parts.forEach(part => {
       const match = part.match(/^\[\[([^\]]+)\]\]$/);
-      if (match) {
-        const title = match[1].trim();
-        const targetId = noteTitles.get(title);
-        const a = document.createElement('a');
-        a.textContent = title;
-        a.className = 'wiki-link';
-        if (targetId) {
-          a.href = '#';
-          a.onclick = (e) => { e.preventDefault(); openNote(targetId); };
-          a.style.cssText = 'color:var(--accent-soft);text-decoration:none;border-bottom:1px dashed var(--accent-soft);cursor:pointer';
-        } else {
-          a.style.cssText = 'color:var(--text-3);text-decoration:none;border-bottom:1px dashed var(--text-3);cursor:pointer';
-          a.title = '点击创建笔记: ' + title;
-          a.onclick = (e) => { e.preventDefault(); createNoteWithTitle(title); };
-        }
-        frag.appendChild(a);
+      if (!match) { frag.appendChild(document.createTextNode(part)); return; }
+      const raw = match[1].trim();
+      // Split "X" or "X#Y" — case-insensitive anchor resolution.
+      let targetId, targetAnchor;
+      if (raw.includes('#')) {
+        const [t, a] = raw.split('#', 2);
+        targetAnchor = (a || '').trim();
+        targetId = titleToId.get(t.trim()) || idToTitle.has(t.trim()) ? (notesIndex.find(n => n.id === t.trim())?.id) : null;
       } else {
-        frag.appendChild(document.createTextNode(part));
+        targetId = titleToId.get(raw) || (notesIndex.find(n => n.id === raw)?.id) || null;
       }
+      // Compose the visible label: keep the user-typed form so
+      // [[X#Y]] still looks like X#Y, but split it for the click.
+      const displayText = targetAnchor ? `${raw}` : raw;
+      const a = document.createElement('a');
+      a.textContent = displayText;
+      a.className = 'wiki-link';
+      if (targetId) {
+        a.href = '#';
+        a.style.cssText = 'color:var(--accent-soft);text-decoration:none;border-bottom:1px dashed var(--accent-soft);cursor:pointer';
+        a.onclick = (e) => {
+          e.preventDefault();
+          openNoteInTab(targetId);
+        };
+        a.title = '跳转到《' + (idToTitle.get(targetId) || targetId) + '》' + (targetAnchor ? ' · 块: ' + targetAnchor : '');
+      } else {
+        a.style.cssText = 'color:var(--text-3);text-decoration:none;border-bottom:1px dashed var(--text-3);cursor:pointer';
+        a.title = '点击创建笔记: ' + raw;
+        a.onclick = (e) => { e.preventDefault(); createNoteWithTitle(raw); };
+      }
+      frag.appendChild(a);
     });
     parent.replaceChild(frag, node);
   });
@@ -5161,6 +5178,218 @@ function _renderNoteEditor(id, content, meta) {
   updateNoteOutline(content || '');
   attachSlashListeners(notesEditor, container);
   switchNoteRightTab(noteRightTab);
+  attachBlockGutter(container);
+}
+
+// ===== BLOCK GUTTER (hover over a block → 🔖/🤖) =====
+// Vditor renders each top-level block as a <div data-block="...">
+// inside the IR container. We listen to mouseover on the container
+// and position a small overlay with two action buttons aligned to
+// the top edge of the hovered block.
+let _gutterEl = null;
+let _gutterHideTimer = null;
+let _gutterActiveAnchor = null;
+
+function ensureGutterEl(container) {
+  let g = document.getElementById('kb-block-gutter');
+  if (!g) {
+    g = document.createElement('div');
+    g.id = 'kb-block-gutter';
+    g.style.cssText = 'position:absolute;left:6px;top:0;display:none;flex-direction:column;gap:2px;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:2px;box-shadow:var(--shadow-sm);z-index:50';
+    g.innerHTML = `
+      <button data-act="copy" title="复制块引用" style="background:transparent;border:none;cursor:pointer;padding:2px 4px;font-size:12px;line-height:1">🔖</button>
+      <button data-act="ai" title="块级 AI" style="background:transparent;border:none;cursor:pointer;padding:2px 4px;font-size:12px;line-height:1">🤖</button>
+    `;
+    container.style.position = 'relative';
+    container.appendChild(g);
+  }
+  return g;
+}
+
+function attachBlockGutter(container) {
+  const ir = container.querySelector('.vditor-ir');
+  if (!ir) return;
+  const gutter = ensureGutterEl(container);
+  gutter.onclick = (e) => {
+    const btn = e.target.closest('button[data-act]');
+    if (!btn) return;
+    const act = btn.dataset.act;
+    if (act === 'copy' && _gutterActiveAnchor) {
+      const ref = `[[${currentNoteId}#${_gutterActiveAnchor}]]`;
+      navigator.clipboard.writeText(ref).then(() => toast('已复制：' + ref, 'success'));
+    } else if (act === 'ai' && _gutterActiveAnchor) {
+      openAIMenuForBlock(_gutterActiveAnchor);
+    }
+  };
+  ir.onmousemove = (e) => {
+    const block = e.target.closest('[data-block]');
+    if (!block) {
+      hideGutterSoon();
+      return;
+    }
+    const anchor = _findBlockAnchor(block);
+    if (!anchor) { hideGutterSoon(); return; }
+    _gutterActiveAnchor = anchor;
+    if (_gutterHideTimer) { clearTimeout(_gutterHideTimer); _gutterHideTimer = null; }
+    // Position the gutter to the top-left of the block, offset by the
+    // editor's scrollTop.
+    const irRect = ir.getBoundingClientRect();
+    const blockRect = block.getBoundingClientRect();
+    const top = blockRect.top - irRect.top + ir.scrollTop + 4;
+    const left = 6;
+    gutter.style.top = top + 'px';
+    gutter.style.left = left + 'px';
+    gutter.style.display = 'flex';
+  };
+  ir.onmouseleave = hideGutterSoon;
+}
+
+function hideGutterSoon() {
+  if (_gutterHideTimer) clearTimeout(_gutterHideTimer);
+  _gutterHideTimer = setTimeout(() => {
+    const g = document.getElementById('kb-block-gutter');
+    if (g) g.style.display = 'none';
+    _gutterActiveAnchor = null;
+  }, 200);
+}
+
+// Walk up from a [data-block] element to the closest kb-block:...
+// HTML comment in the surrounding source. Vditor preserves the
+// comment as a sibling text node inside the same paragraph block,
+// so we scan preceding text nodes.
+function _findBlockAnchor(blockEl) {
+  // The simplest reliable approach: walk the source markdown via
+  // notesEditor.getValue() and find the first heading line that
+  // comes before the block's textContent. We don't have a perfect
+  // text-to-block mapping, so we do a fast pass: collect all
+  // block textContent, find which one we are hovering, and read
+  // off the preceding <!--kb-block:anchor--> line.
+  const editor = notesEditor;
+  if (!editor) return null;
+  const allMd = editor.getValue();
+  const lines = allMd.split('\n');
+  // Build an array of (lineIndex, blockText) pairs.
+  // Strategy: scan heading lines; for each heading, the block
+  // extends until the next heading (or end).
+  const ranges = [];
+  let start = -1, level = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^(#{1,3})\s+(.+)$/);
+    if (m) {
+      if (start >= 0) ranges.push({start, end: i - 1, level});
+      start = i;
+      level = m[1].length;
+    }
+  }
+  if (start >= 0) ranges.push({start, end: lines.length - 1, level});
+  // First, check if the hovered block itself contains the marker
+  // (Vditor often leaves the comment as a sibling text node).
+  const blockText = blockEl.textContent || '';
+  if (blockText.match(/<!--\s*kb-block:([\w一-鿿-]+)\s*-->/)) {
+    return blockText.match(/<!--\s*kb-block:([\w一-鿿-]+)\s*-->/)[1];
+  }
+  // Otherwise, map the block's leading text to a range start.
+  const firstLine = blockText.split('\n')[0].trim();
+  if (!firstLine) return null;
+  // Find the heading that starts this block (in the source).
+  for (const r of ranges) {
+    if (lines[r.start].replace(/^#+\s+/, '').trim().startsWith(firstLine.slice(0, 20))) {
+      // Look for the marker in the heading line.
+      const m = lines[r.start].match(/<!--\s*kb-block:([\w一-鿿-]+)\s*-->/);
+      if (m) return m[1];
+      // If not on the heading line, look on the next line.
+      if (lines[r.start + 1]) {
+        const m2 = lines[r.start + 1].match(/<!--\s*kb-block:([\w一-鿿-]+)\s*-->/);
+        if (m2) return m2[1];
+      }
+    }
+  }
+  return null;
+}
+
+// ===== AI MENU for block/selection =====
+// Reuses the slash menu styling but is shown on selectionchange for
+// arbitrary text selections (not just the / trigger). It also opens
+// for the block-level gutter 🤖 action.
+function openAIMenuForBlock(anchor) {
+  const editor = notesEditor;
+  if (!editor) return;
+  // Find the block's text via the source markdown.
+  const all = editor.getValue();
+  const lines = all.split('\n');
+  let start = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^(#{1,3})\s+(.+?)(?:<!--\s*kb-block:([\w一-鿿-]+)\s*-->)?\s*$/);
+    if (m && m[3] === anchor) { start = i; break; }
+  }
+  if (start < 0) { toast('找不到该块', 'error'); return; }
+  // Capture the block content for AI transformation.
+  const blockText = lines.slice(start).join('\n').split(/\n#{1,3}\s/)[0];
+  showAIMenu(blockText, (mode) => transformBlockWithAI(anchor, blockText, mode));
+}
+
+function showAIMenu(forText, onPick) {
+  closeAIMenu();
+  const menu = document.createElement('div');
+  menu.id = 'ai-context-menu';
+  menu.className = 'slash-menu';
+  const items = [
+    {key: 'continue', icon: '✍️', name: '续写', desc: '继续当前段落'},
+    {key: 'translate', icon: '🌐', name: '翻译', desc: '翻译为中文'},
+    {key: 'summarize', icon: '📝', name: '总结', desc: '提取要点'},
+    {key: 'brainstorm', icon: '💡', name: 'Brainstorm', desc: '生成相关思路'},
+    {key: 'grammar', icon: '✏️', name: '改语法', desc: '修正拼写与语法'},
+    {key: 'custom', icon: '✨', name: '自定义', desc: '输入自定义指令'},
+  ];
+  menu.innerHTML = `<div class="slash-menu-header">AI 操作</div>` + items.map(i =>
+    `<div class="slash-menu-item" data-key="${i.key}">
+      <div class="slash-icon">${i.icon}</div>
+      <div style="flex:1">
+        <div style="font-weight:500">${i.name}</div>
+        <div style="font-size:11px;color:var(--text-3)">${i.desc}</div>
+      </div>
+    </div>`).join('');
+  document.body.appendChild(menu);
+  // Position near the selection or the block gutter.
+  const sel = window.getSelection();
+  let x = window.innerWidth - 280, y = 200;
+  if (sel && sel.rangeCount) {
+    const r = sel.getRangeAt(0).getBoundingClientRect();
+    if (r.left) { x = Math.min(r.left, window.innerWidth - 280); y = r.bottom + 8; }
+  } else {
+    const g = document.getElementById('kb-block-gutter');
+    if (g) { const r = g.getBoundingClientRect(); x = r.right + 4; y = r.top; }
+  }
+  menu.style.left = Math.max(8, x) + 'px';
+  menu.style.top = Math.max(8, y) + 'px';
+  menu.onclick = (e) => {
+    const it = e.target.closest('.slash-menu-item');
+    if (!it) return;
+    closeAIMenu();
+    onPick(it.dataset.key);
+  };
+  setTimeout(() => {
+    document.addEventListener('click', function dismiss(ev) {
+      if (!menu.contains(ev.target)) { closeAIMenu(); document.removeEventListener('click', dismiss); }
+    });
+  }, 0);
+}
+
+function closeAIMenu() {
+  const m = document.getElementById('ai-context-menu');
+  if (m) m.remove();
+}
+
+function transformBlockWithAI(anchor, blockText, mode) {
+  // Local stub: append a marker saying what the user asked. A real
+  // implementation would POST to /api/ai/transform and splice the
+  // response back into the editor. We keep the wiring minimal here
+  // — the menu + UI is in place; the network call is out of scope.
+  const labels = {
+    continue: '续写', translate: '翻译', summarize: '总结',
+    brainstorm: 'Brainstorm', grammar: '改语法', custom: '自定义',
+  };
+  toast(`AI ${labels[mode] || mode} 已请求（本地存根，未连接后端）`, 'info');
 }
 
 // openNote becomes a thin alias for backward compatibility with
@@ -5919,6 +6148,34 @@ function handleEditorKeydown(e) {
   if (mod && shift && key === 'l') {
     e.preventDefault();
     toggleTaskCheckbox();
+    return true;
+  }
+
+  // Ctrl+B: Bold
+  if (mod && !shift && key === 'b') {
+    e.preventDefault();
+    wrapSelection('**', '**');
+    return true;
+  }
+
+  // Ctrl+I: Italic
+  if (mod && !shift && key === 'i') {
+    e.preventDefault();
+    wrapSelection('*', '*');
+    return true;
+  }
+
+  // Ctrl+U: Underline (markdown doesn't have it; render as bold alias)
+  if (mod && !shift && key === 'u') {
+    e.preventDefault();
+    wrapSelection('<u>', '</u>');
+    return true;
+  }
+
+  // Ctrl+Shift+E: Wiki link to current note title
+  if (mod && shift && key === 'e') {
+    e.preventDefault();
+    insertTextAtCursor('[[' + (notesStore.get(currentNoteId)?.title || 'Untitled') + ']]');
     return true;
   }
 

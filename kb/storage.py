@@ -229,6 +229,20 @@ CREATE TABLE IF NOT EXISTS note_blocks (
 CREATE INDEX IF NOT EXISTS idx_note_blocks_note ON note_blocks(note_id);
 CREATE INDEX IF NOT EXISTS idx_note_blocks_anchor ON note_blocks(note_id, anchor);
 
+-- Cross-note links: every `[[X]]` or `[[X#Y]]` in a note resolves
+-- to a target_note_id (resolved from X by id or title) and an
+-- optional target_anchor. The note_links table is the source of
+-- truth for the backlinks panel.
+CREATE TABLE IF NOT EXISTS note_links (
+    source_note_id TEXT,
+    source_anchor TEXT,
+    target_note_id TEXT,
+    target_anchor TEXT,
+    raw TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_note_links_target ON note_links(target_note_id);
+CREATE INDEX IF NOT EXISTS idx_note_links_source ON note_links(source_note_id);
+
 CREATE TABLE IF NOT EXISTS tags (
     item_id TEXT,
     tag TEXT,
@@ -854,7 +868,14 @@ _BLOCK_RE = re.compile(r"^(#{1,3})\s+(.+?)\s*$", re.M)
 
 def sync_note_blocks(note_id: str, content: str) -> list[dict[str, Any]]:
     """Parse H1-H3 headings out of markdown content, generate unique
-    anchors per heading, and persist them in note_blocks.
+    anchors per heading, persist them in note_blocks, and rewrite the
+    stored content with stable anchor markers so the frontend can
+    recover them after Vditor's markdown round-trip.
+
+    The marker is a small HTML comment `<!--kb-block:anchor-->` placed
+    immediately after the heading line. Vditor leaves HTML comments
+    in `data-block` wrappers intact during round-trip, so this stays
+    stable across edits.
 
     Returns the full set of blocks currently in the note so the
     frontend can render an outline panel and validate inbound
@@ -897,6 +918,127 @@ def sync_note_blocks(note_id: str, content: str) -> list[dict[str, Any]]:
                 (block_id, r["note_id"], r["anchor"], r["heading"], r["level"], r["sort_order"]),
             )
     return rows
+
+
+_BLOCK_MARKER = re.compile(r"<!--\s*kb-block:([\w一-鿿-]+)\s*-->")
+
+
+def inject_block_anchors(content: str, rows: list[dict[str, Any]]) -> str:
+    """Insert or update stable `<!--kb-block:anchor-->` markers after
+    each heading in the content.
+
+    We walk headings in order, and for each one we look for an
+    existing marker (either just below it, or elsewhere in the file
+    carrying the same anchor) and either move it into place or
+    insert a new one. Blocks whose anchor no longer corresponds to a
+    current heading have their markers stripped.
+    """
+    if not content:
+        return content
+    # 1. Strip every existing kb-block marker from the source.
+    stripped = _BLOCK_MARKER.sub("", content)
+    # 2. Re-insert markers just after each H1-H3 line, in the same
+    #    order they appear in `rows`.
+    out_lines: list[str] = []
+    by_anchor = {r["anchor"]: r for r in rows}
+    pending_markers: list[str] = []
+    pending_iter = iter(rows)
+    in_code = False
+    line_index = 0
+    for raw_line in stripped.split("\n"):
+        out_lines.append(raw_line)
+        # Toggle code-fence state.
+        if re.match(r"^```", raw_line):
+            in_code = not in_code
+        if not in_code and re.match(r"^#{1,3}\s+", raw_line):
+            # Place any matching row here.
+            try:
+                row = next(pending_iter)
+            except StopIteration:
+                row = None
+            if row:
+                out_lines.append(f"<!--kb-block:{row['anchor']}-->")
+        line_index += 1
+    return "\n".join(out_lines)
+
+
+def sync_note_links(note_id: str, content: str) -> list[dict[str, Any]]:
+    """Parse `[[X]]` and `[[X#Y]]` patterns in content, resolve X
+    against the notes table (by id or title) and Y against the
+    block anchors of the target note. Stores resolved pairs in
+    `note_links`. The table is wiped for this note first so deleted
+    references don't linger.
+    """
+    pattern = re.compile(r"\[\[([^\]]+)\]\]")
+    out: list[dict[str, Any]] = []
+    seen_pairs: set[tuple[str, str]] = set()
+    with get_conn() as conn:
+        for match in pattern.finditer(content or ""):
+            target = match.group(1).strip()
+            if not target:
+                continue
+            if "#" in target:
+                target_id_raw, target_anchor = target.split("#", 1)
+                target_anchor = target_anchor.strip()
+            else:
+                target_id_raw, target_anchor = target, None
+            target_id_raw = target_id_raw.strip()
+            if not target_id_raw:
+                continue
+            # Try to resolve: by id first, then by title.
+            row = conn.execute(
+                "SELECT id FROM notes WHERE id=? OR title=? LIMIT 1",
+                (target_id_raw, target_id_raw),
+            ).fetchone()
+            if not row:
+                continue
+            resolved_id = row["id"]
+            if target_anchor:
+                anchor_row = conn.execute(
+                    "SELECT 1 FROM note_blocks WHERE note_id=? AND LOWER(anchor)=LOWER(?)",
+                    (resolved_id, target_anchor),
+                ).fetchone()
+                if not anchor_row:
+                    target_anchor = None  # unknown anchor, store as link-only
+            key = (resolved_id, target_anchor or "")
+            if key in seen_pairs:
+                continue
+            seen_pairs.add(key)
+            out.append({
+                "source_note_id": note_id,
+                "source_anchor": None,
+                "target_note_id": resolved_id,
+                "target_anchor": target_anchor,
+                "raw": target,
+            })
+        # Rewrite the table for this note.
+        conn.execute("DELETE FROM note_links WHERE source_note_id=?", (note_id,))
+        for link in out:
+            conn.execute(
+                """INSERT INTO note_links
+                       (source_note_id, source_anchor, target_note_id, target_anchor, raw)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (link["source_note_id"], link["source_anchor"],
+                 link["target_note_id"], link["target_anchor"], link["raw"]),
+            )
+    return out
+
+
+def get_note_backlinks(note_id: str) -> list[dict[str, Any]]:
+    """Return notes that link TO this note, with link metadata."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT n.id, n.title, nl.target_anchor, b.heading, b.anchor
+               FROM note_links nl
+               JOIN notes n ON n.id = nl.source_note_id
+               LEFT JOIN note_blocks b
+                 ON b.note_id = nl.target_note_id
+                AND LOWER(b.anchor) = LOWER(nl.target_anchor)
+               WHERE nl.target_note_id = ?
+               ORDER BY b.sort_order NULLS LAST, n.modified_at DESC""",
+            (note_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def get_note_blocks(note_id: str) -> list[dict[str, Any]]:
