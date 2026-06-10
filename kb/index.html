@@ -543,8 +543,19 @@ select option{background:var(--surface-2);color:var(--text)}
 #notes-breadcrumb{font-weight:600;color:var(--text-strong);font-size:14px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #notes-topbar-right{display:flex;align-items:center;gap:8px}
 #notes-main{display:flex;flex:1;overflow:hidden}
-#notes-sidebar{width:260px;min-width:180px;display:flex;flex-direction:column;border-right:1px solid var(--border);background:var(--surface);flex-shrink:0;overflow:hidden}
-#notes-sidebar-header{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border);font-weight:600;font-size:13px;color:var(--text-2);flex-shrink:0}
+
+/* ----- Notebooks pane (left 1) ----- */
+#notes-notebooks-pane{width:200px;min-width:160px;display:flex;flex-direction:column;border-right:1px solid var(--border);background:var(--surface);flex-shrink:0;overflow:hidden}
+#notes-notebooks-header{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border);font-weight:600;font-size:13px;color:var(--text-2);flex-shrink:0}
+.notebook-row{padding:7px 14px;cursor:pointer;font-size:13px;color:var(--text-2);display:flex;align-items:center;gap:8px;border-left:3px solid transparent;user-select:none;transition:background .15s,border-color .15s}
+.notebook-row:hover{background:var(--accent-subtle);color:var(--text)}
+.notebook-row.active{background:var(--accent-subtle);color:var(--text-strong);border-left-color:var(--accent);font-weight:600}
+.notebook-row .notebook-icon{font-size:14px;width:18px;text-align:center;flex-shrink:0}
+.notebook-row .notebook-count{margin-left:auto;font-size:10px;color:var(--text-3);background:var(--surface-2);padding:1px 6px;border-radius:8px}
+
+/* ----- Documents pane (left 2) ----- */
+#notes-docs-pane{width:260px;min-width:200px;display:flex;flex-direction:column;border-right:1px solid var(--border);background:var(--surface);flex-shrink:0;overflow:hidden}
+#notes-docs-header{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border);font-weight:600;font-size:13px;color:var(--text-2);flex-shrink:0}
 #notes-tree{flex:1;overflow-y:auto;padding:6px 0}
 .note-tree-item{padding:8px 14px 8px 22px;cursor:pointer;font-size:13px;color:var(--text-2);display:flex;align-items:center;gap:8px;transition:var(--transition);border-left:3px solid transparent;user-select:none}
 .note-tree-item:hover{background:var(--accent-subtle);color:var(--text)}
@@ -555,10 +566,28 @@ select option{background:var(--surface-2);color:var(--text)}
 .note-folder-header{display:flex;align-items:center;padding:6px 14px 6px 18px;font-size:12px;color:var(--text-2);cursor:pointer;user-select:none;border-left:3px solid transparent;transition:background .15s,margin .15s;margin:0 4px;border-radius:4px}
 .note-folder-header:hover{background:var(--surface-2);color:var(--text)}
 .note-folder-header .folder-chevron{font-size:9px;margin-right:6px;transition:transform .15s;color:var(--text-3)}
+
+/* Nested sub-document indent */
+.note-tree-item.sub-doc{padding-left:36px}
+.note-tree-item.sub-sub-doc{padding-left:52px}
+.note-tree-item .doc-icon{font-size:14px;width:16px;text-align:center;flex-shrink:0}
+
+/* ----- Tabs bar (above editor) ----- */
+#notes-tabs-bar{display:flex;align-items:flex-end;background:var(--surface-2);border-bottom:1px solid var(--border);min-height:0;flex-shrink:0;overflow-x:auto;scrollbar-width:thin}
+#notes-tabs-bar:empty{display:none}
+.notes-tab{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font-size:12px;color:var(--text-3);background:transparent;border:none;border-right:1px solid var(--border);cursor:pointer;max-width:200px;min-width:80px;position:relative;white-space:nowrap;transition:background .15s,color .15s;flex-shrink:0}
+.notes-tab:hover{background:var(--surface);color:var(--text)}
+.notes-tab.active{background:var(--surface);color:var(--text-strong);font-weight:600}
+.notes-tab.active::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--accent)}
+.notes-tab .tab-title{overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+.notes-tab .tab-dirty{color:var(--amber);font-size:14px;line-height:1}
+.notes-tab .tab-close{width:18px;height:18px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;color:var(--text-3);transition:background .15s,color .15s;flex-shrink:0}
+.notes-tab .tab-close:hover{background:var(--rose-subtle);color:var(--rose)}
+
 #notes-resize-handle{width:4px;cursor:col-resize;background:transparent;transition:background .15s;flex-shrink:0}
 #notes-resize-handle:hover,#notes-resize-handle.active{background:var(--accent)}
 #notes-editor-column{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
-#notes-editor-container{flex:1;overflow:hidden}
+#notes-editor-container{flex:1;overflow:hidden;position:relative}
 #notes-editor-container .toastui-editor-defaultUI{border:none!important;border-radius:0!important}
 #notes-editor-container .toastui-editor{height:100%!important}
 #notes-empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--text-3)}
@@ -569,6 +598,12 @@ select option{background:var(--surface-2);color:var(--text)}
 .note-context-menu .menu-item:hover{background:var(--accent-subtle);color:var(--text-strong)}
 .note-context-menu .menu-item.danger{color:var(--rose)}
 .note-context-menu .menu-item.danger:hover{background:var(--rose-subtle)}
+
+/* ----- Right panel tab strip ----- */
+.notes-right-tab{flex:1;padding:8px 4px;font-size:11px;background:transparent;border:none;color:var(--text-3);cursor:pointer;transition:background .15s,color .15s;border-bottom:2px solid transparent;font-weight:500}
+.notes-right-tab:hover{color:var(--text);background:var(--surface)}
+.notes-right-tab.active{color:var(--text-strong);border-bottom-color:var(--accent);background:var(--surface);font-weight:600}
+.notes-right-pane[hidden]{display:none!important}
 
 /* ===== Notes Breadcrumb & Outline ===== */
 #notes-editor-breadcrumb{display:flex;align-items:flex-start;gap:4px;flex-shrink:0;flex-direction:column}
@@ -1165,39 +1200,51 @@ body { display: flex !important; flex-direction: column !important; height: 100v
     </div>
   </div>
   <div id="notes-main">
-    <div id="notes-sidebar">
-      <div id="notes-sidebar-header">
-        <span>📝 笔记</span>
-        <button class="icon-btn" onclick="createNote()" title="新建笔记">＋</button>
+    <div id="notes-notebooks-pane">
+      <div id="notes-notebooks-header">
+        <span>📚 笔记本</span>
+        <button class="icon-btn" onclick="createNotebookPrompt()" title="新建笔记本">＋</button>
+      </div>
+      <div id="notebooks-tree" style="flex:1;overflow-y:auto;padding:6px 0"></div>
+      <div id="notes-notebooks-footer" style="padding:8px 12px;border-top:1px solid var(--border);font-size:11px;color:var(--text-3)">
+        <span id="notebooks-count">0 笔记本</span>
+      </div>
+    </div>
+    <div id="notes-docs-pane">
+      <div id="notes-docs-header">
+        <span id="notes-docs-title">📝 文档</span>
+        <button class="icon-btn" onclick="createNote()" title="新建文档">＋</button>
       </div>
       <div id="notes-search-box" style="padding:8px 12px;border-bottom:1px solid var(--border)">
         <input type="text" id="notes-search-input" placeholder="🔍 搜索笔记..." style="width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;font-size:12px;color:var(--text);outline:none" oninput="filterNotesTree(this.value)">
       </div>
       <div id="notes-tree"></div>
-      <div id="notes-sidebar-footer" style="padding:8px 12px;border-top:1px solid var(--border);font-size:11px;color:var(--text-3);display:flex;justify-content:space-between;align-items:center">
+      <div id="notes-docs-footer" style="padding:8px 12px;border-top:1px solid var(--border);font-size:11px;color:var(--text-3);display:flex;justify-content:space-between;align-items:center">
         <span id="notes-count">0 笔记</span>
-        <button class="icon-btn" onclick="createNote()" title="新建" style="width:24px;height:24px;font-size:12px">＋</button>
+        <button class="icon-btn" onclick="createSubDocPrompt()" title="新建子文档" style="width:24px;height:24px;font-size:12px">📄＋</button>
       </div>
     </div>
     <div id="notes-resize-handle" onmousedown="startNotesResize(event)"></div>
     <div id="notes-editor-column">
+      <div id="notes-tabs-bar"></div>
       <div id="notes-editor-breadcrumb" style="display:none;padding:6px 16px;font-size:12px;color:var(--text-3);border-bottom:1px solid var(--border);background:var(--surface);flex-direction:column;gap:4px">
         <span id="notes-editor-breadcrumb-text"></span>
         <div id="note-tags-row" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;min-height:18px"></div>
       </div>
       <div id="notes-editor-container"></div>
     </div>
-    <div id="notes-outline-panel" style="width:220px;flex-shrink:0;border-left:1px solid var(--border);background:var(--surface);display:flex;flex-direction:column;overflow:hidden">
-      <div style="padding:10px 14px;border-bottom:1px solid var(--border);font-weight:600;font-size:12px;color:var(--text-2);display:flex;justify-content:space-between;align-items:center">
-        <span>📋 大纲</span>
-        <button onclick="toggleNoteOutline()" style="background:none;border:none;color:var(--text-3);cursor:pointer;font-size:12px">✕</button>
+    <div id="notes-right-panel" style="width:240px;flex-shrink:0;border-left:1px solid var(--border);background:var(--surface);display:flex;flex-direction:column;overflow:hidden">
+      <div id="notes-right-tabs" style="display:flex;border-bottom:1px solid var(--border);background:var(--surface-2);flex-shrink:0">
+        <button class="notes-right-tab active" data-tab="backlinks" onclick="switchNoteRightTab('backlinks')">🔗 反链</button>
+        <button class="notes-right-tab" data-tab="mentions" onclick="switchNoteRightTab('mentions')">📌 提及</button>
+        <button class="notes-right-tab" data-tab="outline" onclick="switchNoteRightTab('outline')">📋 大纲</button>
+        <button class="notes-right-tab" data-tab="tags" onclick="switchNoteRightTab('tags')">🏷 标签</button>
       </div>
-      <div id="note-outline-list" style="flex:1;overflow-y:auto;padding:6px 0;font-size:12px;min-height:80px"></div>
-      <div style="padding:10px 14px;border-top:1px solid var(--border);border-bottom:1px solid var(--border);font-weight:600;font-size:12px;color:var(--text-2);display:flex;justify-content:space-between;align-items:center">
-        <span>🔗 反向链接</span>
-      </div>
-      <div id="note-backlinks-list" style="flex:1;overflow-y:auto;padding:6px 0;font-size:12px;min-height:80px">
-        <div style="padding:12px 16px;font-size:12px;color:var(--text-3)">打开笔记查看反向链接</div>
+      <div id="notes-right-tab-body" style="flex:1;overflow:hidden;display:flex;flex-direction:column">
+        <div id="notes-right-pane-backlinks" class="notes-right-pane" style="flex:1;overflow-y:auto;padding:6px 0;font-size:12px"></div>
+        <div id="notes-right-pane-mentions" class="notes-right-pane" style="display:none;flex:1;overflow-y:auto;padding:6px 0;font-size:12px"></div>
+        <div id="notes-right-pane-outline" class="notes-right-pane" style="display:none;flex:1;overflow-y:auto;padding:6px 0;font-size:12px"></div>
+        <div id="notes-right-pane-tags" class="notes-right-pane" style="display:none;flex:1;overflow-y:auto;padding:6px 0;font-size:12px"></div>
       </div>
     </div>
   </div>
@@ -1519,7 +1566,37 @@ const notesStore = (() => {
 })();
 let notesIndex = []; // back-compat alias: synced from store via subscribe()
 notesStore.subscribe(() => { notesIndex = notesStore.snapshot(); });
+
+// ===== NOTEBOOKS STORE =====
+// Mirrors the notesStore pattern. Notebooks are a flat list (no
+// nesting). The selected notebook is what filters the document tree.
+const notebooksStore = (() => {
+  let byId = new Map();
+  let order = [];
+  const subs = new Set();
+  function rebuild(list) {
+    byId = new Map();
+    for (const n of list || []) if (n && n.id) byId.set(n.id, n);
+    order = [...byId.keys()].sort((a, b) => {
+      const na = byId.get(a) || {};
+      const nb = byId.get(b) || {};
+      // Inbox first, then by sort_order, then by name.
+      if (na.id === 'nb_default' && nb.id !== 'nb_default') return -1;
+      if (nb.id === 'nb_default' && na.id !== 'nb_default') return 1;
+      const sa = (na.sort_order || 0) - (nb.sort_order || 0);
+      if (sa !== 0) return sa;
+      return (na.name || '').localeCompare(nb.name || '');
+    });
+    subs.forEach((fn) => { try { fn(); } catch (_) {} });
+  }
+  function get(id) { return byId.get(id); }
+  function snapshot() { return order.map((id) => byId.get(id)).filter(Boolean); }
+  function subscribe(fn) { subs.add(fn); return () => subs.delete(fn); }
+  return { rebuild, get, snapshot, subscribe };
+})();
+
 let currentNoteId = null;
+let currentNotebookId = 'nb_default';
 let notesEditor = null;
 let noteSaveDirty = false;
 let noteSaveTimer = null;
@@ -1527,6 +1604,16 @@ let noteSaveGen = 0; // increments on every save; stale requests bail out
 let noteFolderCollapsed = new Set();
 let selectedNoteIds = new Set();
 let contextNoteIds = [];
+
+// ===== NOTES TABS =====
+// Multi-tab state. Each tab is the open-document's id; only `activeTabId`
+// is currently mounted in the editor. Switching tabs reloads the editor
+// with the cached content (re-using the openNote skeleton logic but
+// skipping the destroy-before-fetch hack).
+let noteTabs = []; // [{id, title, dirty, lastContent, pinned}]
+let activeTabId = null;
+let noteRightTab = 'backlinks';
+let expandedDocIds = new Set(); // for the document tree, which docs are expanded
 
 // ===== TOAST =====
 // Lightweight bottom-right toast. Used to surface create/save/delete
@@ -4198,7 +4285,7 @@ function switchToNotesView() {
   document.getElementById('library-view').classList.add('hidden');
   document.getElementById('reader-view').classList.remove('active');
   document.getElementById('notes-view').classList.add('active');
-  loadNotesIndex();
+  loadNotebooksAndNotes();
 }
 
 function backFromNotesView() {
@@ -4206,15 +4293,40 @@ function backFromNotesView() {
     try { notesEditor.destroy(); } catch(e) {}
     notesEditor = null;
   }
-  document.getElementById('notes-view').classList.remove('active');
-  document.getElementById('library-view').classList.remove('hidden');
+  noteTabs = [];
+  activeTabId = null;
   currentNoteId = null;
   noteSaveDirty = false;
+  noteSaveGen = 0;
+  document.getElementById('notes-view').classList.remove('active');
+  document.getElementById('library-view').classList.remove('hidden');
   renderNoteTags([]);
   renderLibrary();
 }
 
+async function loadNotebooksAndNotes() {
+  // Fetch both in parallel. Notes are the source of truth for the doc
+  // tree; notebooks only filter which notes are visible.
+  const tasks = [
+    fetch('/api/notebooks').then((r) => r.ok ? r.json() : {notebooks: []}).catch(() => ({notebooks: []})),
+    fetch('/api/notes').then((r) => r.ok ? r.json() : {notes: []}).catch(() => ({notes: []})),
+  ];
+  const [nbData, noteData] = await Promise.all(tasks);
+  notebooksStore.rebuild(nbData.notebooks || []);
+  notesStore.rebuild(noteData.notes || []);
+  // Keep currentNotebookId valid; if it disappeared, fall back to Inbox.
+  if (!notebooksStore.get(currentNotebookId)) {
+    currentNotebookId = 'nb_default';
+  }
+  renderNotebooksTree();
+  renderNoteTree();
+  if (!currentNoteId && notesStore.snapshot().length === 0) {
+    showNotesEmpty();
+  }
+}
+
 async function loadNotesIndex() {
+  // Legacy single-fetch path. Prefer loadNotebooksAndNotes.
   try {
     const resp = await fetch('/api/notes');
     if (!resp.ok) throw new Error(await resp.text());
@@ -4229,6 +4341,170 @@ async function loadNotesIndex() {
   }
 }
 
+// ===== NOTEBOOKS TREE RENDER =====
+function renderNotebooksTree() {
+  const host = document.getElementById('notebooks-tree');
+  const countEl = document.getElementById('notebooks-count');
+  if (!host) return;
+  const list = notebooksStore.snapshot();
+  if (countEl) countEl.textContent = list.length + ' 笔记本';
+  if (!list.length) {
+    host.innerHTML = '<div class="empty-state" style="padding:30px 16px;font-size:12px;color:var(--text-3)">暂无笔记本</div>';
+    return;
+  }
+  // Count notes per notebook for the badge.
+  const counts = new Map();
+  for (const n of notesStore.snapshot()) {
+    const nb = n.notebook_id || 'nb_default';
+    counts.set(nb, (counts.get(nb) || 0) + 1);
+  }
+  host.innerHTML = list.map((nb) => `
+    <div class="notebook-row${nb.id === currentNotebookId ? ' active' : ''}" data-id="${esc(nb.id)}"
+         onclick="selectNotebook('${esc(nb.id)}')"
+         oncontextmenu="showNotebookContextMenu(event,'${esc(nb.id)}')">
+      <span class="notebook-icon">${esc(nb.icon || '📓')}</span>
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(nb.name)}</span>
+      <span class="notebook-count">${counts.get(nb.id) || 0}</span>
+    </div>
+  `).join('');
+}
+
+function selectNotebook(nb_id) {
+  currentNotebookId = nb_id;
+  renderNotebooksTree();
+  renderNoteTree();
+}
+
+async function createNotebookPrompt() {
+  const name = await uiPrompt('新建笔记本', '笔记本名称', '');
+  if (!name || !name.trim()) return;
+  try {
+    const resp = await fetch('/api/notebooks', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name: name.trim(), icon: '📓'}),
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    const data = await resp.json();
+    notebooksStore.rebuild(data.notebooks || []);
+    renderNotebooksTree();
+    toast('笔记本已创建', 'success');
+  } catch (e) {
+    console.error('createNotebook failed', e);
+    toast('创建笔记本失败：' + (e.message || e), 'error');
+  }
+}
+
+function showNotebookContextMenu(e, nb_id) {
+  e.preventDefault();
+  const nb = notebooksStore.get(nb_id);
+  if (!nb) return;
+  const isDefault = nb_id === 'nb_default';
+  const menu = document.createElement('div');
+  menu.className = 'note-context-menu';
+  menu.style.left = e.clientX + 'px';
+  menu.style.top = e.clientY + 'px';
+  menu.innerHTML = `
+    <div class="menu-item" onclick="renameNotebookPrompt('${esc(nb_id)}')">重命名</div>
+    <div class="menu-item" onclick="setNotebookIconPrompt('${esc(nb_id)}')">更改图标</div>
+    ${isDefault ? '' : `<div class="menu-item danger" onclick="deleteNotebook('${esc(nb_id)}')">删除</div>`}
+  `;
+  document.body.appendChild(menu);
+  setTimeout(() => {
+    document.addEventListener('click', function dismiss(ev) {
+      if (!menu.contains(ev.target)) { menu.remove(); document.removeEventListener('click', dismiss); }
+    });
+  }, 0);
+}
+
+async function renameNotebookPrompt(nb_id) {
+  const nb = notebooksStore.get(nb_id);
+  if (!nb) return;
+  const name = await uiPrompt('重命名笔记本', '新名称', nb.name);
+  if (!name || !name.trim()) return;
+  try {
+    const resp = await fetch('/api/notebooks/' + encodeURIComponent(nb_id), {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name: name.trim(), icon: nb.icon}),
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    notebooksStore.rebuild((await resp.json()).notebooks || []);
+    renderNotebooksTree();
+  } catch (e) {
+    toast('重命名失败：' + (e.message || e), 'error');
+  }
+}
+
+async function setNotebookIconPrompt(nb_id) {
+  const nb = notebooksStore.get(nb_id);
+  if (!nb) return;
+  const icon = await uiPrompt('设置图标', '输入 emoji 符号', nb.icon || '📓');
+  if (!icon) return;
+  try {
+    const resp = await fetch('/api/notebooks/' + encodeURIComponent(nb_id), {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name: nb.name, icon: icon.trim().slice(0, 16)}),
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    notebooksStore.rebuild((await resp.json()).notebooks || []);
+    renderNotebooksTree();
+  } catch (e) {
+    toast('更改图标失败：' + (e.message || e), 'error');
+  }
+}
+
+async function deleteNotebook(nb_id) {
+  if (nb_id === 'nb_default') return;
+  if (!(await uiConfirm('删除此笔记本？其包含的文档将移至 Inbox。'))) return;
+  try {
+    const resp = await fetch('/api/notebooks/' + encodeURIComponent(nb_id), {method: 'DELETE'});
+    if (!resp.ok) throw new Error(await resp.text());
+    notebooksStore.rebuild((await resp.json()).notebooks || []);
+    if (currentNotebookId === nb_id) currentNotebookId = 'nb_default';
+    // Refresh notes too (their notebook_id was reassigned).
+    const nResp = await fetch('/api/notes');
+    if (nResp.ok) {
+      const nd = await nResp.json();
+      notesStore.rebuild(nd.notes || []);
+    }
+    renderNotebooksTree();
+    renderNoteTree();
+    toast('笔记本已删除', 'success');
+  } catch (e) {
+    toast('删除失败：' + (e.message || e), 'error');
+  }
+}
+
+async function createSubDocPrompt() {
+  const parentId = activeTabId || currentNoteId;
+  if (!parentId) {
+    await createNote();
+    return;
+  }
+  try {
+    const resp = await fetch('/api/notes', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        title: 'Untitled',
+        notebook_id: currentNotebookId,
+        parent_id: parentId,
+      }),
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    const note = await resp.json();
+    notesStore.upsert(note);
+    expandedDocIds.add(parentId);
+    renderNotebooksTree();
+    renderNoteTree();
+    await openNoteInTab(note.id);
+  } catch (e) {
+    toast('创建子文档失败：' + (e.message || e), 'error');
+  }
+}
+
 let notesFilterQuery = '';
 
 function toggleNoteSelection(e, id) {
@@ -4238,75 +4514,113 @@ function toggleNoteSelection(e, id) {
   renderNoteTree();
 }
 
-function renderNoteTreeItem(n, hlQ) {
-  let titleHtml = esc(n.title);
+function renderNoteTreeItem(n, hlQ, depthClass) {
+  let titleHtml = esc(n.title || 'Untitled');
   if (hlQ) {
-    const idx = n.title.toLowerCase().indexOf(hlQ.toLowerCase());
+    const idx = (n.title || '').toLowerCase().indexOf(hlQ.toLowerCase());
     if (idx >= 0) {
-      titleHtml = esc(n.title.slice(0, idx)) + '<span class="highlight-match">' + esc(n.title.slice(idx, idx + hlQ.length)) + '</span>' + esc(n.title.slice(idx + hlQ.length));
+      titleHtml = esc((n.title || '').slice(0, idx)) + '<span class="highlight-match">' + esc((n.title || '').slice(idx, idx + hlQ.length)) + '</span>' + esc((n.title || '').slice(idx + hlQ.length));
     }
   }
-  return `<div class="note-tree-item${n.id === currentNoteId ? ' active' : ''}" data-id="${esc(n.id)}"
-       onclick="openNote('${esc(n.id)}')"
+  const isActive = n.id === currentNoteId || n.id === activeTabId;
+  const depthCls = depthClass || '';
+  // Right edge shows child count when the doc has sub-documents.
+  return `<div class="note-tree-item ${depthCls}${isActive ? ' active' : ''}" data-id="${esc(n.id)}"
+       onclick="openNoteInTab('${esc(n.id)}')"
        oncontextmenu="showNoteContextMenu(event,'${esc(n.id)}')">
-    <label onclick="event.stopPropagation()" title="选择" style="display:flex;align-items:center;margin-right:2px">
-      <input class="article-select" type="checkbox" ${selectedNoteIds.has(n.id)?'checked':''} onchange="toggleNoteSelection(event,'${esc(n.id)}')">
-    </label>
-    <span class="note-tree-icon">${n.folder ? '📑' : '📄'}</span>
+    <span class="doc-icon">${esc(n.doc_icon || '📄')}</span>
     <span class="note-tree-title">${titleHtml}</span>
   </div>`;
+}
+
+function _childrenOf(parentId) {
+  return notesStore.snapshot().filter(n => (n.parent_id || null) === parentId);
+}
+
+function _renderNodeRecursive(n, hlQ) {
+  const kids = _childrenOf(n.id);
+  const hasKids = kids.length > 0;
+  const expanded = expandedDocIds.has(n.id);
+  let html = renderNoteTreeItem(n, hlQ, n.parent_id ? (n.parent_id.parent_id ? 'sub-sub-doc' : 'sub-doc') : '');
+  if (hasKids) {
+    // Chevron-style expand/collapse for parent docs.
+    const chevron = expanded ? '▼' : '▶';
+    const wrapper = `<div class="note-folder-header" onclick="toggleDocExpanded('${esc(n.id)}')" style="padding:4px 14px 4px ${n.parent_id ? 24 : 18}px;font-size:11px;color:var(--text-3);cursor:pointer;user-select:none">
+      <span style="font-size:9px;margin-right:4px">${chevron}</span>
+      <span>${kids.length} 个子文档</span>
+    </div>`;
+    html = html + (expanded ? wrapper + kids.map(c => _renderNodeRecursive(c, hlQ)).join('') : '');
+    // Inject expand-toggle button by replacing the previously rendered title.
+    html = html.replace(
+      '</span></div>',
+      `<span class="doc-children-toggle" onclick="event.stopPropagation();toggleDocExpanded('${esc(n.id)}')" title="${expanded ? '折叠' : '展开'}子文档" style="margin-left:auto;padding:0 6px;font-size:10px;color:var(--text-3);cursor:pointer">${expanded ? '▼' : '▶'}</span></span></div>`,
+      1
+    );
+  }
+  return html;
 }
 
 function renderNoteTree() {
   const tree = document.getElementById('notes-tree');
   const countEl = document.getElementById('notes-count');
-  if (!notesIndex.length) {
-    tree.innerHTML = '<div class="empty-state" style="padding:30px 16px"><p style="font-size:12px">暂无笔记，点击 ＋ 创建</p></div>';
-    if (countEl) countEl.textContent = '0 笔记';
-    return;
-  }
-  let sorted = [...notesIndex].sort((a, b) => b.modified_at.localeCompare(a.modified_at));
-  if (notesFilterQuery) {
-    const q = notesFilterQuery.toLowerCase();
-    sorted = sorted.filter(n => (n.title || '').toLowerCase().includes(q));
-  }
-  if (countEl) countEl.textContent = sorted.length + ' 笔记';
-  if (!sorted.length) {
-    tree.innerHTML = '<div class="empty-state" style="padding:30px 16px"><p style="font-size:12px">未找到匹配笔记</p></div>';
+  if (!tree) return;
+  const all = notesStore.snapshot().filter(n => (n.notebook_id || 'nb_default') === currentNotebookId);
+  if (countEl) countEl.textContent = all.length + ' 笔记';
+  if (!all.length) {
+    tree.innerHTML = '<div class="empty-state" style="padding:30px 16px"><p style="font-size:12px">点击 ＋ 创建笔记</p></div>';
     return;
   }
   const hlQ = notesFilterQuery;
-
-  if (!notesFilterQuery) {
-    const folders = new Map();
-    const noFolder = [];
-    sorted.forEach(n => {
-      if (n.folder) {
-        if (!folders.has(n.folder)) folders.set(n.folder, []);
-        folders.get(n.folder).push(n);
-      } else {
-        noFolder.push(n);
-      }
-    });
-    let html = '';
-    [...folders.entries()].sort((a, b) => a[0].localeCompare(b[0])).forEach(([folder, items]) => {
-      const collapsed = noteFolderCollapsed.has(folder);
-      html += `<div class="note-folder-header" onclick="toggleNoteFolder('${esc(folder)}')">
-        <span class="folder-chevron" style="transform:rotate(${collapsed ? '-90deg' : '0deg'})">▼</span>
-        <span style="font-weight:600">${esc(folder)}</span>
-        <span style="margin-left:auto;font-size:11px;color:var(--text-3)">${items.length}</span>
-      </div>`;
-      if (!collapsed) {
-        html += items.map(n => renderNoteTreeItem(n, hlQ)).join('');
-      }
-    });
-    if (noFolder.length) {
-      html += noFolder.map(n => renderNoteTreeItem(n, hlQ)).join('');
+  // Filter: if a search query is active, walk all descendants of any
+  // matching note; otherwise show only root notes (children are
+  // rendered under their parent via _renderNodeRecursive).
+  let roots = all.filter(n => !n.parent_id);
+  if (hlQ) {
+    const q = hlQ.toLowerCase();
+    const matched = all.filter(n => (n.title || '').toLowerCase().includes(q));
+    const matchedSet = new Set(matched.map(n => n.id));
+    // Show matching items + their ancestors so the path is visible.
+    function addAncestors(id) {
+      if (matchedSet.has(id)) return;
+      const n = notesStore.get(id);
+      if (!n || !n.parent_id) return;
+      matchedSet.add(id);
+      addAncestors(n.parent_id);
     }
-    tree.innerHTML = html;
-  } else {
-    tree.innerHTML = sorted.map(n => renderNoteTreeItem(n, hlQ)).join('');
+    matched.forEach(n => addAncestors(n.id));
+    const visible = all.filter(n => matchedSet.has(n.id));
+    tree.innerHTML = visible.map(n => renderNoteTreeItem(n, hlQ)).join('');
+    return;
   }
+  // For each root, render the doc + (if expanded) its children.
+  const byParent = new Map();
+  for (const n of all) {
+    if (n.parent_id) byParent.set(n.parent_id, (byParent.get(n.parent_id) || []).concat(n));
+  }
+  function renderWithChildren(n, depth) {
+    let html = renderNoteTreeItem(n, hlQ, depth > 0 ? (depth > 1 ? 'sub-sub-doc' : 'sub-doc') : '');
+    const kids = byParent.get(n.id) || [];
+    if (kids.length) {
+      const exp = expandedDocIds.has(n.id);
+      const toggleHtml = `<span class="doc-children-toggle" onclick="event.stopPropagation();toggleDocExpanded('${esc(n.id)}')" title="${exp ? '折叠' : '展开'}子文档" style="margin-left:auto;padding:0 6px;font-size:10px;color:var(--text-3);cursor:pointer">${exp ? '▼' : '▶'}</span>`;
+      // Inject the toggle into the previously rendered item.
+      html = html.replace('</span></div>', toggleHtml + '</span></div>', 1);
+      if (exp) {
+        // Sort children by sort_order, then by title.
+        kids.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0) || (a.title || '').localeCompare(b.title || ''));
+        html += kids.map(c => renderWithChildren(c, depth + 1)).join('');
+      }
+    }
+    return html;
+  }
+  roots.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0) || (a.title || '').localeCompare(b.title || ''));
+  tree.innerHTML = roots.map(r => renderWithChildren(r, 0)).join('');
+}
+
+function toggleDocExpanded(id) {
+  if (expandedDocIds.has(id)) expandedDocIds.delete(id);
+  else expandedDocIds.add(id);
+  renderNoteTree();
 }
 
 function toggleNoteFolder(folder) {
@@ -4364,13 +4678,14 @@ async function createNote() {
     const resp = await fetch('/api/notes', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({title: 'Untitled'})
+      body: JSON.stringify({title: 'Untitled', notebook_id: currentNotebookId})
     });
     if (!resp.ok) throw new Error(await resp.text());
     const note = await resp.json();
     notesStore.upsert(note);
+    renderNotebooksTree();
     renderNoteTree();
-    await openNote(note.id);
+    await openNoteInTab(note.id);
   } catch(e) {
     console.error('createNote failed', e);
     toast('新建笔记失败：' + (e.message || e), 'error');
@@ -4532,23 +4847,25 @@ async function createNoteWithTitle(title) {
     const resp = await fetch('/api/notes', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({title: title})
+      body: JSON.stringify({title: title, notebook_id: currentNotebookId})
     });
     if (!resp.ok) throw new Error(await resp.text());
     const note = await resp.json();
     notesStore.upsert(note);
+    renderNotebooksTree();
     renderNoteTree();
-    await openNote(note.id);
+    await openNoteInTab(note.id);
   } catch(e) {
     console.error('createNoteWithTitle failed', e);
+    toast('创建笔记失败：' + (e.message || e), 'error');
   }
 }
 
 async function updateBacklinks() {
-  const panel = document.getElementById('note-backlinks-list');
+  const panel = document.getElementById('notes-right-pane-backlinks');
   if (!panel) return;
   if (!currentNoteId) {
-    panel.innerHTML = '<div style="padding:12px 16px;font-size:12px;color:var(--text-3)">暂无反向链接</div>';
+    panel.innerHTML = '<div style="padding:12px 16px;font-size:12px;color:var(--text-3)">打开笔记查看反向链接</div>';
     return;
   }
   try {
@@ -4561,7 +4878,7 @@ async function updateBacklinks() {
       return;
     }
     panel.innerHTML = backlinks.map(n => `
-      <div class="note-backlink-item" onclick="openNote('${esc(n.id)}')">
+      <div class="note-backlink-item" onclick="openNoteInTab('${esc(n.id)}')">
         <span style="opacity:.5;font-size:11px">📄</span> ${esc(n.title)}
       </div>`).join('');
   } catch(e) {
@@ -4570,7 +4887,7 @@ async function updateBacklinks() {
 }
 
 function updateNoteOutline(content) {
-  const outline = document.getElementById('note-outline-list');
+  const outline = document.getElementById('notes-right-pane-outline');
   if (!outline) return;
   const headings = [];
   const lines = (content || '').split('\n');
@@ -4618,105 +4935,284 @@ function scrollNoteToHeading(idx) {
   if (headings[idx]) headings[idx].scrollIntoView({behavior:'smooth',block:'center'});
 }
 
-async function openNote(id) {
+// ===== NOTES TABS =====
+function _tabFor(id) {
+  return noteTabs.find(t => t.id === id);
+}
+
+function _ensureTab(id) {
+  let t = _tabFor(id);
+  if (!t) {
+    const meta = notesStore.get(id);
+    t = {id, title: (meta && meta.title) || 'Untitled', dirty: false, lastContent: '', lastFetched: 0};
+    noteTabs.push(t);
+  }
+  return t;
+}
+
+function _removeTab(id) {
+  noteTabs = noteTabs.filter(t => t.id !== id);
+  if (activeTabId === id) activeTabId = null;
+}
+
+function renderNoteTabsBar() {
+  const bar = document.getElementById('notes-tabs-bar');
+  if (!bar) return;
+  if (noteTabs.length === 0) { bar.innerHTML = ''; return; }
+  bar.innerHTML = noteTabs.map(t => {
+    const isActive = t.id === activeTabId;
+    const dirty = t.dirty ? '<span class="tab-dirty" title="未保存">●</span>' : '';
+    const title = esc(t.title || 'Untitled');
+    return `<div class="notes-tab${isActive ? ' active' : ''}" data-id="${esc(t.id)}"
+       onclick="switchToTab('${esc(t.id)}')"
+       oncontextmenu="showTabContextMenu(event,'${esc(t.id)}')">
+      <span class="tab-title">${title}</span>
+      ${dirty}
+      <span class="tab-close" onclick="event.stopPropagation();closeTab('${esc(t.id)}')" title="关闭">×</span>
+    </div>`;
+  }).join('');
+}
+
+function showTabContextMenu(e, id) {
+  e.preventDefault();
+  const menu = document.createElement('div');
+  menu.className = 'note-context-menu';
+  menu.style.left = e.clientX + 'px';
+  menu.style.top = e.clientY + 'px';
+  menu.innerHTML = `
+    <div class="menu-item" onclick="switchToTab('${esc(id)}')">激活</div>
+    <div class="menu-item" onclick="closeOtherTabs('${esc(id)}')">关闭其他</div>
+    <div class="menu-item" onclick="closeAllTabs()">关闭全部</div>
+    <div class="menu-item danger" onclick="closeTab('${esc(id)}')">关闭</div>
+  `;
+  document.body.appendChild(menu);
+  setTimeout(() => {
+    document.addEventListener('click', function dismiss(ev) {
+      if (!menu.contains(ev.target)) { menu.remove(); document.removeEventListener('click', dismiss); }
+    });
+  }, 0);
+}
+
+function closeTab(id) {
+  const tab = _tabFor(id);
+  if (!tab) return;
+  _removeTab(id);
+  renderNoteTabsBar();
+  if (activeTabId === id || !activeTabId) {
+    // Switch to first remaining tab or clear the editor.
+    if (noteTabs.length) {
+      switchToTab(noteTabs[noteTabs.length - 1].id);
+    } else {
+      _closeActiveEditor();
+      currentNoteId = null;
+      document.getElementById('notes-editor-breadcrumb').style.display = 'none';
+      document.getElementById('notes-breadcrumb').innerHTML = '';
+      document.getElementById('notes-editor-container').innerHTML = '<div id="notes-empty-state" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--text-3)"><div class="big">📝</div><h3>未选中笔记</h3><p>从左侧文档树选择一个，或点击 ＋ 新建</p></div>';
+      renderNoteTree();
+    }
+  }
+}
+
+function closeOtherTabs(id) {
+  noteTabs = noteTabs.filter(t => t.id === id);
+  activeTabId = id;
+  renderNoteTabsBar();
+  switchToTab(id);
+}
+
+function closeAllTabs() {
+  noteTabs = [];
+  activeTabId = null;
+  _closeActiveEditor();
+  currentNoteId = null;
+  noteSaveDirty = false;
+  document.getElementById('notes-editor-container').innerHTML = '<div id="notes-empty-state" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--text-3)"><div class="big">📝</div><h3>未选中笔记</h3><p>从左侧文档树选择一个，或点击 ＋ 新建</p></div>';
+  document.getElementById('notes-editor-breadcrumb').style.display = 'none';
+  document.getElementById('notes-breadcrumb').innerHTML = '';
+  renderNoteTabsBar();
+  renderNoteTree();
+}
+
+function _closeActiveEditor() {
+  if (notesEditor) {
+    try { notesEditor.destroy(); } catch(e) {}
+    notesEditor = null;
+  }
+}
+
+async function openNoteInTab(id) {
   closeSlashMenu();
-  // Save dirty data before switching. We bump noteSaveGen so any
-  // in-flight save tied to the old currentNoteId is invalidated
-  // and cannot race with a later write.
+  // Auto-save the outgoing tab before switching.
   clearTimeout(noteSaveTimer);
   if (noteSaveDirty && currentNoteId && notesEditor) {
     try { await autoSaveNote(); } catch(e) {}
   }
-  // Cancel any in-flight save by bumping the generation.
   noteSaveGen += 1;
-
-  // Track the id we asked for so a slow fetch can't overwrite the
-  // current note after the user has switched.
   const requestedId = id;
-  currentNoteId = id;
+  _ensureTab(id);
+  activeTabId = id;
+  renderNoteTabsBar();
   renderNoteTree();
   document.getElementById('notes-empty-state')?.remove();
+  _mountNoteInContainer(requestedId, /* showSkeleton */ true);
+}
 
+async function switchToTab(id) {
+  if (!id || !_tabFor(id)) return;
+  closeSlashMenu();
+  clearTimeout(noteSaveTimer);
+  if (noteSaveDirty && currentNoteId && notesEditor && currentNoteId !== id) {
+    try { await autoSaveNote(); } catch(e) {}
+  }
+  noteSaveGen += 1;
+  activeTabId = id;
+  renderNoteTabsBar();
+  renderNoteTree();
+  document.getElementById('notes-empty-state')?.remove();
+  const tab = _tabFor(id);
+  if (tab.lastContent) {
+    // Fast path: render cached content without re-fetching.
+    _mountNoteInContainer(id, false);
+  } else {
+    _mountNoteInContainer(id, true);
+  }
+}
+
+async function _mountNoteInContainer(id, showSkeleton) {
+  const requestedId = id;
+  currentNoteId = id;
   const container = document.getElementById('notes-editor-container');
-  // Show a skeleton in place of the old editor so the panel never
-  // goes blank. We keep the previous editor mounted until the new
-  // content is ready; that way the user can still see what they were
-  // reading if the request is slow.
+  const tab = _tabFor(id);
+  if (!container || !tab) return;
+
+  if (!showSkeleton && tab.lastFetched) {
+    // We have cached content — mount it directly without a skeleton flash.
+    _renderNoteEditor(id, tab.lastContent, notesStore.get(id) || {});
+    return;
+  }
+
+  // Slow path: show skeleton, fetch, then mount.
   const skeleton = document.createElement('div');
   skeleton.className = 'note-loading-skeleton';
   skeleton.innerHTML = '<div class="skeleton-bar" style="width:60%"></div><div class="skeleton-bar" style="width:90%"></div><div class="skeleton-bar" style="width:75%"></div><div class="skeleton-bar" style="width:85%"></div>';
-  if (notesEditor) {
-    // Mount the skeleton next to the editor and dim it slightly.
-    container.appendChild(skeleton);
-  } else {
-    container.innerHTML = '';
-    container.appendChild(skeleton);
-  }
+  if (notesEditor) container.appendChild(skeleton);
+  else { container.innerHTML = ''; container.appendChild(skeleton); }
 
   try {
     const resp = await fetch(`/api/notes/${encodeURIComponent(id)}`);
     if (!resp.ok) throw new Error(await resp.text());
-    // If the user switched away during the fetch, drop the result.
     if (currentNoteId !== requestedId) return;
     const data = await resp.json();
-    const meta = data.meta || {};
-    const breadcrumb = document.getElementById('notes-breadcrumb');
-    const titleHtml = '<strong style="color:var(--text-strong);cursor:pointer" onclick="renameNotePrompt(currentNoteId)" title="点击重命名">' + esc(meta.title || 'Untitled') + '</strong>';
-    breadcrumb.innerHTML = '<span style="color:var(--text-3)">笔记</span> <span style="color:var(--text-3);margin:0 4px">/</span> ' + titleHtml;
-    document.getElementById('notes-editor-breadcrumb').style.display = 'flex';
-    document.getElementById('notes-editor-breadcrumb-text').innerHTML = titleHtml;
-    renderNoteTags(meta.tags || []);
-
-    // Now destroy the previous editor (still showing underneath the
-    // skeleton) and create the new one.
-    if (notesEditor) {
-      try { notesEditor.destroy(); } catch(e) {}
-      notesEditor = null;
-    }
+    tab.lastContent = data.content || '';
+    tab.lastFetched = Date.now();
+    tab.title = (data.meta && data.meta.title) || tab.title;
+    renderNoteTabsBar();
     skeleton.remove();
-
-    const doNotePostRender = () => {
-      renderWikiLinks(container);
-    };
-    let _postRenderTimer = null;
-    notesEditor = new Vditor('notes-editor-container', {
-      value: data.content || '',
-      mode: 'ir',
-      cache: { enable: false },
-      outline: { enable: false },
-      height: '100%',
-      icon: 'material',
-      input: (val) => {
-        noteSaveDirty = true;
-        document.getElementById('notes-save-indicator').textContent = '● 未保存';
-        clearTimeout(noteSaveTimer);
-        noteSaveTimer = setTimeout(() => autoSaveNote(), 1500);
-        updateNoteOutline(val);
-        clearTimeout(_postRenderTimer);
-        _postRenderTimer = setTimeout(doNotePostRender, 500);
-      },
-      after: () => {
-        doNotePostRender();
-        attachSlashListeners(notesEditor, container);
-      }
-    });
-
-    updateNoteOutline(data.content || '');
-    attachSlashListeners(notesEditor, container);
-    await updateBacklinks();
-  } catch(e) {
-    console.error('openNote failed', e);
+    _renderNoteEditor(id, tab.lastContent, data.meta || {});
+  } catch (e) {
+    console.error('mount note failed', e);
     skeleton.remove();
-    // Attempt recovery: clear any partial state.
     if (currentNoteId === requestedId) {
-      if (notesEditor) {
-        try { notesEditor.destroy(); } catch(e2) {}
-        notesEditor = null;
-      }
+      _closeActiveEditor();
       container.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-3)"><p>打开笔记失败</p><p style="font-size:12px;margin-top:8px">' + esc(e.message) + '</p></div>';
       toast('打开笔记失败：' + (e.message || e), 'error');
     }
   }
+}
+
+function _renderNoteEditor(id, content, meta) {
+  _closeActiveEditor();
+  const container = document.getElementById('notes-editor-container');
+  if (!container) return;
+  const breadcrumb = document.getElementById('notes-breadcrumb');
+  const titleHtml = '<strong style="color:var(--text-strong);cursor:pointer" onclick="renameNotePrompt(currentNoteId)" title="点击重命名">' + esc(meta.title || 'Untitled') + '</strong>';
+  breadcrumb.innerHTML = '<span style="color:var(--text-3)">笔记</span> <span style="color:var(--text-3);margin:0 4px">/</span> ' + titleHtml;
+  document.getElementById('notes-editor-breadcrumb').style.display = 'flex';
+  document.getElementById('notes-editor-breadcrumb-text').innerHTML = titleHtml;
+  renderNoteTags(meta.tags || []);
+
+  const doNotePostRender = () => { renderWikiLinks(container); };
+  let _postRenderTimer = null;
+  notesEditor = new Vditor('notes-editor-container', {
+    value: content || '',
+    mode: 'ir',
+    cache: { enable: false },
+    outline: { enable: false },
+    height: '100%',
+    icon: 'material',
+    input: (val) => {
+      const tab = _tabFor(currentNoteId);
+      if (tab) tab.dirty = true;
+      noteSaveDirty = true;
+      document.getElementById('notes-save-indicator').textContent = '● 未保存';
+      clearTimeout(noteSaveTimer);
+      noteSaveTimer = setTimeout(() => autoSaveNote(), 1500);
+      if (tab) tab.lastContent = val;
+      updateNoteOutline(val);
+      clearTimeout(_postRenderTimer);
+      _postRenderTimer = setTimeout(doNotePostRender, 500);
+      renderNoteTabsBar();
+    },
+    after: () => {
+      doNotePostRender();
+      attachSlashListeners(notesEditor, container);
+    }
+  });
+  updateNoteOutline(content || '');
+  attachSlashListeners(notesEditor, container);
+  switchNoteRightTab(noteRightTab);
+}
+
+// openNote becomes a thin alias for backward compatibility with
+// the dozens of call sites that predate the tabs refactor.
+async function openNote(id) {
+  return openNoteInTab(id);
+}
+
+// ===== RIGHT-PANEL TABS =====
+function switchNoteRightTab(name) {
+  noteRightTab = name;
+  document.querySelectorAll('.notes-right-tab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === name);
+  });
+  document.querySelectorAll('.notes-right-pane').forEach(p => {
+    p.style.display = 'none';
+  });
+  const pane = document.getElementById('notes-right-pane-' + name);
+  if (pane) pane.style.display = 'flex';
+  // Trigger the right refresh per tab.
+  if (name === 'backlinks') updateBacklinks();
+  else if (name === 'mentions') updateMentions();
+  else if (name === 'outline') updateNoteOutline(notesEditor ? notesEditor.getValue() : '');
+  else if (name === 'tags') renderNoteTags(notesStore.get(currentNoteId)?.tags || []);
+}
+
+async function updateMentions() {
+  const pane = document.getElementById('notes-right-pane-mentions');
+  if (!pane) return;
+  if (!currentNoteId) { pane.innerHTML = '<div style="padding:14px 16px;font-size:12px;color:var(--text-3)">打开笔记查看提及</div>'; return; }
+  const meta = notesStore.get(currentNoteId);
+  if (!meta) { pane.innerHTML = ''; return; }
+  const title = meta.title || '';
+  // Scan all notes (locally) for `[[title]]` mentions; group by source.
+  const sources = [];
+  for (const n of notesStore.snapshot()) {
+    if (n.id === currentNoteId) continue;
+    const md = (n.lastContent || ''); // may be empty for unvisited tabs
+    if (!md) continue;
+    if (md.includes(`[[${title}]]`) || md.includes(`[[${title}#`)) {
+      sources.push(n);
+    }
+  }
+  if (!sources.length) {
+    pane.innerHTML = '<div style="padding:14px 16px;font-size:12px;color:var(--text-3)">暂无笔记引用《' + esc(title) + '》</div>';
+    return;
+  }
+  pane.innerHTML = sources.map(n => `
+    <div class="note-backlink-item" onclick="switchToTab('${esc(n.id)}')">
+      <span style="font-weight:500">${esc(n.title || n.id)}</span>
+    </div>
+  `).join('');
 }
 
 async function autoSaveNote() {
@@ -4748,6 +5244,11 @@ async function saveCurrentNote(silent) {
     if (myGen !== noteSaveGen || myId !== currentNoteId) return;
     noteSaveDirty = false;
     document.getElementById('notes-save-indicator').textContent = '✓ 已保存';
+    const tab = _tabFor(myId);
+    if (tab) {
+      tab.dirty = false;
+      if (title) tab.title = title;
+    }
     if (title) {
       const titleHtml = '<strong style="color:var(--text-strong);cursor:pointer" onclick="renameNotePrompt(currentNoteId)" title="点击重命名">' + esc(title) + '</strong>';
       document.getElementById('notes-breadcrumb').innerHTML = '<span style="color:var(--text-3)">笔记</span> <span style="color:var(--text-3);margin:0 4px">/</span> ' + titleHtml;
@@ -4756,6 +5257,7 @@ async function saveCurrentNote(silent) {
       notesStore.upsert({id: myId, title, modified_at: new Date().toISOString().slice(0, 19).replace('T', ' ')});
     }
     renderNoteTree();
+    renderNoteTabsBar();
     await updateBacklinks();
     if (!silent) {
       setTimeout(() => {
@@ -4776,22 +5278,37 @@ async function saveCurrentNote(silent) {
 async function deleteCurrentNote() {
   if (!currentNoteId) return;
   if (!(await uiConfirm('确定删除这条笔记？'))) return;
+  await deleteNoteById(currentNoteId);
+}
+
+async function deleteNoteById(id) {
+  if (!id) return;
+  if (!(await uiConfirm('确定删除这条笔记？此操作不可撤销。'))) return;
   try {
-    const resp = await fetch(`/api/notes/${encodeURIComponent(currentNoteId)}`, {method: 'DELETE'});
+    const resp = await fetch(`/api/notes/${encodeURIComponent(id)}`, {method: 'DELETE'});
     if (!resp.ok) throw new Error(await resp.text());
-    notesStore.remove(currentNoteId);
-    currentNoteId = null;
-    noteSaveDirty = false;
-    noteSaveGen += 1; // invalidate any in-flight save
-    if (notesEditor) { try { notesEditor.destroy(); } catch(e) {} notesEditor = null; }
-    document.getElementById('notes-breadcrumb').innerHTML = '';
-    document.getElementById('notes-editor-breadcrumb').style.display = 'none';
-    document.getElementById('notes-save-indicator').textContent = '';
+    notesStore.remove(id);
+    if (id === currentNoteId) {
+      currentNoteId = null;
+      noteSaveDirty = false;
+      noteSaveGen += 1;
+      _closeActiveEditor();
+      document.getElementById('notes-breadcrumb').innerHTML = '';
+      document.getElementById('notes-editor-breadcrumb').style.display = 'none';
+      document.getElementById('notes-save-indicator').textContent = '';
+    }
+    _removeTab(id);
+    renderNoteTabsBar();
     renderNoteTags([]);
+    renderNotebooksTree();
     renderNoteTree();
-    showNotesEmpty();
+    if (noteTabs.length === 0) {
+      document.getElementById('notes-editor-container').innerHTML = '<div id="notes-empty-state" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--text-3)"><div class="big">📝</div><h3>未选中笔记</h3></div>';
+    } else {
+      switchToTab(activeTabId || noteTabs[noteTabs.length - 1].id);
+    }
   } catch(e) {
-    console.error('deleteCurrentNote failed', e);
+    console.error('deleteNoteById failed', e);
     toast('删除笔记失败：' + (e.message || e), 'error');
   }
 }
