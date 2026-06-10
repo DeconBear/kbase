@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import json
 import os
+import os
+import re
 import sqlite3
 import sys
 import threading
@@ -192,6 +194,41 @@ CREATE TABLE IF NOT EXISTS notes (
     folder TEXT
 );
 
+-- Notebook container: each note belongs to a notebook. A default
+-- "Inbox" notebook is created for legacy data.
+CREATE TABLE IF NOT EXISTS notebooks (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    icon TEXT,
+    sort_order INTEGER DEFAULT 0,
+    closed INTEGER DEFAULT 0,
+    created_at TEXT,
+    updated_at TEXT
+);
+
+-- Note document tree: parent_id lets notes nest as Sub-document
+-- under another note. Depth is bounded by the application (the
+-- notebook -> document -> sub-document layer is intentional and
+-- matches the SiYuan-style navigation we are replicating).
+-- The new columns notebook_id, parent_id, sort_order, doc_icon are
+-- added by an idempotent ALTER TABLE check in init_db (see below
+-- the schema block).
+
+-- Block anchors: stable IDs for H1/H2/H3 headings so they can be
+-- referenced from any other note via `[[note-id#anchor]]`. The
+-- `anchor` field is a URL-safe slug derived from the heading text.
+CREATE TABLE IF NOT EXISTS note_blocks (
+    id TEXT PRIMARY KEY,
+    note_id TEXT NOT NULL,
+    anchor TEXT NOT NULL,
+    heading TEXT,
+    level INTEGER,
+    sort_order INTEGER DEFAULT 0,
+    UNIQUE(note_id, anchor)
+);
+CREATE INDEX IF NOT EXISTS idx_note_blocks_note ON note_blocks(note_id);
+CREATE INDEX IF NOT EXISTS idx_note_blocks_anchor ON note_blocks(note_id, anchor);
+
 CREATE TABLE IF NOT EXISTS tags (
     item_id TEXT,
     tag TEXT,
@@ -289,6 +326,21 @@ def init_db() -> None:
         conn = _connect()
         try:
             conn.executescript(_SCHEMA)
+            # Additive migrations: apply ALTER TABLE statements only if
+            # the target column does not already exist. exec/except
+            # per column keeps the script idempotent.
+            existing_cols = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(notes)").fetchall()
+            }
+            for col, decl in (
+                ("notebook_id", "TEXT REFERENCES notebooks(id)"),
+                ("parent_id", "TEXT"),
+                ("sort_order", "INTEGER DEFAULT 0"),
+                ("doc_icon", "TEXT"),
+            ):
+                if col not in existing_cols:
+                    conn.execute(f"ALTER TABLE notes ADD COLUMN {col} {decl}")
         finally:
             conn.close()
 
@@ -639,6 +691,7 @@ def list_conversion_history(article_id: str, limit: int = 50) -> list[dict[str, 
 
 
 def get_all_notes() -> list[dict[str, Any]]:
+    ensure_default_notebook()
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT * FROM notes ORDER BY datetime(modified_at) DESC"
@@ -650,6 +703,10 @@ def get_all_notes() -> list[dict[str, Any]]:
                 (n["id"],),
             ).fetchall()
             n["tags"] = [t["tag"] for t in tag_rows]
+    # Legacy notes without notebook_id are placed in Inbox.
+    for n in notes:
+        if not n.get("notebook_id"):
+            n["notebook_id"] = DEFAULT_NOTEBOOK_ID
     return notes
 
 
@@ -657,21 +714,37 @@ def upsert_note(note: dict[str, Any]) -> None:
     nid = note.get("id")
     if not nid:
         raise ValueError("Note id is required")
+    ensure_default_notebook()
+    nb_id = note.get("notebook_id") or DEFAULT_NOTEBOOK_ID
     with get_conn() as conn:
+        # Confirm the notebook exists (legacy notes may have been
+        # migrated without one).
+        row = conn.execute("SELECT id FROM notebooks WHERE id=?", (nb_id,)).fetchone()
+        if not row:
+            nb_id = DEFAULT_NOTEBOOK_ID
         conn.execute(
-            """INSERT INTO notes (id, title, created_at, modified_at, folder)
-               VALUES (?, ?, ?, ?, ?)
+            """INSERT INTO notes (id, title, created_at, modified_at, folder,
+                                 notebook_id, parent_id, sort_order, doc_icon)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(id) DO UPDATE SET
                  title=excluded.title,
                  created_at=excluded.created_at,
                  modified_at=excluded.modified_at,
-                 folder=excluded.folder""",
+                 folder=excluded.folder,
+                 notebook_id=excluded.notebook_id,
+                 parent_id=excluded.parent_id,
+                 sort_order=excluded.sort_order,
+                 doc_icon=excluded.doc_icon""",
             (
                 nid,
                 note.get("title", ""),
                 note.get("created_at", ""),
                 note.get("modified_at", ""),
                 note.get("folder", ""),
+                nb_id,
+                note.get("parent_id"),
+                int(note.get("sort_order") or 0),
+                note.get("doc_icon", ""),
             ),
         )
         conn.execute("DELETE FROM tags WHERE item_id=? AND item_type='note'", (nid,))
@@ -689,6 +762,166 @@ def delete_note(nid: str) -> None:
         conn.execute("DELETE FROM notes WHERE id=?", (nid,))
         conn.execute("DELETE FROM tags WHERE item_id=? AND item_type='note'", (nid,))
         conn.execute("DELETE FROM workspace_items WHERE item_id=?", (nid,))
+        conn.execute("DELETE FROM note_blocks WHERE note_id=?", (nid,))
+
+
+# ---------------------------------------------------------------------------
+# Notebooks
+# ---------------------------------------------------------------------------
+
+DEFAULT_NOTEBOOK_ID = "nb_default"
+
+
+def ensure_default_notebook() -> None:
+    """Create the built-in 'Inbox' notebook on first launch."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id FROM notebooks WHERE id=?", (DEFAULT_NOTEBOOK_ID,)
+        ).fetchone()
+        if row:
+            return
+        conn.execute(
+            """INSERT INTO notebooks (id, name, icon, sort_order, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                DEFAULT_NOTEBOOK_ID,
+                "Inbox",
+                "📥",
+                0,
+                time.strftime("%Y-%m-%d %H:%M:%S"),
+                time.strftime("%Y-%m-%d %H:%M:%S"),
+            ),
+        )
+
+
+def list_notebooks() -> list[dict[str, Any]]:
+    ensure_default_notebook()
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM notebooks ORDER BY sort_order, name"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def upsert_notebook(nb: dict[str, Any]) -> None:
+    nb_id = nb.get("id") or f"nb_{int(time.time() * 1000)}_{os.urandom(2).hex()}"
+    fields = {
+        "id": nb_id,
+        "name": nb.get("name") or "Untitled",
+        "icon": nb.get("icon") or "📓",
+        "sort_order": int(nb.get("sort_order") or 0),
+        "closed": int(nb.get("closed") or 0),
+        "created_at": nb.get("created_at") or time.strftime("%Y-%m-%d %H:%M:%S"),
+        "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO notebooks (id, name, icon, sort_order, closed, created_at, updated_at)
+               VALUES (:id, :name, :icon, :sort_order, :closed, :created_at, :updated_at)
+               ON CONFLICT(id) DO UPDATE SET
+                 name=excluded.name, icon=excluded.icon, sort_order=excluded.sort_order,
+                 closed=excluded.closed, updated_at=excluded.updated_at""",
+            fields,
+        )
+
+
+def delete_notebook(nb_id: str) -> None:
+    if nb_id == DEFAULT_NOTEBOOK_ID:
+        return  # protected
+    with get_conn() as conn:
+        # Move any notes in this notebook to the default notebook.
+        conn.execute(
+            "UPDATE notes SET notebook_id=? WHERE notebook_id=?",
+            (DEFAULT_NOTEBOOK_ID, nb_id),
+        )
+        conn.execute("DELETE FROM notebooks WHERE id=?", (nb_id,))
+
+
+# ---------------------------------------------------------------------------
+# Note block anchors
+# ---------------------------------------------------------------------------
+
+
+def _slugify_anchor(text: str) -> str:
+    """URL-safe slug used as a stable anchor inside a note."""
+    s = re.sub(r"[^\w\s一-鿿-]", "", text or "").strip().lower()
+    s = re.sub(r"[\s_]+", "-", s)
+    return s[:80] or "section"
+
+
+_BLOCK_RE = re.compile(r"^(#{1,3})\s+(.+?)\s*$", re.M)
+
+
+def sync_note_blocks(note_id: str, content: str) -> list[dict[str, Any]]:
+    """Parse H1-H3 headings out of markdown content, generate unique
+    anchors per heading, and persist them in note_blocks.
+
+    Returns the full set of blocks currently in the note so the
+    frontend can render an outline panel and validate inbound
+    `[[note-id#anchor]]` links.
+    """
+    seen: dict[str, int] = {}
+    rows: list[dict[str, Any]] = []
+    for i, match in enumerate(_BLOCK_RE.finditer(content or "")):
+        level = len(match.group(1))
+        heading = match.group(2).strip()
+        # Strip a trailing {#slug} if present.
+        explicit = re.search(r"\{#([\w一-鿿-]+)\}\s*$", heading)
+        if explicit:
+            anchor = explicit.group(1)
+            heading = heading[: explicit.start()].strip()
+        else:
+            anchor = _slugify_anchor(heading)
+        count = seen.get(anchor, 0)
+        seen[anchor] = count + 1
+        if count:
+            anchor = f"{anchor}-{count + 1}"
+        rows.append({
+            "note_id": note_id,
+            "anchor": anchor,
+            "heading": heading,
+            "level": level,
+            "sort_order": i,
+        })
+
+    with get_conn() as conn:
+        conn.execute("DELETE FROM note_blocks WHERE note_id=?", (note_id,))
+        for r in rows:
+            block_id = f"blk_{note_id}_{r['anchor']}"
+            conn.execute(
+                """INSERT INTO note_blocks (id, note_id, anchor, heading, level, sort_order)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(id) DO UPDATE SET
+                     heading=excluded.heading, level=excluded.level,
+                     sort_order=excluded.sort_order""",
+                (block_id, r["note_id"], r["anchor"], r["heading"], r["level"], r["sort_order"]),
+            )
+    return rows
+
+
+def get_note_blocks(note_id: str) -> list[dict[str, Any]]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT anchor, heading, level FROM note_blocks WHERE note_id=? ORDER BY sort_order",
+            (note_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def find_note_block(note_id: str, anchor: str) -> dict[str, Any] | None:
+    """Resolve a (note_id, anchor) pair back to a block row.
+
+    Used by `[[note-id#anchor]]` backlink resolution on the server
+    side to verify the target exists before storing the link.
+    """
+    if not note_id or not anchor:
+        return None
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT anchor, heading, level FROM note_blocks WHERE note_id=? AND anchor=?",
+            (note_id, anchor),
+        ).fetchone()
+    return dict(row) if row else None
 
 
 # ---------------------------------------------------------------------------

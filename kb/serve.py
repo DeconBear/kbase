@@ -35,16 +35,20 @@ from storage import (
     delete_article_history,
     delete_chat_session_file,
     delete_note,
+    delete_notebook,
     delete_workspace,
     ensure_directories,
+    find_note_block,
     get_all_articles,
     get_all_notes,
     get_article,
     get_conn,
+    get_note_blocks,
     list_article_attachments,
     list_article_history,
     list_chat_sessions,
     list_conversion_history,
+    list_notebooks,
     list_workspaces,
     load_chat_session_file,
     load_local_env,
@@ -56,10 +60,12 @@ from storage import (
     save_chat_index,
     save_chat_session_file,
     save_translation_state,
+    sync_note_blocks,
     update_article_fields,
     upsert_article,
     upsert_article_attachment,
     upsert_note,
+    upsert_notebook,
     upsert_workspace,
 )
 from llm_config import (
@@ -690,12 +696,16 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self._json({"notes": get_all_notes()})
             elif path.startswith("/api/notes/") and path.endswith("/backlinks"):
                 self.handle_note_backlinks()
+            elif path.startswith("/api/notes/") and path.endswith("/blocks"):
+                self.handle_get_note_blocks()
             elif path.startswith("/api/notes/"):
                 self.handle_get_note()
             elif path == "/api/library-chat/sessions":
                 self.handle_library_chat_sessions()
             elif path.startswith("/api/library-chat/sessions/"):
                 self.handle_library_chat_session_get()
+            elif path == "/api/notebooks":
+                self._json({"notebooks": list_notebooks()})
             elif path == "/api/workspaces":
                 self._json({"workspaces": list_workspaces()})
             elif path == "/api/export":
@@ -835,6 +845,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_library_chat_session_delete()
             elif path == "/api/library-chat/sessions/clear":
                 self.handle_library_chat_session_clear()
+            elif path == "/api/notebooks":
+                self.handle_create_notebook()
             elif path == "/api/notes":
                 self.handle_create_note()
             elif path.startswith("/api/convert/"):
@@ -871,6 +883,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self._json(save_llm_config_from_public(self._read_json()))
             elif path == "/api/articles/update":
                 self.handle_article_update()
+            elif path.startswith("/api/notebooks/"):
+                self.handle_update_notebook()
             elif path.startswith("/api/notes/") and path.endswith("/rename"):
                 self.handle_rename_note()
             elif path.startswith("/api/notes/"):
@@ -889,6 +903,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         try:
             if path.startswith("/api/notes/"):
                 self.handle_delete_note()
+            elif path.startswith("/api/notebooks/"):
+                self.handle_delete_notebook()
             elif path.startswith("/api/articles/") and "/attachments/" in path:
                 self.handle_delete_attachment()
             else:
@@ -1350,6 +1366,43 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         meta = next((n for n in get_all_notes() if n["id"] == note_id), None)
         self._json({"id": note_id, "content": content, "meta": meta})
 
+    def handle_get_note_blocks(self):
+        note_id = self._note_id_from_path()
+        # Verify the note exists.
+        md_path = note_file_for(note_id)
+        if not md_path.exists():
+            self._error(404, "Note not found")
+            return
+        blocks = get_note_blocks(note_id)
+        self._json({"note_id": note_id, "blocks": blocks})
+
+    def handle_create_notebook(self):
+        body = self._read_json()
+        name = str(body.get("name") or "").strip()[:100]
+        if not name:
+            self._error(400, "Notebook name is required")
+            return
+        nb = {
+            "name": name,
+            "icon": str(body.get("icon") or "📓")[:16],
+            "sort_order": int(body.get("sort_order") or 0),
+        }
+        upsert_notebook(nb)
+        self._json({"status": "ok", "notebooks": list_notebooks()})
+
+    def handle_update_notebook(self):
+        nb_id = urllib.parse.unquote(self.path.rstrip("/").rsplit("/", 1)[-1])
+        body = self._read_json()
+        nb = dict(body)
+        nb["id"] = nb_id
+        upsert_notebook(nb)
+        self._json({"status": "ok", "notebooks": list_notebooks()})
+
+    def handle_delete_notebook(self):
+        nb_id = urllib.parse.unquote(self.path.rstrip("/").rsplit("/", 1)[-1])
+        delete_notebook(nb_id)
+        self._json({"status": "ok", "notebooks": list_notebooks()})
+
     def handle_note_backlinks(self):
         parts = urllib.parse.urlsplit(self.path).path.rstrip("/").split("/")
         if len(parts) < 5:
@@ -1417,8 +1470,18 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             existing["tags"] = [str(t).strip()[:50] for t in tags if str(t).strip()] if isinstance(tags, list) else []
         if "folder" in body:
             existing["folder"] = str(body.get("folder") or "").strip()[:200]
+        if "parent_id" in body:
+            existing["parent_id"] = body.get("parent_id") or None
+        if "doc_icon" in body:
+            existing["doc_icon"] = str(body.get("doc_icon") or "").strip()[:16]
         existing.setdefault("created_at", now)
         upsert_note(existing)
+        # Rebuild block anchors so `[[note-id#anchor]]` cross-links
+        # stay valid after the document is edited.
+        try:
+            sync_note_blocks(note_id, content)
+        except Exception as exc:  # noqa: BLE001
+            print(f"sync_note_blocks failed for {note_id}: {exc}")
         self._json({"status": "ok"})
 
     def handle_delete_note(self):
