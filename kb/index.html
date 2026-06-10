@@ -425,6 +425,19 @@ select option{background:var(--surface-2);color:var(--text)}
 @keyframes msgIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
 @keyframes blink{50%{opacity:.1}}
 
+/* ===== Toast notifications ===== */
+#toast-host{position:fixed;right:24px;bottom:24px;display:flex;flex-direction:column;gap:8px;z-index:100000;pointer-events:none}
+.toast-item{background:var(--surface-2);color:var(--text);padding:10px 16px;border-radius:8px;border:1px solid var(--border);box-shadow:var(--shadow-md);font-size:13px;animation:toast-in .2s ease-out,toast-out .3s ease-in 2.4s forwards;max-width:340px}
+.toast-item.toast-error{border-color:var(--rose);color:var(--rose)}
+.toast-item.toast-success{border-color:var(--emerald);color:var(--emerald)}
+@keyframes toast-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes toast-out{to{opacity:0;transform:translateY(8px)}}
+
+/* Note editor loading skeleton — shown while we wait for a note to load. */
+.note-loading-skeleton{padding:32px;display:flex;flex-direction:column;gap:14px;opacity:.7}
+.note-loading-skeleton .skeleton-bar{height:14px;background:linear-gradient(90deg,var(--surface-2) 0%,var(--surface-3,var(--border)) 50%,var(--surface-2) 100%);background-size:200% 100%;border-radius:4px;animation:skeleton-shimmer 1.4s ease-in-out infinite}
+@keyframes skeleton-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+
 /* ===== PDF column ===== */
 #pdf-column{flex:1;overflow:hidden;background:#1e293b;position:relative}
 #pdf-column.hidden{display:none}
@@ -1430,14 +1443,105 @@ let lastFilteredArticles = [];
 let contextArticleIds = [];
 
 // ===== NOTES STATE =====
-let notesIndex = [];
+// notesStore is the single source of truth for the note list. All UI
+// panels (tree, daily-note picker, slash-menu title autocomplete,
+// backlinks, …) read from it. notesIndex is kept as a thin
+// back-compat alias so the rest of the codebase doesn't need a
+// rewrite in this pass.
+const notesStore = (() => {
+  let byId = new Map();
+  let order = []; // ids in display order (modified_at desc, then title)
+  const subs = new Set();
+
+  function rebuild(list) {
+    byId = new Map();
+    for (const n of list || []) {
+      if (n && n.id) byId.set(n.id, n);
+    }
+    order = [...byId.keys()].sort((a, b) => {
+      const na = byId.get(a) || {};
+      const nb = byId.get(b) || {};
+      const ma = (na.modified_at || '').localeCompare(nb.modified_at || '');
+      if (ma !== 0) return -ma; // newest first
+      return (na.title || '').localeCompare(nb.title || '');
+    });
+    subs.forEach((fn) => { try { fn(); } catch (_) {} });
+  }
+
+  function upsert(note) {
+    if (!note || !note.id) return;
+    byId.set(note.id, { ...byId.get(note.id), ...note });
+    if (!order.includes(note.id)) {
+      order.unshift(note.id);
+      sortInPlace();
+    } else {
+      sortInPlace();
+    }
+    subs.forEach((fn) => { try { fn(); } catch (_) {} });
+  }
+
+  function remove(id) {
+    if (!byId.delete(id)) return;
+    order = order.filter((x) => x !== id);
+    subs.forEach((fn) => { try { fn(); } catch (_) {} });
+  }
+
+  function sortInPlace() {
+    order.sort((a, b) => {
+      const na = byId.get(a) || {};
+      const nb = byId.get(b) || {};
+      const ma = (na.modified_at || '').localeCompare(nb.modified_at || '');
+      if (ma !== 0) return -ma;
+      return (na.title || '').localeCompare(nb.title || '');
+    });
+  }
+
+  function snapshot() {
+    return order.map((id) => byId.get(id)).filter(Boolean);
+  }
+
+  function get(id) {
+    return byId.get(id);
+  }
+
+  function titles() {
+    const m = new Map();
+    for (const n of byId.values()) m.set(n.title, n.id);
+    return m;
+  }
+
+  function subscribe(fn) {
+    subs.add(fn);
+    return () => subs.delete(fn);
+  }
+
+  return { rebuild, upsert, remove, snapshot, get, titles, subscribe };
+})();
+let notesIndex = []; // back-compat alias: synced from store via subscribe()
+notesStore.subscribe(() => { notesIndex = notesStore.snapshot(); });
 let currentNoteId = null;
 let notesEditor = null;
 let noteSaveDirty = false;
 let noteSaveTimer = null;
+let noteSaveGen = 0; // increments on every save; stale requests bail out
 let noteFolderCollapsed = new Set();
 let selectedNoteIds = new Set();
 let contextNoteIds = [];
+
+// ===== TOAST =====
+// Lightweight bottom-right toast. Used to surface create/save/delete
+// errors that previously only logged to console.
+let toastTimer = null;
+function toast(msg, type = 'info') {
+  const host = document.getElementById('toast-host');
+  if (!host) return;
+  const el = document.createElement('div');
+  el.className = 'toast-item toast-' + type;
+  el.textContent = msg;
+  host.appendChild(el);
+  // CSS animation drives the show; schedule removal after fade-out.
+  setTimeout(() => { el.remove(); }, 2800);
+}
 
 // ===== SETTINGS =====
 const SETTINGS_VERSION = 2;
@@ -4115,12 +4219,12 @@ async function loadNotesIndex() {
     const resp = await fetch('/api/notes');
     if (!resp.ok) throw new Error(await resp.text());
     const data = await resp.json();
-    notesIndex = data.notes || [];
+    notesStore.rebuild(data.notes || []);
   } catch(e) {
-    notesIndex = [];
+    notesStore.rebuild([]);
   }
   renderNoteTree();
-  if (!currentNoteId && notesIndex.length === 0) {
+  if (!currentNoteId && notesStore.snapshot().length === 0) {
     showNotesEmpty();
   }
 }
@@ -4226,11 +4330,12 @@ async function openDailyNote() {
     });
     if (!resp.ok) throw new Error(await resp.text());
     const note = await resp.json();
-    notesIndex.push(note);
+    notesStore.upsert(note);
     renderNoteTree();
     await openNote(note.id);
   } catch (e) {
     console.error('openDailyNote failed', e);
+    toast('创建每日笔记失败：' + (e.message || e), 'error');
   }
 }
 
@@ -4263,11 +4368,12 @@ async function createNote() {
     });
     if (!resp.ok) throw new Error(await resp.text());
     const note = await resp.json();
-    notesIndex.push(note);
+    notesStore.upsert(note);
     renderNoteTree();
     await openNote(note.id);
   } catch(e) {
     console.error('createNote failed', e);
+    toast('新建笔记失败：' + (e.message || e), 'error');
   }
 }
 
@@ -4430,7 +4536,7 @@ async function createNoteWithTitle(title) {
     });
     if (!resp.ok) throw new Error(await resp.text());
     const note = await resp.json();
-    notesIndex.push(note);
+    notesStore.upsert(note);
     renderNoteTree();
     await openNote(note.id);
   } catch(e) {
@@ -4514,27 +4620,44 @@ function scrollNoteToHeading(idx) {
 
 async function openNote(id) {
   closeSlashMenu();
-  // Save dirty data before switching
+  // Save dirty data before switching. We bump noteSaveGen so any
+  // in-flight save tied to the old currentNoteId is invalidated
+  // and cannot race with a later write.
   clearTimeout(noteSaveTimer);
   if (noteSaveDirty && currentNoteId && notesEditor) {
     try { await autoSaveNote(); } catch(e) {}
   }
+  // Cancel any in-flight save by bumping the generation.
+  noteSaveGen += 1;
+
+  // Track the id we asked for so a slow fetch can't overwrite the
+  // current note after the user has switched.
+  const requestedId = id;
   currentNoteId = id;
   renderNoteTree();
   document.getElementById('notes-empty-state')?.remove();
 
-  // Destroy old editor BEFORE clearing the container
-  if (notesEditor) {
-    try { notesEditor.destroy(); } catch(e) {}
-    notesEditor = null;
-  }
-
   const container = document.getElementById('notes-editor-container');
-  container.innerHTML = '';
+  // Show a skeleton in place of the old editor so the panel never
+  // goes blank. We keep the previous editor mounted until the new
+  // content is ready; that way the user can still see what they were
+  // reading if the request is slow.
+  const skeleton = document.createElement('div');
+  skeleton.className = 'note-loading-skeleton';
+  skeleton.innerHTML = '<div class="skeleton-bar" style="width:60%"></div><div class="skeleton-bar" style="width:90%"></div><div class="skeleton-bar" style="width:75%"></div><div class="skeleton-bar" style="width:85%"></div>';
+  if (notesEditor) {
+    // Mount the skeleton next to the editor and dim it slightly.
+    container.appendChild(skeleton);
+  } else {
+    container.innerHTML = '';
+    container.appendChild(skeleton);
+  }
 
   try {
     const resp = await fetch(`/api/notes/${encodeURIComponent(id)}`);
     if (!resp.ok) throw new Error(await resp.text());
+    // If the user switched away during the fetch, drop the result.
+    if (currentNoteId !== requestedId) return;
     const data = await resp.json();
     const meta = data.meta || {};
     const breadcrumb = document.getElementById('notes-breadcrumb');
@@ -4543,6 +4666,14 @@ async function openNote(id) {
     document.getElementById('notes-editor-breadcrumb').style.display = 'flex';
     document.getElementById('notes-editor-breadcrumb-text').innerHTML = titleHtml;
     renderNoteTags(meta.tags || []);
+
+    // Now destroy the previous editor (still showing underneath the
+    // skeleton) and create the new one.
+    if (notesEditor) {
+      try { notesEditor.destroy(); } catch(e) {}
+      notesEditor = null;
+    }
+    skeleton.remove();
 
     const doNotePostRender = () => {
       renderWikiLinks(container);
@@ -4575,12 +4706,16 @@ async function openNote(id) {
     await updateBacklinks();
   } catch(e) {
     console.error('openNote failed', e);
-    // Attempt recovery: clear any partial state
-    if (notesEditor) {
-      try { notesEditor.destroy(); } catch(e2) {}
-      notesEditor = null;
+    skeleton.remove();
+    // Attempt recovery: clear any partial state.
+    if (currentNoteId === requestedId) {
+      if (notesEditor) {
+        try { notesEditor.destroy(); } catch(e2) {}
+        notesEditor = null;
+      }
+      container.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-3)"><p>打开笔记失败</p><p style="font-size:12px;margin-top:8px">' + esc(e.message) + '</p></div>';
+      toast('打开笔记失败：' + (e.message || e), 'error');
     }
-    container.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-3)"><p>打开笔记失败</p><p style="font-size:12px;margin-top:8px">' + esc(e.message) + '</p></div>';
   }
 }
 
@@ -4591,31 +4726,50 @@ async function autoSaveNote() {
 
 async function saveCurrentNote(silent) {
   if (!currentNoteId || !notesEditor) return;
+  // Snapshot the id we're saving and bump the generation. If a newer
+  // save (or a note switch) starts before this one finishes, we'll
+  // detect it on the way back and skip the post-save bookkeeping —
+  // preventing stale writes and reordering artifacts.
+  const myId = currentNoteId;
+  const myGen = ++noteSaveGen;
   try {
     const content = notesEditor.getValue();
     const titleMatch = content.match(/^#\s+(.+)$/m);
     const title = titleMatch ? titleMatch[1].trim().slice(0, 200) : '';
-    const resp = await fetch(`/api/notes/${encodeURIComponent(currentNoteId)}`, {
+    const resp = await fetch(`/api/notes/${encodeURIComponent(myId)}`, {
       method: 'PUT',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({content, title})
     });
     if (!resp.ok) throw new Error(await resp.text());
+    // Stale: a newer save has been issued, or the user switched
+    // notes. Skip post-save UI updates so we don't flicker the
+    // indicator or trigger a render against a stale id.
+    if (myGen !== noteSaveGen || myId !== currentNoteId) return;
     noteSaveDirty = false;
     document.getElementById('notes-save-indicator').textContent = '✓ 已保存';
     if (title) {
       const titleHtml = '<strong style="color:var(--text-strong);cursor:pointer" onclick="renameNotePrompt(currentNoteId)" title="点击重命名">' + esc(title) + '</strong>';
       document.getElementById('notes-breadcrumb').innerHTML = '<span style="color:var(--text-3)">笔记</span> <span style="color:var(--text-3);margin:0 4px">/</span> ' + titleHtml;
       document.getElementById('notes-editor-breadcrumb-text').innerHTML = titleHtml;
-      const note = notesIndex.find(n => n.id === currentNoteId);
-      if (note) { note.title = title; note.modified_at = new Date().toISOString(); }
+      // Update via store so the tree resorts correctly.
+      notesStore.upsert({id: myId, title, modified_at: new Date().toISOString().slice(0, 19).replace('T', ' ')});
     }
     renderNoteTree();
     await updateBacklinks();
-    if (!silent) { setTimeout(() => { if (!noteSaveDirty) document.getElementById('notes-save-indicator').textContent = ''; }, 2000); }
+    if (!silent) {
+      setTimeout(() => {
+        if (!noteSaveDirty) document.getElementById('notes-save-indicator').textContent = '';
+      }, 2000);
+    }
   } catch(e) {
     console.error('saveCurrentNote failed', e);
-    document.getElementById('notes-save-indicator').textContent = '⚠ 保存失败';
+    // Only surface the error if this save is still the active one.
+    if (myGen === noteSaveGen && myId === currentNoteId) {
+      noteSaveDirty = true;
+      document.getElementById('notes-save-indicator').textContent = '⚠ 保存失败';
+      toast('保存失败：' + (e.message || e), 'error');
+    }
   }
 }
 
@@ -4625,9 +4779,10 @@ async function deleteCurrentNote() {
   try {
     const resp = await fetch(`/api/notes/${encodeURIComponent(currentNoteId)}`, {method: 'DELETE'});
     if (!resp.ok) throw new Error(await resp.text());
-    notesIndex = notesIndex.filter(n => n.id !== currentNoteId);
+    notesStore.remove(currentNoteId);
     currentNoteId = null;
     noteSaveDirty = false;
+    noteSaveGen += 1; // invalidate any in-flight save
     if (notesEditor) { try { notesEditor.destroy(); } catch(e) {} notesEditor = null; }
     document.getElementById('notes-breadcrumb').innerHTML = '';
     document.getElementById('notes-editor-breadcrumb').style.display = 'none';
@@ -4637,6 +4792,7 @@ async function deleteCurrentNote() {
     showNotesEmpty();
   } catch(e) {
     console.error('deleteCurrentNote failed', e);
+    toast('删除笔记失败：' + (e.message || e), 'error');
   }
 }
 
@@ -4700,10 +4856,11 @@ async function deleteContextNotes() {
       const resp = await fetch(`/api/notes/${encodeURIComponent(id)}`, {method: 'DELETE'});
       if (!resp.ok) failed.push(id);
       else {
-        notesIndex = notesIndex.filter(n => n.id !== id);
+        notesStore.remove(id);
         if (id === currentNoteId) {
           currentNoteId = null;
           noteSaveDirty = false;
+          noteSaveGen += 1;
           if (notesEditor) { try { notesEditor.destroy(); } catch(e) {} notesEditor = null; }
           document.getElementById('notes-breadcrumb').innerHTML = '';
           document.getElementById('notes-editor-breadcrumb').style.display = 'none';
@@ -4712,7 +4869,7 @@ async function deleteContextNotes() {
       }
     } catch(e) { failed.push(id); }
   }
-  
+
   selectedNoteIds = new Set([...selectedNoteIds].filter(id => !ids.includes(id)));
   renderNoteTree();
   if (!currentNoteId) {
@@ -4779,10 +4936,11 @@ async function deleteNoteById(id) {
   try {
     const resp = await fetch(`/api/notes/${encodeURIComponent(id)}`, {method: 'DELETE'});
     if (!resp.ok) throw new Error(await resp.text());
-    notesIndex = notesIndex.filter(n => n.id !== id);
+    notesStore.remove(id);
     if (id === currentNoteId) {
       currentNoteId = null;
       noteSaveDirty = false;
+      noteSaveGen += 1;
       if (notesEditor) { try { notesEditor.destroy(); } catch(e) {} notesEditor = null; }
       document.getElementById('notes-breadcrumb').innerHTML = '';
       document.getElementById('notes-editor-breadcrumb').style.display = 'none';
@@ -6298,10 +6456,11 @@ async function saveFloatingNote() {
     });
     if (!resp.ok) throw new Error(await resp.text());
     btn.textContent = '✅ 已保存';
+    toast('笔记已保存到附件', 'success');
     loadAttachments();
   } catch(e) {
     btn.textContent = '❌ 失败';
-    uiAlert(`保存失败: ${e.message}`);
+    toast('保存失败：' + (e.message || e), 'error');
   }
   setTimeout(() => { if(btn.textContent !== '💾 保存') btn.textContent = '💾 保存'; }, 2000);
 }
@@ -6420,5 +6579,6 @@ document.addEventListener('keydown', e => {
 });
 </script>
 
+<div id="toast-host"></div>
 </body>
 </html>

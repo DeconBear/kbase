@@ -835,6 +835,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_library_chat_session_delete()
             elif path == "/api/library-chat/sessions/clear":
                 self.handle_library_chat_session_clear()
+            elif path == "/api/notes":
+                self.handle_create_note()
             elif path.startswith("/api/convert/"):
                 self.handle_convert()
             elif path.startswith("/api/calibrate/"):
