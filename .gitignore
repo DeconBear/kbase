@@ -207,3 +207,6 @@ kb/*.json
 kb_backup.zip
 debug_screenshot.png
 kbase-alias-err.log
+
+# Playwright smoke test artifacts
+scripts/smoke/

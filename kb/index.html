@@ -586,7 +586,7 @@ select option{background:var(--surface-2);color:var(--text)}
 
 #notes-resize-handle{width:4px;cursor:col-resize;background:transparent;transition:background .15s;flex-shrink:0}
 #notes-resize-handle:hover,#notes-resize-handle.active{background:var(--accent)}
-#notes-editor-column{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+#notes-editor-column{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;position:relative}
 #notes-editor-container{flex:1;overflow:hidden;position:relative}
 #notes-editor-container .toastui-editor-defaultUI{border:none!important;border-radius:0!important}
 #notes-editor-container .toastui-editor{height:100%!important}
@@ -4929,7 +4929,7 @@ function updateNoteOutline(content) {
 
 function scrollNoteToHeading(idx) {
   if (!notesEditor) return;
-  const md = notesEditor.getValue();
+  const md = _vditorGet(notesEditor);
   const lines = md.split('\n');
   let targetLine = -1;
   let count = -1;
@@ -5141,6 +5141,13 @@ function _renderNoteEditor(id, content, meta) {
   _closeActiveEditor();
   const container = document.getElementById('notes-editor-container');
   if (!container) return;
+  // Wipe stale Vditor DOM left behind by destroy(). Without this,
+  // a fresh Vditor instance may not mount because the container
+  // already has children that look like a finished editor.
+  container.innerHTML = '';
+  // Drop the local reference so Vditor's internal cache doesn't
+  // reuse the destroyed instance.
+  notesEditor = null;
   const breadcrumb = document.getElementById('notes-breadcrumb');
   const titleHtml = '<strong style="color:var(--text-strong);cursor:pointer" onclick="renameNotePrompt(currentNoteId)" title="点击重命名">' + esc(meta.title || 'Untitled') + '</strong>';
   breadcrumb.innerHTML = '<span style="color:var(--text-3)">笔记</span> <span style="color:var(--text-3);margin:0 4px">/</span> ' + titleHtml;
@@ -5173,12 +5180,14 @@ function _renderNoteEditor(id, content, meta) {
     after: () => {
       doNotePostRender();
       attachSlashListeners(notesEditor, container);
+      // Vditor's IR DOM is now mounted, so re-bind the block gutter
+      // to the new container subtree.
+      attachBlockGutter(container);
+      // Now safe to read editor state — Vditor internals are built.
+      switchNoteRightTab(noteRightTab);
     }
   });
   updateNoteOutline(content || '');
-  attachSlashListeners(notesEditor, container);
-  switchNoteRightTab(noteRightTab);
-  attachBlockGutter(container);
 }
 
 // ===== BLOCK GUTTER (hover over a block → 🔖/🤖) =====
@@ -5191,17 +5200,20 @@ let _gutterHideTimer = null;
 let _gutterActiveAnchor = null;
 
 function ensureGutterEl(container) {
+  // Attach to the editor *column* so it survives container.innerHTML
+  // = '' in _renderNoteEditor (which wipes Vditor's stale DOM).
+  const column = container.parentElement || container;
   let g = document.getElementById('kb-block-gutter');
   if (!g) {
     g = document.createElement('div');
     g.id = 'kb-block-gutter';
-    g.style.cssText = 'position:absolute;left:6px;top:0;display:none;flex-direction:column;gap:2px;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:2px;box-shadow:var(--shadow-sm);z-index:50';
+    g.style.cssText = 'position:absolute;left:6px;top:24px;display:none;flex-direction:column;gap:2px;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:2px;box-shadow:var(--shadow-sm);z-index:50';
     g.innerHTML = `
       <button data-act="copy" title="复制块引用" style="background:transparent;border:none;cursor:pointer;padding:2px 4px;font-size:12px;line-height:1">🔖</button>
       <button data-act="ai" title="块级 AI" style="background:transparent;border:none;cursor:pointer;padding:2px 4px;font-size:12px;line-height:1">🤖</button>
     `;
-    container.style.position = 'relative';
-    container.appendChild(g);
+    column.style.position = 'relative';
+    column.appendChild(g);
   }
   return g;
 }
@@ -5221,27 +5233,38 @@ function attachBlockGutter(container) {
       openAIMenuForBlock(_gutterActiveAnchor);
     }
   };
-  ir.onmousemove = (e) => {
+  // While the cursor is over the gutter itself, keep it visible
+  // (don't let hideGutterSoon collapse it just because the user
+  // moved off the heading block to click a button).
+  const onGutterOver = () => {
+    if (_gutterHideTimer) { clearTimeout(_gutterHideTimer); _gutterHideTimer = null; }
+  };
+  gutter.addEventListener('mouseover', onGutterOver);
+  gutter.addEventListener('mouseenter', onGutterOver);
+  // Listen on the *container* for mouseover (Vditor steals mousemove
+  // and sometimes blocks bubbling; we use capture=true to be sure
+  // we see the event before Vditor can stop it).
+  const onOver = (e) => {
     const block = e.target.closest('[data-block]');
-    if (!block) {
-      hideGutterSoon();
-      return;
-    }
+    if (!block) { hideGutterSoon(); return; }
     const anchor = _findBlockAnchor(block);
     if (!anchor) { hideGutterSoon(); return; }
     _gutterActiveAnchor = anchor;
     if (_gutterHideTimer) { clearTimeout(_gutterHideTimer); _gutterHideTimer = null; }
-    // Position the gutter to the top-left of the block, offset by the
-    // editor's scrollTop.
-    const irRect = ir.getBoundingClientRect();
+    // The gutter is appended to the editor column, which may or may
+    // not be a positioned ancestor. Fall back to the editor container
+    // (always present) when offsetParent is null, and skip the
+    // position math if even that is missing.
+    const anchorEl = gutter.offsetParent || container;
+    if (!anchorEl || !anchorEl.getBoundingClientRect) { return; }
+    const colRect = anchorEl.getBoundingClientRect();
     const blockRect = block.getBoundingClientRect();
-    const top = blockRect.top - irRect.top + ir.scrollTop + 4;
-    const left = 6;
-    gutter.style.top = top + 'px';
-    gutter.style.left = left + 'px';
+    gutter.style.top = (blockRect.top - colRect.top + 4) + 'px';
+    gutter.style.left = '6px';
     gutter.style.display = 'flex';
   };
-  ir.onmouseleave = hideGutterSoon;
+  container.addEventListener('mouseover', onOver, true);
+  container.addEventListener('mouseleave', hideGutterSoon, true);
 }
 
 function hideGutterSoon() {
@@ -5264,9 +5287,9 @@ function _findBlockAnchor(blockEl) {
   // text-to-block mapping, so we do a fast pass: collect all
   // block textContent, find which one we are hovering, and read
   // off the preceding <!--kb-block:anchor--> line.
-  const editor = notesEditor;
-  if (!editor) return null;
-  const allMd = editor.getValue();
+  const tab = currentNoteId ? _tabFor(currentNoteId) : null;
+  const allMd = (tab && tab.lastContent) || '';
+  if (!allMd) return null;
   const lines = allMd.split('\n');
   // Build an array of (lineIndex, blockText) pairs.
   // Strategy: scan heading lines; for each heading, the block
@@ -5289,11 +5312,18 @@ function _findBlockAnchor(blockEl) {
     return blockText.match(/<!--\s*kb-block:([\w一-鿿-]+)\s*-->/)[1];
   }
   // Otherwise, map the block's leading text to a range start.
-  const firstLine = blockText.split('\n')[0].trim();
+  const firstLineRaw = blockText.split('\n')[0].trim();
+  if (!firstLineRaw) return null;
+  // Vditor IR mode renders the heading-marker span INSIDE the H1
+  // element, so block.textContent includes the leading `#` (or
+  // `##`) prefix. Strip that prefix off before matching, since
+  // the source line `lines[r.start]` also has its `#`s stripped.
+  const firstLine = firstLineRaw.replace(/^#+\s+/, '').trim();
   if (!firstLine) return null;
   // Find the heading that starts this block (in the source).
   for (const r of ranges) {
-    if (lines[r.start].replace(/^#+\s+/, '').trim().startsWith(firstLine.slice(0, 20))) {
+    const sourceHeading = lines[r.start].replace(/^#+\s+/, '').trim();
+    if (sourceHeading.startsWith(firstLine.slice(0, 20))) {
       // Look for the marker in the heading line.
       const m = lines[r.start].match(/<!--\s*kb-block:([\w一-鿿-]+)\s*-->/);
       if (m) return m[1];
@@ -5312,19 +5342,36 @@ function _findBlockAnchor(blockEl) {
 // arbitrary text selections (not just the / trigger). It also opens
 // for the block-level gutter 🤖 action.
 function openAIMenuForBlock(anchor) {
-  const editor = notesEditor;
-  if (!editor) return;
-  // Find the block's text via the source markdown.
-  const all = editor.getValue();
+  // Resolve the block's content from tab.lastContent (the
+  // server-annotated source, which is the only place where the
+  // <!--kb-block:anchor--> markers are guaranteed to be present).
+  // The live Vditor value is un-annotated — Vditor doesn't render
+  // the marker comments as part of the document.
+  const tab = currentNoteId ? _tabFor(currentNoteId) : null;
+  const all = (tab && tab.lastContent) || _vditorGet(notesEditor) || '';
+  if (!all) { toast('找不到该块', 'error'); return; }
   const lines = all.split('\n');
+  // The marker may live on the same line as the heading (rare) or
+  // on the line immediately after (the common case for our
+  // inject_block_anchors output).
   let start = -1;
   for (let i = 0; i < lines.length; i++) {
-    const m = lines[i].match(/^(#{1,3})\s+(.+?)(?:<!--\s*kb-block:([\w一-鿿-]+)\s*-->)?\s*$/);
-    if (m && m[3] === anchor) { start = i; break; }
+    if (!/^#{1,3}\s+/.test(lines[i])) continue;
+    let marker = (lines[i].match(/<!--\s*kb-block:([\w一-鿿-]+)\s*-->/) || [])[1];
+    if (!marker && lines[i + 1]) {
+      marker = (lines[i + 1].match(/<!--\s*kb-block:([\w一-鿿-]+)\s*-->/) || [])[1];
+    }
+    if (marker === anchor) { start = i; break; }
   }
   if (start < 0) { toast('找不到该块', 'error'); return; }
-  // Capture the block content for AI transformation.
-  const blockText = lines.slice(start).join('\n').split(/\n#{1,3}\s/)[0];
+  // Capture the block content for AI transformation. The block
+  // extends from the heading up to (but not including) the next
+  // heading or end-of-file. We split on the next H1-H3 line and
+  // discard the marker line in the captured text.
+  const tail = lines.slice(start).join('\n');
+  const blockText = tail.split(/\n(?=#{1,3}\s)/)[0]
+    .replace(/<!--\s*kb-block:[\w一-鿿-]+\s*-->\n?/g, '')
+    .trim();
   showAIMenu(blockText, (mode) => transformBlockWithAI(anchor, blockText, mode));
 }
 
@@ -5399,6 +5446,15 @@ async function openNote(id) {
 }
 
 // ===== RIGHT-PANEL TABS =====
+// Safe wrapper: Vditor's getValue/setValue throws until the editor
+// has finished its async mount (even after the `after` hook fires
+// for some sub-APIs). Wrap the call so a still-bootstrapping
+// instance is treated as "empty" rather than throwing.
+function _vditorGet(editor) {
+  if (!editor || !editor.vditor || !editor.vditor.lute) return '';
+  try { return editor.getValue() || ''; } catch (e) { return ''; }
+}
+
 function switchNoteRightTab(name) {
   noteRightTab = name;
   document.querySelectorAll('.notes-right-tab').forEach(btn => {
@@ -5412,7 +5468,7 @@ function switchNoteRightTab(name) {
   // Trigger the right refresh per tab.
   if (name === 'backlinks') updateBacklinks();
   else if (name === 'mentions') updateMentions();
-  else if (name === 'outline') updateNoteOutline(notesEditor ? notesEditor.getValue() : '');
+  else if (name === 'outline') updateNoteOutline(_vditorGet(notesEditor));
   else if (name === 'tags') renderNoteTags(notesStore.get(currentNoteId)?.tags || []);
 }
 
@@ -5458,7 +5514,7 @@ async function saveCurrentNote(silent) {
   const myId = currentNoteId;
   const myGen = ++noteSaveGen;
   try {
-    const content = notesEditor.getValue();
+    const content = _vditorGet(notesEditor);
     const titleMatch = content.match(/^#\s+(.+)$/m);
     const title = titleMatch ? titleMatch[1].trim().slice(0, 200) : '';
     const resp = await fetch(`/api/notes/${encodeURIComponent(myId)}`, {
@@ -5467,6 +5523,15 @@ async function saveCurrentNote(silent) {
       body: JSON.stringify({content, title})
     });
     if (!resp.ok) throw new Error(await resp.text());
+    // The server rewrites the file with `<!--kb-block:anchor-->`
+    // markers under each heading and returns the annotated body.
+    // We mirror it into tab.lastContent so the block-gutter and
+    // any subsequent render see the same source the server stored.
+    let serverContent = null;
+    try {
+      const body = await resp.clone().json();
+      if (body && typeof body.content === 'string') serverContent = body.content;
+    } catch (e) { /* non-JSON response; ignore */ }
     // Stale: a newer save has been issued, or the user switched
     // notes. Skip post-save UI updates so we don't flicker the
     // indicator or trigger a render against a stale id.
@@ -5477,6 +5542,10 @@ async function saveCurrentNote(silent) {
     if (tab) {
       tab.dirty = false;
       if (title) tab.title = title;
+      // Mirror the server-annotated content (with `<!--kb-block:...-->`
+      // markers) into the tab cache so the block gutter's source
+      // scanner can find anchors on hover.
+      if (serverContent != null) tab.lastContent = serverContent;
     }
     if (title) {
       const titleHtml = '<strong style="color:var(--text-strong);cursor:pointer" onclick="renameNotePrompt(currentNoteId)" title="点击重命名">' + esc(title) + '</strong>';
@@ -6491,10 +6560,13 @@ document.addEventListener('keydown',e=>{
 function attachSlashListeners(editor, container) {
   if (!editor || !container) return;
 
-  // Remove previous handlers
-  if (editor._slashKeyHandler) {
-    editor.off('keydown', editor._slashKeyHandler);
-    editor._slashKeyHandler = null;
+  // Remove previous handlers. Vditor instances don't expose `on/off`
+  // directly — we attach DOM listeners on the container and track
+  // them with a ref so we can detach cleanly when the editor is
+  // rebuilt.
+  if (container._slashKeyHandler) {
+    container.removeEventListener('keydown', container._slashKeyHandler, true);
+    container._slashKeyHandler = null;
   }
   if (container._slashInputHandler) {
     container.removeEventListener('beforeinput', container._slashInputHandler, true);
@@ -6551,7 +6623,7 @@ function attachSlashListeners(editor, container) {
   container.addEventListener('beforeinput', container._slashInputHandler, true);
 
   // Fallback: ToastUI keydown for environments where beforeinput isn't supported
-  editor._slashKeyHandler = function(ev) {
+  container._slashKeyHandler = function(ev) {
     if (slashMenuActive) {
       handleSlashMenuKeydown(ev);
       return;
@@ -6576,7 +6648,7 @@ function attachSlashListeners(editor, container) {
       } catch(e) {}
     }
   };
-  editor.on('keydown', editor._slashKeyHandler);
+  container.addEventListener('keydown', container._slashKeyHandler, true);
 
   // Navigation handler via capture on container (for arrow/enter/escape/backspace)
   container._slashNavHandler = function(e) {
