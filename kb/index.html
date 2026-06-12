@@ -479,6 +479,17 @@ select option{background:var(--surface-2);color:var(--text)}
 .kb-emoji-close{background:transparent;border:none;color:var(--text-3);font-size:18px;line-height:1;cursor:pointer;padding:2px 6px;border-radius:4px}
 .kb-emoji-close:hover{background:var(--surface-2);color:var(--text)}
 
+/* 文章小记 article notes panel — keep the header pinned */
+#article-notes-header{position:sticky;top:0;z-index:5;flex-shrink:0;background:var(--surface-2)}
+.article-note-item{position:relative}
+.article-note-item .article-note-del{
+  position:absolute;top:6px;right:6px;background:transparent;border:none;
+  color:var(--text-3);cursor:pointer;font-size:13px;line-height:1;padding:2px 6px;
+  border-radius:4px;opacity:0;transition:opacity .1s,background .1s,color .1s;
+}
+.article-note-item:hover .article-note-del{opacity:1}
+.article-note-item .article-note-del:hover{background:var(--rose);color:#fff}
+
 /* Selection toolbar in article reader */
 #selection-toolbar button:hover{background:var(--accent-subtle)}
 #selection-toolbar button[data-act="add-note"]:hover{background:var(--accent);color:#fff}
@@ -1295,7 +1306,7 @@ body { display: flex !important; flex-direction: column !important; height: 100v
 
 <!-- ==================== FLOATING NOTE ==================== -->
 <div id="floating-note-window" style="display:none; position:fixed; top:100px; left:100px; width:500px; height:600px; background:var(--surface); border-radius:var(--radius-lg); box-shadow:var(--shadow-xl); border:1px solid var(--border); z-index:9998; flex-direction:column; overflow:hidden;">
-  <div id="floating-note-header" style="padding:8px 12px; background:var(--surface-2); border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; cursor:move; user-select:none;">
+  <div id="floating-note-header" style="padding:8px 12px; background:var(--surface-2); border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; cursor:move; user-select:none; position:sticky; top:0; z-index:5; flex-shrink:0;">
     <div style="font-weight:600; font-size:13px; color:var(--text-strong); display:flex; align-items:center; gap:6px;">
       <span class="icon">📝</span>
       <span id="floating-note-title" style="max-width:200px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">笔记</span>
@@ -2085,6 +2096,10 @@ async function init() {
   renderLibrary();
   applyLibrarySideState();
   await loadLibrarySessions();
+  // Eagerly load the notes index so the @ mention in any
+  // article-scoped note can list every notebook note (and
+  // every article) without first visiting the notes view.
+  await loadNotebooksAndNotes();
   TabManager.init();
 }
 init().catch(e => {
@@ -4370,14 +4385,16 @@ async function loadArticleNotes() {
     }
     list.innerHTML = data.notes.map(n => `
       <div class="article-note-item" data-id="${esc(n.id)}"
-           onclick="openArticleNote('${esc(n.id)}', '${esc(n.title || 'Untitled')}')"
            style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;cursor:pointer;transition:background .1s;background:var(--surface-2)">
-        <div style="font-weight:500;font-size:13px;color:var(--text-strong);display:flex;align-items:center;gap:6px">
+        <div onclick="openArticleNote('${esc(n.id)}', '${esc(n.title || 'Untitled')}')"
+             style="font-weight:500;font-size:13px;color:var(--text-strong);display:flex;align-items:center;gap:6px;padding-right:24px">
           ${n.scoped ? '📝' : '🔗'}
           <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(n.title || 'Untitled')}</span>
         </div>
-        ${n.preview ? `<div style="font-size:11px;color:var(--text-3);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(n.preview)}</div>` : ''}
+        ${n.preview ? `<div onclick="openArticleNote('${esc(n.id)}', '${esc(n.title || 'Untitled')}')"
+                          style="font-size:11px;color:var(--text-3);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(n.preview)}</div>` : ''}
         ${n.tags && n.tags.length ? `<div style="margin-top:4px">${n.tags.map(t => `<span style="display:inline-block;background:var(--surface-3);color:var(--text-2);border-radius:3px;padding:1px 5px;font-size:10px;margin-right:3px">${esc(t)}</span>`).join('')}</div>` : ''}
+        <button class="article-note-del" title="删除" onclick="event.stopPropagation();deleteArticleNote('${esc(n.id)}', '${esc(n.title || 'Untitled')}')">×</button>
       </div>
     `).join('');
     // Add hover styles inline (one-shot)
@@ -4397,6 +4414,23 @@ function openArticleNote(noteId, title) {
   // string used as the on-disk filename). The floating editor
   // loads it via the article-attachments endpoint.
   openFloatingNote(noteId + '.md', false, title);
+}
+
+async function deleteArticleNote(noteId, title) {
+  if (!(await uiConfirm(`确定删除小记"${title || 'Untitled'}"?此操作不可撤销。`))) return;
+  try {
+    const resp = await fetch(`/api/notes/${encodeURIComponent(noteId)}`, { method: 'DELETE' });
+    if (!resp.ok) throw new Error(await resp.text());
+    toast('小记已删除', 'success');
+    // Close the floating editor if it was showing this note.
+    if (currentFloatingNote === noteId + '.md') closeFloatingNote();
+    // Refresh the list and the tree.
+    if (typeof notesStore !== 'undefined' && notesStore && notesStore.remove) notesStore.remove(noteId);
+    if (typeof renderNoteTree === 'function') renderNoteTree();
+    if (typeof loadArticleNotes === 'function') loadArticleNotes();
+  } catch(e) {
+    toast('删除失败:' + (e.message || e), 'error');
+  }
 }
 
 // ===== NOTES VIEW (new) =====
@@ -6393,7 +6427,7 @@ function openAtMention(pos) {
   _atMentionOpenedAt = Date.now();
   // Combine notes + articles in the picker. Articles first (the
   // user is most often @-mentioning the paper they're reading).
-  const articleItems = (window.articles || []).map(a => ({
+  const articleItems = (articles || []).map(a => ({
     id: a.id, title: a.title || a.id, kind: 'article'
   }));
   const noteItems = (notesIndex || []).map(n => ({
@@ -6418,7 +6452,8 @@ function renderAtMention() {
 
   const q = atMentionFilter.toLowerCase();
   atMentionItems = atMentionItems
-    .filter(n => !q || (n.title || '').toLowerCase().includes(q))
+    .filter(n => !q || (n.title || '').toLowerCase().includes(q) ||
+                       (n.id || '').toLowerCase().includes(q))
     .map(n => ({...n}));
 
   if (!atMentionItems.length) { menu.style.display = 'none'; return; }
@@ -7951,7 +7986,18 @@ async function openFloatingNote(filename, isNew=false, displayTitle) {
     cache: { enable: false },
     outline: { enable: false },
     height: '100%',
-    icon: 'material'
+    icon: 'material',
+    after: () => {
+      // Wire up the same slash / @-mention pipeline as the main
+      // notes editor so the floating note's @ menu also lists
+      // articles and notes.
+      const c = document.getElementById('floating-editor-container');
+      if (c) attachSlashListeners(floatingEditor, c);
+      // Block gutter (hover for 🔖/🤖) — uses the column parent
+      // so it survives Vditor's inner DOM swaps.
+      const column = document.getElementById('floating-note-window');
+      if (column) attachBlockGutter(column);
+    }
   });
 }
 
