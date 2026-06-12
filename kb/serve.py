@@ -42,9 +42,11 @@ from storage import (
     get_all_articles,
     get_all_notes,
     get_article,
+    get_article_note_count,
     get_conn,
     get_note_blocks,
     get_note_backlinks,
+    get_notes_for_article,
     inject_block_anchors,
     sync_note_links,
     list_article_attachments,
@@ -695,6 +697,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self._json({"history": history, "versions": versions})
             elif path.startswith("/api/articles/") and path.endswith("/attachments"):
                 self.handle_get_attachments()
+            elif path.startswith("/api/articles/") and path.endswith("/notes"):
+                self.handle_get_article_notes()
             elif path == "/api/notes":
                 self._json({"notes": get_all_notes()})
             elif path.startswith("/api/notes/") and path.endswith("/backlinks"):
@@ -1434,11 +1438,21 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         body = self._read_json()
         title = str(body.get("title") or "Untitled").strip()[:200]
         folder = str(body.get("folder") or "").strip()[:200]
-        ts = time.strftime("%Y%m%d_%H%M%S")
-        uid = os.urandom(4).hex()
-        note_id = f"note_{ts}_{uid}"
+        # Article-scoped notes (a.k.a. "文章小记") get a stable
+        # slug-based id so the same article always re-opens the
+        # same note file. The id is `<article_id>__<slug>`. Free
+        # notebook notes get the usual timestamp-based id.
+        article_id = str(body.get("article_id") or "").strip()[:128] or None
+        slug = re.sub(r"[^A-Za-z0-9_-]+", "_", str(body.get("slug") or title).strip())[:80] or "note"
+        if article_id:
+            note_id = f"art_{article_id}__{slug}"
+        else:
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            uid = os.urandom(4).hex()
+            note_id = f"note_{ts}_{uid}"
         md_path = note_file_for(note_id)
-        md_path.write_text(f"# {title}\n\n", encoding="utf-8")
+        if not md_path.exists():
+            md_path.write_text(f"# {title}\n\n", encoding="utf-8")
         now = time.strftime("%Y-%m-%d %H:%M:%S")
         entry = {
             "id": note_id,
@@ -1447,6 +1461,7 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             "modified_at": now,
             "tags": [],
             "folder": folder,
+            "article_id": article_id,
             "links": [],
         }
         upsert_note(entry)
@@ -1474,6 +1489,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             existing["parent_id"] = body.get("parent_id") or None
         if "doc_icon" in body:
             existing["doc_icon"] = str(body.get("doc_icon") or "").strip()[:16]
+        if "article_id" in body:
+            existing["article_id"] = (str(body.get("article_id") or "").strip()[:128] or None)
         existing.setdefault("created_at", now)
         upsert_note(existing)
         try:
@@ -1537,6 +1554,38 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 "url": f"articles/{urllib.parse.quote(article_id)}/{urllib.parse.quote(name)}",
             })
         self._json({"attachments": files})
+
+    def handle_get_article_notes(self):
+        """GET /api/articles/<id>/notes — list every note that
+        references this article (scoped or via @-mention), and
+        include a count for header badges."""
+        article_id = validate_article_id(urllib.parse.unquote(urllib.parse.urlsplit(self.path).path.split("/")[3]))
+        notes = get_notes_for_article(article_id)
+        # Decorate each note with a one-line content preview (first
+        # non-heading line) so the list view in the article pane
+        # shows something useful without a second round-trip.
+        out = []
+        for n in notes:
+            preview = ""
+            try:
+                p = note_file_for(n["id"])
+                if p.exists():
+                    for line in p.read_text(encoding="utf-8", errors="ignore").splitlines():
+                        s = line.strip()
+                        if s and not s.startswith("#") and not s.startswith("<!--"):
+                            preview = s[:120]
+                            break
+            except OSError:
+                pass
+            out.append({
+                "id": n["id"],
+                "title": n.get("title", ""),
+                "tags": n.get("tags", []),
+                "modified_at": n.get("modified_at", ""),
+                "preview": preview,
+                "scoped": bool(n.get("article_id") == article_id),
+            })
+        self._json({"notes": out, "count": len(out)})
 
     def handle_upload_attachment(self):
         article_id = validate_article_id(urllib.parse.unquote(urllib.parse.urlsplit(self.path).path.split("/")[3]))

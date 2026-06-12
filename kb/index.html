@@ -478,6 +478,13 @@ select option{background:var(--surface-2);color:var(--text)}
 .kb-emoji-search input:focus{border-color:var(--accent)}
 .kb-emoji-close{background:transparent;border:none;color:var(--text-3);font-size:18px;line-height:1;cursor:pointer;padding:2px 6px;border-radius:4px}
 .kb-emoji-close:hover{background:var(--surface-2);color:var(--text)}
+
+/* Selection toolbar in article reader */
+#selection-toolbar button:hover{background:var(--accent-subtle)}
+#selection-toolbar button[data-act="add-note"]:hover{background:var(--accent);color:#fff}
+.kb-anno.kb-hl{background:rgba(255,213,79,0.45);padding:0 1px;border-radius:2px}
+.kb-anno.kb-ul{text-decoration:underline;text-decoration-color:var(--accent);text-underline-offset:2px}
+.kb-anno.kb-st{text-decoration:line-through;text-decoration-color:var(--rose);text-decoration-thickness:1.5px}
 .kb-emoji-tabs{display:flex;flex-wrap:wrap;gap:4px;padding:6px 10px;border-bottom:1px solid var(--border);background:var(--surface-2)}
 .kb-emoji-tab{background:transparent;border:1px solid transparent;border-radius:5px;padding:3px 8px;font:inherit;font-size:12px;color:var(--text-3);cursor:pointer}
 .kb-emoji-tab:hover{background:var(--surface);color:var(--text)}
@@ -1112,7 +1119,7 @@ body { display: flex !important; flex-direction: column !important; height: 100v
     <button id="layout-btn" title="切换排版布局" onclick="cycleLayout()">🔄</button>
     <span style="color:var(--border);margin:0 4px">|</span>
     <button class="ctrl-btn" id="rbToc" onclick="toggleTOC()">📑 目录</button>
-    <button class="ctrl-btn" id="rbNotes" onclick="toggleNotes()">📝 笔记</button>
+    <button class="ctrl-btn" id="rbNotes" onclick="toggleNotes()">📝 文章小记 <span id="rbNotesBadge" style="display:none;background:var(--accent);color:#fff;border-radius:8px;padding:0 6px;font-size:10px;margin-left:4px"></span></button>
     <button class="ctrl-btn" id="rbAttachments" onclick="toggleAttachments()">📎 素材</button>
     <button class="ctrl-btn" id="rbEdit" onclick="toggleEdit()">✏️ 编辑</button>
     <button class="btn-rose" id="rbTranslate" onclick="openTranslateModal()">🌐 翻译</button>
@@ -1147,6 +1154,18 @@ body { display: flex !important; flex-direction: column !important; height: 100v
         </div>
         <div id="attachments-list" style="flex:1;overflow-y:auto;padding:8px 14px;display:flex;flex-direction:column;gap:8px;">
           <!-- Items will be generated here -->
+        </div>
+      </div>
+      <div id="article-notes-panel" style="display:none; flex-direction:column; border-left:1px solid var(--border); background:var(--surface); width:300px; flex-shrink:0; overflow:hidden;">
+        <div id="article-notes-header" style="padding:10px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:var(--surface-2)">
+          <h4 style="margin:0;font-size:13px;color:var(--text-strong)">📝 文章小记 <span id="article-notes-count" style="color:var(--text-3);font-weight:normal">0</span></h4>
+          <button onclick="toggleArticleNotes()" style="background:none;border:none;color:var(--text-3);cursor:pointer;font-size:14px">✕</button>
+        </div>
+        <div style="padding:8px 14px;border-bottom:1px solid var(--border);display:flex;gap:8px">
+          <button class="btn-emerald" style="flex:1;font-size:12px;padding:6px" onclick="createArticleNote()">＋ 新建小记</button>
+        </div>
+        <div id="article-notes-list" style="flex:1;overflow-y:auto;padding:8px 14px;display:flex;flex-direction:column;gap:6px;">
+          <div style="font-size:12px;color:var(--text-3);padding:12px;text-align:center">暂无小记</div>
         </div>
       </div>
       <div id="summary-panel">
@@ -1291,6 +1310,16 @@ body { display: flex !important; flex-direction: column !important; height: 100v
     <div id="floating-editor-container" style="flex:1;"></div>
   </div>
   <div id="floating-note-resizer" style="position:absolute; right:0; bottom:0; width:15px; height:15px; cursor:se-resize;"></div>
+</div>
+
+<!-- Floating text-selection toolbar (article reader) -->
+<div id="selection-toolbar" style="display:none; position:fixed; z-index:10001; background:var(--surface); border:1px solid var(--border); border-radius:6px; box-shadow:var(--shadow-lg); padding:3px; gap:2px; align-items:center">
+  <button data-act="highlight" title="高亮 (黄)" style="background:transparent;border:none;cursor:pointer;padding:4px 6px;border-radius:4px;font-size:14px;line-height:1">🟡</button>
+  <button data-act="underline" title="下划线" style="background:transparent;border:none;cursor:pointer;padding:4px 6px;border-radius:4px;font-size:14px;line-height:1"><u>U</u></button>
+  <button data-act="strike" title="删除线" style="background:transparent;border:none;cursor:pointer;padding:4px 6px;border-radius:4px;font-size:14px;line-height:1"><s>S</s></button>
+  <span style="width:1px;height:18px;background:var(--border);margin:0 2px"></span>
+  <button data-act="copy" title="复制" style="background:transparent;border:none;cursor:pointer;padding:4px 6px;border-radius:4px;font-size:14px;line-height:1">📋</button>
+  <button data-act="add-note" title="加入小记" style="background:transparent;border:none;cursor:pointer;padding:4px 6px;border-radius:4px;font-size:14px;line-height:1">📝</button>
 </div>
 
 </div><!-- /views-container -->
@@ -2979,6 +3008,12 @@ async function initArticleTab(tabId, tabData) {
   document.getElementById('readerVenue').textContent = article.venue ? `| 期刊/会议: ${article.venue}` : '';
   document.getElementById('readerDoi').textContent = '';
 
+  // Load saved highlights + the 文章小记 badge count for this article.
+  if (typeof loadArticleHighlights === 'function') loadArticleHighlights(article.id);
+  if (typeof loadArticleNotes === 'function') {
+    loadArticleNotes().catch(() => {});  // fire-and-forget; updates badge + list
+  }
+
   // Reset
   currentRawMd = ''; translatedMd = ''; summaryText = '';
   currentView = 'original'; isEditing = false;
@@ -4288,19 +4323,81 @@ function cancelEdit() {
 // ===== TOC =====
 function toggleTOC() { document.getElementById('toc-panel').classList.toggle('visible'); document.getElementById('rbToc').classList.toggle('active'); }
 
-// ===== NOTES =====
+// ===== NOTES (文章小记) =====
 function toggleNotes() {
   if (!currentArticle) return;
-  const win = document.getElementById('floating-note-window');
-  if ((win && win.style.display === 'flex') || floatingNotePinned) {
-    closeFloatingNote();
-    document.getElementById('rbNotes').classList.remove('active');
+  const panel = document.getElementById('article-notes-panel');
+  const isOpen = panel.style.display === 'flex';
+  if (isOpen) {
+    toggleArticleNotes();
   } else {
+    // Close the sibling attachment panel if it's open so they don't
+    // both crowd the right side of the reader.
+    const ap = document.getElementById('attachments-panel');
+    if (ap && ap.style.display === 'flex') toggleAttachments();
+    panel.style.display = 'flex';
     document.getElementById('rbNotes').classList.add('active');
-    openFloatingNote('笔记.md', false);
+    loadArticleNotes();
   }
 }
-// Legacy loadNotes and onNotesInput removed since we use floating note now.
+
+function toggleArticleNotes() {
+  const panel = document.getElementById('article-notes-panel');
+  panel.style.display = panel.style.display === 'flex' ? 'none' : 'flex';
+  document.getElementById('rbNotes').classList.toggle('active', panel.style.display === 'flex');
+  if (panel.style.display === 'flex') loadArticleNotes();
+}
+
+async function loadArticleNotes() {
+  if (!currentArticle) return;
+  const list = document.getElementById('article-notes-list');
+  const count = document.getElementById('article-notes-count');
+  const badge = document.getElementById('rbNotesBadge');
+  try {
+    const resp = await fetch(`/api/articles/${encodeURIComponent(currentArticle.id)}/notes`);
+    if (!resp.ok) throw new Error(await resp.text());
+    const data = await resp.json();
+    count.textContent = data.count;
+    if (data.count > 0) {
+      badge.textContent = data.count;
+      badge.style.display = 'inline-block';
+    } else {
+      badge.style.display = 'none';
+    }
+    if (data.notes.length === 0) {
+      list.innerHTML = '<div style="font-size:12px;color:var(--text-3);padding:12px;text-align:center">暂无小记</div>';
+      return;
+    }
+    list.innerHTML = data.notes.map(n => `
+      <div class="article-note-item" data-id="${esc(n.id)}"
+           onclick="openArticleNote('${esc(n.id)}', '${esc(n.title || 'Untitled')}')"
+           style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;cursor:pointer;transition:background .1s;background:var(--surface-2)">
+        <div style="font-weight:500;font-size:13px;color:var(--text-strong);display:flex;align-items:center;gap:6px">
+          ${n.scoped ? '📝' : '🔗'}
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(n.title || 'Untitled')}</span>
+        </div>
+        ${n.preview ? `<div style="font-size:11px;color:var(--text-3);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(n.preview)}</div>` : ''}
+        ${n.tags && n.tags.length ? `<div style="margin-top:4px">${n.tags.map(t => `<span style="display:inline-block;background:var(--surface-3);color:var(--text-2);border-radius:3px;padding:1px 5px;font-size:10px;margin-right:3px">${esc(t)}</span>`).join('')}</div>` : ''}
+      </div>
+    `).join('');
+    // Add hover styles inline (one-shot)
+    if (!document.getElementById('article-note-hover-style')) {
+      const s = document.createElement('style');
+      s.id = 'article-note-hover-style';
+      s.textContent = '.article-note-item:hover{background:var(--accent-subtle) !important}';
+      document.head.appendChild(s);
+    }
+  } catch(e) {
+    list.innerHTML = `<div style="font-size:12px;color:var(--rose);padding:12px">加载失败:${esc(e.message || e)}</div>`;
+  }
+}
+
+function openArticleNote(noteId, title) {
+  // The noteId already has a safe filename form (it's the same
+  // string used as the on-disk filename). The floating editor
+  // loads it via the article-attachments endpoint.
+  openFloatingNote(noteId + '.md', false, title);
+}
 
 // ===== NOTES VIEW (new) =====
 function switchToNotesView() {
@@ -5370,6 +5467,211 @@ function _findBlockAnchor(blockEl) {
   return null;
 }
 
+// ===== SELECTION TOOLBAR (article reader) =====
+// When the user selects text in the article reader (md-content or the
+// translated/parsed panes), surface a small floating toolbar with
+// highlight / underline / strikethrough / copy / "add to article note".
+// Highlights are stored in a per-article local map and re-applied
+// after the article is re-rendered (the toolbar re-paints them on
+// every render). Add-to-note POSTs the selected text + a citation
+// marker to a new article-scoped note (or appends to the current one).
+let _articleHighlights = new Map(); // articleId -> {id -> {tag, text}}
+
+function loadArticleHighlights(articleId) {
+  if (!articleId) { _articleHighlights = new Map(); return; }
+  try {
+    const raw = localStorage.getItem('kb-highlights-' + articleId);
+    _articleHighlights = raw ? new Map(Object.entries(JSON.parse(raw))) : new Map();
+  } catch (e) { _articleHighlights = new Map(); }
+}
+function saveArticleHighlights(articleId) {
+  if (!articleId) return;
+  try {
+    localStorage.setItem('kb-highlights-' + articleId, JSON.stringify(Object.fromEntries(_articleHighlights)));
+  } catch (e) {}
+}
+
+function getReaderSelectionTarget() {
+  // Restrict the toolbar to the article reader's text panes — not
+  // the chat sidebar or the notes editor.
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null;
+  const range = sel.getRangeAt(0);
+  const container = range.commonAncestorContainer.nodeType === 1
+    ? range.commonAncestorContainer
+    : range.commonAncestorContainer.parentElement;
+  if (!container) return null;
+  // The reader is composed of #md-content (markdown) plus the
+  // translation/parsed panes. Accept any ancestor that lives inside
+  // the reader-view, but not the AI chat or the notes tabs.
+  const inReader = container.closest('#reader-view');
+  const inChat = container.closest('#chat-panel, .library-chat, #ai-chat-panel');
+  const inNotes = container.closest('#notes-view, #article-notes-panel, .vditor-ir');
+  if (!inReader || inChat || inNotes) return null;
+  // Require a non-trivial selection (more than a few chars) so the
+  // toolbar doesn't pop on every click.
+  const text = sel.toString().trim();
+  if (text.length < 2) return null;
+  return { range, rect: range.getBoundingClientRect(), text };
+}
+
+function showSelectionToolbar() {
+  const t = getReaderSelectionTarget();
+  const bar = document.getElementById('selection-toolbar');
+  if (!t) { bar.style.display = 'none'; return; }
+  // Position above the selection. Flip below if there's no room.
+  const margin = 8;
+  let top = t.rect.top - bar.offsetHeight - margin;
+  if (top < 8) top = t.rect.bottom + margin;
+  let left = t.rect.left + t.rect.width / 2 - bar.offsetWidth / 2;
+  if (left < 8) left = 8;
+  if (left + bar.offsetWidth > window.innerWidth - 8) left = window.innerWidth - bar.offsetWidth - 8;
+  bar.style.top = top + 'px';
+  bar.style.left = left + 'px';
+  bar.style.display = 'flex';
+}
+
+document.addEventListener('mouseup', () => setTimeout(showSelectionToolbar, 10));
+document.addEventListener('keyup', (e) => {
+  if (e.shiftKey || e.key === 'Shift') setTimeout(showSelectionToolbar, 10);
+});
+document.addEventListener('mousedown', (e) => {
+  // Hide when clicking outside the toolbar
+  const bar = document.getElementById('selection-toolbar');
+  if (bar && !bar.contains(e.target)) bar.style.display = 'none';
+});
+
+// Toolbar action handler
+document.getElementById('selection-toolbar').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  const act = btn.dataset.act;
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return;
+  const text = sel.toString();
+  if (act === 'copy') {
+    navigator.clipboard.writeText(text).then(() => toast('已复制', 'success'));
+    return;
+  }
+  // Wrap the current selection in a span. We mutate the reader DOM
+  // directly (the markdown / translation panes are re-rendered on
+  // toggle, so we accept the highlight being lost on re-render and
+  // re-apply via loadArticleHighlights → re-applyHighlights).
+  const range = sel.getRangeAt(0);
+  if (range.collapsed) return;
+  const span = document.createElement('span');
+  let cls = '';
+  if (act === 'highlight') cls = 'kb-hl';
+  else if (act === 'underline') cls = 'kb-ul';
+  else if (act === 'strike') cls = 'kb-st';
+  if (!cls) return;
+  span.className = 'kb-anno ' + cls;
+  span.dataset.anno = '1';
+  try {
+    range.surroundContents(span);
+  } catch (e) {
+    // Surround failed (range crosses element boundaries). Fall
+    // back to a less invasive extract+wrap.
+    const frag = range.extractContents();
+    span.appendChild(frag);
+    range.insertNode(span);
+  }
+  // Track it so we can re-apply after re-render.
+  if (currentArticle) {
+    const id = 'h_' + Math.random().toString(36).slice(2, 10);
+    span.dataset.annoId = id;
+    const map = _articleHighlights.get(currentArticle.id) || {};
+    map[id] = { tag: cls, text: span.textContent };
+    _articleHighlights.set(currentArticle.id, map);
+    saveArticleHighlights(currentArticle.id);
+  }
+  sel.removeAllRanges();
+  document.getElementById('selection-toolbar').style.display = 'none';
+});
+
+// "Add to article note" — create a new article-scoped note with the
+// selected text quoted + a citation back-link.
+document.getElementById('selection-toolbar').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-act="add-note"]');
+  if (!btn) return;
+  if (!currentArticle) { toast('请先打开一篇文献', 'info'); return; }
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return;
+  const text = sel.toString().trim();
+  if (!text) return;
+  // Quote-block the snippet and link back to the article so the
+  // reader-side notes panel can render a backlink chip.
+  const snippet = text.split('\n').map(l => '> ' + l).join('\n');
+  const articleLink = `[[art-link:${currentArticle.id}]]`;
+  const content = `# 摘录 — ${currentArticle.title || currentArticle.id}\n\n${snippet}\n\n— ${articleLink}\n`;
+  try {
+    const r = await fetch('/api/notes', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        title: '摘录 — ' + (currentArticle.title || currentArticle.id).slice(0, 40),
+        article_id: currentArticle.id,
+        slug: 'quote-' + Date.now().toString(36)
+      })
+    });
+    if (!r.ok) throw new Error(await r.text());
+    const note = await r.json();
+    // PUT the actual content (the POST only initializes metadata)
+    const r2 = await fetch(`/api/notes/${encodeURIComponent(note.id)}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({content, title: note.title, article_id: currentArticle.id})
+    });
+    if (!r2.ok) throw new Error(await r2.text());
+    toast('已加入小记', 'success');
+    if (typeof notesStore !== 'undefined' && notesStore && notesStore.upsert) notesStore.upsert(note);
+    if (typeof loadArticleNotes === 'function') loadArticleNotes();
+  } catch (err) {
+    toast('加入小记失败:' + (err.message || err), 'error');
+  }
+  sel.removeAllRanges();
+  document.getElementById('selection-toolbar').style.display = 'none';
+});
+
+// Apply saved highlights after the reader re-renders
+function reapplyHighlights(articleId) {
+  if (!articleId) return;
+  const map = _articleHighlights.get(articleId);
+  if (!map) return;
+  const root = document.getElementById('md-content') || document;
+  Object.entries(map).forEach(([id, h]) => {
+    // Find the snippet text in the rendered text and wrap it.
+    const snippet = h.text;
+    if (!snippet || snippet.length < 2) return;
+    try {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+      let node;
+      while ((node = walker.nextNode())) {
+        const idx = node.nodeValue.indexOf(snippet);
+        if (idx < 0) continue;
+        const r = document.createRange();
+        r.setStart(node, idx);
+        r.setEnd(node, idx + snippet.length);
+        const span = document.createElement('span');
+        span.className = 'kb-anno ' + h.tag;
+        span.dataset.anno = '1';
+        span.dataset.annoId = id;
+        try { r.surroundContents(span); break; } catch(e) { /* skip */ }
+      }
+    } catch(e) {}
+  });
+}
+
+// Re-apply highlights after each render. Hook into the common
+// render functions.
+const _origRenderMarkdown = window.renderMarkdown;
+if (_origRenderMarkdown) {
+  window.renderMarkdown = function() {
+    _origRenderMarkdown.apply(this, arguments);
+    if (currentArticle) reapplyHighlights(currentArticle.id);
+  };
+}
+
 // ===== AI MENU for block/selection =====
 // Reuses the slash menu styling but is shown on selectionchange for
 // arbitrary text selections (not just the / trigger). It also opens
@@ -6089,7 +6391,15 @@ function openAtMention(pos) {
   atMentionFilter = '';
   atMentionInsertPos = pos;
   _atMentionOpenedAt = Date.now();
-  atMentionItems = notesIndex.map(n => ({ id: n.id, title: n.title }));
+  // Combine notes + articles in the picker. Articles first (the
+  // user is most often @-mentioning the paper they're reading).
+  const articleItems = (window.articles || []).map(a => ({
+    id: a.id, title: a.title || a.id, kind: 'article'
+  }));
+  const noteItems = (notesIndex || []).map(n => ({
+    id: n.id, title: n.title, kind: 'note'
+  }));
+  atMentionItems = [...articleItems, ...noteItems];
   renderAtMention();
   setTimeout(positionAtMention, 10);
 }
@@ -6107,31 +6417,59 @@ function renderAtMention() {
   if (!atMentionActive) { menu.style.display = 'none'; return; }
 
   const q = atMentionFilter.toLowerCase();
-  atMentionItems = notesIndex
-    .filter(n => !q || n.title.toLowerCase().includes(q))
-    .map(n => ({ id: n.id, title: n.title }));
+  atMentionItems = atMentionItems
+    .filter(n => !q || (n.title || '').toLowerCase().includes(q))
+    .map(n => ({...n}));
 
   if (!atMentionItems.length) { menu.style.display = 'none'; return; }
 
-  menu.innerHTML = '<div class="slash-menu-header">@ 引用笔记</div>' +
-    atMentionItems.map((n, i) =>
-      '<div class="slash-menu-item' + (i === atMentionIdx ? ' active' : '') + '" ' +
-      'onmouseenter="atMentionIdx=' + i + ';renderAtMention()" ' +
-      'onclick="selectAtMention(' + i + ')">' +
-      '<span class="slash-icon">📄</span>' +
-      '<span class="slash-label"><span class="name">' + esc(n.title) + '</span></span>' +
-      '</div>'
-    ).join('');
+  // Group by kind for visual separation
+  const articleItems = atMentionItems.filter(n => n.kind === 'article');
+  const noteItems = atMentionItems.filter(n => n.kind === 'note');
+  let html = '';
+  let i = 0;
+  if (articleItems.length) {
+    html += '<div class="slash-menu-header">📄 文献</div>';
+    articleItems.forEach(n => {
+      const idx = atMentionItems.indexOf(n);
+      html += '<div class="slash-menu-item' + (i === atMentionIdx ? ' active' : '') + '" ' +
+        'onmouseenter="atMentionIdx=' + i + ';renderAtMention()" ' +
+        'onclick="selectAtMention(' + idx + ')">' +
+        '<span class="slash-icon">📄</span>' +
+        '<span class="slash-label"><span class="name">' + esc(n.title) + '</span></span>' +
+        '</div>';
+      i++;
+    });
+  }
+  if (noteItems.length) {
+    html += '<div class="slash-menu-header">📝 笔记</div>';
+    noteItems.forEach(n => {
+      const idx = atMentionItems.indexOf(n);
+      html += '<div class="slash-menu-item' + (i === atMentionIdx ? ' active' : '') + '" ' +
+        'onmouseenter="atMentionIdx=' + i + ';renderAtMention()" ' +
+        'onclick="selectAtMention(' + idx + ')">' +
+        '<span class="slash-icon">📝</span>' +
+        '<span class="slash-label"><span class="name">' + esc(n.title) + '</span></span>' +
+        '</div>';
+      i++;
+    });
+  }
+  menu.innerHTML = html;
   menu.style.display = 'block';
 }
 
 function selectAtMention(idx) {
   if (idx < 0 || idx >= atMentionItems.length) return;
-  const note = atMentionItems[idx];
+  const target = atMentionItems[idx];
   const editor = getActiveEditor();
   if (!editor || atMentionInsertPos === null) { closeAtMention(); return; }
 
-  const linkText = '[[' + note.title + ']]';
+  // Articles use a stable [[art-link:<id>]] link so the link target
+  // doesn't depend on the article's display title. Notes continue to
+  // use the readable [[title]] form.
+  const linkText = target.kind === 'article'
+    ? `[[art-link:${target.id}]]`
+    : `[[${target.title}]]`;
   const removeLen = 1 + atMentionFilter.length;
 
   for(let i=0; i<removeLen; i++) document.execCommand('delete', false);
@@ -7542,32 +7880,61 @@ let floatingEditor = null;
 let currentFloatingNote = null;
 
 async function createArticleNote() {
-  const name = await uiPrompt('请输入笔记文件名 (不含后缀):', '新笔记');
+  const name = await uiPrompt('请输入小记标题:', '新小记', '新小记');
   if (!name) return;
-  const filename = name.trim() + '.md';
-  openFloatingNote(filename, true);
+  // The new flow stores article notes in the main notes table
+  // (article_id set), not as file attachments. We create the note
+  // via the regular API, then open it in the floating editor.
+  try {
+    const resp = await fetch('/api/notes', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        title: name.trim() || '新小记',
+        article_id: currentArticle ? currentArticle.id : null,
+        slug: name.trim()
+      })
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    const note = await resp.json();
+    notesStore.upsert(note);
+    renderNoteTree();
+    if (typeof loadArticleNotes === 'function') loadArticleNotes();
+    openFloatingNote(note.id + '.md', true, note.title);
+  } catch(e) {
+    toast('创建小记失败:' + (e.message || e), 'error');
+  }
 }
 
-async function openFloatingNote(filename, isNew=false) {
+async function openFloatingNote(filename, isNew=false, displayTitle) {
   if (!currentArticle) return;
   const win = document.getElementById('floating-note-window');
   win.style.display = 'flex';
-  document.getElementById('floating-note-title').textContent = filename;
+  document.getElementById('floating-note-title').textContent = displayTitle || filename;
   currentFloatingNote = filename;
-  
+
   const container = document.getElementById('floating-editor-container');
   container.innerHTML = ''; // reset
-  
+
   let initialContent = '';
   if (!isNew) {
+    // First try the new note API (article-scoped notes live in the
+    // notes table, served by /api/notes/<id>).
+    const noteId = filename.replace(/\.md$/, '');
     try {
-      const resp = await fetch(`/articles/${encodeURIComponent(currentArticle.id)}/attachments/${encodeURIComponent(filename)}`);
-      if (resp.ok) {
-        initialContent = await resp.text();
-      } else if (filename === '笔记.md') {
-        // Fallback to legacy local storage note
-        const legacy = localStorage.getItem('kb-note-' + currentArticle.id);
-        if (legacy) initialContent = legacy;
+      const r1 = await fetch(`/api/notes/${encodeURIComponent(noteId)}`);
+      if (r1.ok) {
+        const data = await r1.json();
+        initialContent = data.content || '';
+      } else {
+        // Fall back to the legacy attachment file (older saves).
+        const resp = await fetch(`/articles/${encodeURIComponent(currentArticle.id)}/attachments/${encodeURIComponent(filename)}`);
+        if (resp.ok) {
+          initialContent = await resp.text();
+        } else if (filename === '笔记.md') {
+          const legacy = localStorage.getItem('kb-note-' + currentArticle.id);
+          if (legacy) initialContent = legacy;
+        }
       }
     } catch(e) {
       if (filename === '笔记.md') {
@@ -7576,7 +7943,7 @@ async function openFloatingNote(filename, isNew=false) {
       }
     }
   }
-  
+
   floatingEditor = new Vditor('floating-editor-container', {
     value: initialContent,
     mode: 'ir',
@@ -7584,8 +7951,7 @@ async function openFloatingNote(filename, isNew=false) {
     cache: { enable: false },
     outline: { enable: false },
     height: '100%',
-    icon: 'material',
-    theme: 'dark'
+    icon: 'material'
   });
 }
 
@@ -7594,40 +7960,54 @@ async function saveFloatingNote() {
   const btn = document.getElementById('floating-note-save-btn');
   btn.textContent = '保存中...';
   const content = floatingEditor.getValue();
-  
-  // Since we save it as attachment, we can just POST it using a Blob
-  const blob = new Blob([content], { type: 'text/markdown' });
-  const file = new File([blob], currentFloatingNote, { type: 'text/markdown' });
-  const formData = new FormData();
-  formData.append('file', file);
-  
+
+  // Article-scoped notes are stored in the regular notes table
+  // (notes.article_id), not as file attachments. The legacy
+  // attachment path is kept as a fallback for notes created before
+  // the article-notes migration.
+  const noteId = currentFloatingNote.replace(/\.md$/, '');
+  const titleMatch = content.match(/^#\s+(.+)$/m);
+  const title = titleMatch ? titleMatch[1].trim().slice(0, 200) : '';
+
   try {
-    const resp = await fetch(`/api/articles/${encodeURIComponent(currentArticle.id)}/attachments`, {
-      method: 'POST',
-      body: formData
-    });
-    if (!resp.ok) throw new Error(await resp.text());
+    const isLegacy = !noteId.startsWith('art_') && !noteId.startsWith('note_');
+    if (isLegacy) {
+      // Old-style attachment save path
+      const blob = new Blob([content], { type: 'text/markdown' });
+      const file = new File([blob], currentFloatingNote, { type: 'text/markdown' });
+      const fd = new FormData();
+      fd.append('file', file);
+      const r = await fetch(`/api/articles/${encodeURIComponent(currentArticle.id)}/attachments`, { method: 'POST', body: fd });
+      if (!r.ok) throw new Error(await r.text());
+    } else {
+      // New notes-table path
+      const r = await fetch(`/api/notes/${encodeURIComponent(noteId)}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({content, title, article_id: currentArticle.id})
+      });
+      if (!r.ok) throw new Error(await r.text());
+    }
     btn.textContent = '✅ 已保存';
-    toast('笔记已保存到附件', 'success');
-    loadAttachments();
+    toast('小记已保存', 'success');
+    if (typeof loadArticleNotes === 'function') loadArticleNotes();
   } catch(e) {
     btn.textContent = '❌ 失败';
-    toast('保存失败：' + (e.message || e), 'error');
+    toast('保存失败:' + (e.message || e), 'error');
   }
   setTimeout(() => { if(btn.textContent !== '💾 保存') btn.textContent = '💾 保存'; }, 2000);
 }
 
 function closeFloatingNote() {
-  {
-    document.getElementById('floating-note-window').style.display = 'none';
-  }
+  document.getElementById('floating-note-window').style.display = 'none';
   if (floatingEditor) {
     floatingEditor.destroy();
     floatingEditor = null;
   }
   currentFloatingNote = null;
-  const rbNotes = document.getElementById('rbNotes');
-  if (rbNotes) rbNotes.classList.remove('active');
+  // Don't clear the rbNotes active state — it now drives the
+  // article-notes panel, not the floating window.
+  // (Toggle the panel separately via toggleArticleNotes if needed.)
 }
 
 // Toggle the floating note's "always on top within the app" state.

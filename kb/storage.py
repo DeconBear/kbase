@@ -193,6 +193,11 @@ CREATE TABLE IF NOT EXISTS notes (
     modified_at TEXT,
     folder TEXT
 );
+-- article_id is added below by an idempotent ALTER TABLE check
+-- (init_db). A note may be either a free-standing notebook note
+-- (article_id IS NULL) or a "文章小记" scoped to a single paper
+-- (article_id set). When set, the note is also discoverable from
+-- the article's notes tab and the floating note window.
 
 -- Notebook container: each note belongs to a notebook. A default
 -- "Inbox" notebook is created for legacy data.
@@ -352,9 +357,14 @@ def init_db() -> None:
                 ("parent_id", "TEXT"),
                 ("sort_order", "INTEGER DEFAULT 0"),
                 ("doc_icon", "TEXT"),
+                # article_id links a note to a specific paper. The note
+                # then appears in that article's notes tab; the same
+                # note can still @-mention other articles.
+                ("article_id", "TEXT"),
             ):
                 if col not in existing_cols:
                     conn.execute(f"ALTER TABLE notes ADD COLUMN {col} {decl}")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_notes_article ON notes(article_id)")
         finally:
             conn.close()
 
@@ -738,8 +748,9 @@ def upsert_note(note: dict[str, Any]) -> None:
             nb_id = DEFAULT_NOTEBOOK_ID
         conn.execute(
             """INSERT INTO notes (id, title, created_at, modified_at, folder,
-                                 notebook_id, parent_id, sort_order, doc_icon)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                 notebook_id, parent_id, sort_order, doc_icon,
+                                 article_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(id) DO UPDATE SET
                  title=excluded.title,
                  created_at=excluded.created_at,
@@ -748,7 +759,8 @@ def upsert_note(note: dict[str, Any]) -> None:
                  notebook_id=excluded.notebook_id,
                  parent_id=excluded.parent_id,
                  sort_order=excluded.sort_order,
-                 doc_icon=excluded.doc_icon""",
+                 doc_icon=excluded.doc_icon,
+                 article_id=excluded.article_id""",
             (
                 nid,
                 note.get("title", ""),
@@ -759,6 +771,7 @@ def upsert_note(note: dict[str, Any]) -> None:
                 note.get("parent_id"),
                 int(note.get("sort_order") or 0),
                 note.get("doc_icon", ""),
+                note.get("article_id") or None,
             ),
         )
         conn.execute("DELETE FROM tags WHERE item_id=? AND item_type='note'", (nid,))
@@ -777,6 +790,74 @@ def delete_note(nid: str) -> None:
         conn.execute("DELETE FROM tags WHERE item_id=? AND item_type='note'", (nid,))
         conn.execute("DELETE FROM workspace_items WHERE item_id=?", (nid,))
         conn.execute("DELETE FROM note_blocks WHERE note_id=?", (nid,))
+
+
+def get_notes_for_article(article_id: str) -> list[dict[str, Any]]:
+    """Return every note that references the given article — either
+    via notes.article_id (a scoped "文章小记") or via a `[[art-...]]`
+    mention in the saved markdown (read from the on-disk .md file
+    so we don't have to materialize every note's content into SQL).
+
+    The two lists are de-duplicated by note id and sorted by
+    modified_at DESC.
+    """
+    scoped_rows: list[dict[str, Any]] = []
+    with get_conn() as conn:
+        for r in conn.execute(
+            "SELECT * FROM notes WHERE article_id=? ORDER BY datetime(modified_at) DESC",
+            (article_id,),
+        ).fetchall():
+            scoped_rows.append(dict(r))
+    # Mentions: walk data/notes/<id>.md looking for either
+    # `[[art-link:<article_id>]]` (the new at-article-mention
+    # syntax) or a bare `[[<article_id>]]` (legacy — matches the
+    # raw id). Cheap because we only read each file once and the
+    # directory is modest in size.
+    seen = {n["id"] for n in scoped_rows}
+    notes_dir = DATA_ROOT / "notes"
+    if notes_dir.is_dir():
+        for md_path in notes_dir.glob("*.md"):
+            try:
+                text = md_path.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            matched = ("[[art-link:" + article_id + "]]" in text) or \
+                      ("[[ " + article_id) in text or ("[[" + article_id + "]]" in text) or \
+                      (("[[" + article_id + "#") in text)
+            if not matched:
+                continue
+            nid = md_path.stem
+            if nid in seen:
+                continue
+            # Pull the row from SQLite so we get title/timestamps/tags.
+            with get_conn() as conn:
+                row = conn.execute(
+                    "SELECT * FROM notes WHERE id=?", (nid,)
+                ).fetchone()
+                if not row:
+                    continue
+                note = dict(row)
+                tag_rows = conn.execute(
+                    "SELECT tag FROM tags WHERE item_id=? AND item_type='note'",
+                    (nid,),
+                ).fetchall()
+            note["tags"] = [t["tag"] for t in tag_rows]
+            if not note.get("notebook_id"):
+                note["notebook_id"] = DEFAULT_NOTEBOOK_ID
+            scoped_rows.append(note)
+            seen.add(nid)
+    scoped_rows.sort(key=lambda n: n.get("modified_at") or "", reverse=True)
+    return scoped_rows
+
+
+def get_article_note_count(article_id: str) -> int:
+    """Cheap count for the article header badge."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS c FROM notes WHERE article_id=?",
+            (article_id,),
+        ).fetchone()
+    return int(row["c"]) if row else 0
 
 
 # ---------------------------------------------------------------------------
@@ -963,11 +1044,11 @@ def inject_block_anchors(content: str, rows: list[dict[str, Any]]) -> str:
 
 
 def sync_note_links(note_id: str, content: str) -> list[dict[str, Any]]:
-    """Parse `[[X]]` and `[[X#Y]]` patterns in content, resolve X
-    against the notes table (by id or title) and Y against the
-    block anchors of the target note. Stores resolved pairs in
-    `note_links`. The table is wiped for this note first so deleted
-    references don't linger.
+    """Parse `[[X]]`, `[[X#Y]]`, and `[[art-link:<article-id>]]`
+    patterns in content, resolve the target against either the notes
+    table (by id or title) or the articles table, and store
+    resolved pairs in `note_links`. The table is wiped for this
+    note first so deleted references don't linger.
     """
     pattern = re.compile(r"\[\[([^\]]+)\]\]")
     out: list[dict[str, Any]] = []
@@ -976,6 +1057,31 @@ def sync_note_links(note_id: str, content: str) -> list[dict[str, Any]]:
         for match in pattern.finditer(content or ""):
             target = match.group(1).strip()
             if not target:
+                continue
+            # Article back-link: [[art-link:<article-id>]]
+            if target.startswith("art-link:"):
+                article_id = target[len("art-link:"):].strip()
+                if not article_id:
+                    continue
+                row = conn.execute(
+                    "SELECT 1 FROM articles WHERE id=? LIMIT 1", (article_id,)
+                ).fetchone()
+                if not row:
+                    continue
+                # Use a synthetic negative id so note_links.target_note_id
+                # (which is a TEXT column, not FK-constrained) can carry
+                # both note and article references in one table.
+                key = (f"art:{article_id}", "")
+                if key in seen_pairs:
+                    continue
+                seen_pairs.add(key)
+                out.append({
+                    "source_note_id": note_id,
+                    "source_anchor": None,
+                    "target_note_id": f"art:{article_id}",
+                    "target_anchor": None,
+                    "raw": target,
+                })
                 continue
             if "#" in target:
                 target_id_raw, target_anchor = target.split("#", 1)
