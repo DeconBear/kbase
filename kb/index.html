@@ -6799,18 +6799,17 @@ function attachSlashListeners(editor, container) {
   // Remove previous handlers. Vditor instances don't expose `on/off`
   // directly — we attach DOM listeners on the container and track
   // them with a ref so we can detach cleanly when the editor is
-  // rebuilt.
+  // rebuilt. _slashKeyHandler and _slashNavHandler point at the same
+  // function (see bottom of attachSlashListeners), so a single
+  // removeEventListener covers both.
   if (container._slashKeyHandler) {
     container.removeEventListener('keydown', container._slashKeyHandler, true);
     container._slashKeyHandler = null;
+    container._slashNavHandler = null;
   }
   if (container._slashInputHandler) {
     container.removeEventListener('beforeinput', container._slashInputHandler, true);
     container._slashInputHandler = null;
-  }
-  if (container._slashNavHandler) {
-    container.removeEventListener('keydown', container._slashNavHandler, true);
-    container._slashNavHandler = null;
   }
 
   // Primary detection: 'beforeinput' event — fires BEFORE text is inserted, in both modes
@@ -6902,9 +6901,20 @@ function attachSlashListeners(editor, container) {
   container.addEventListener('beforeinput', container._slashInputHandler, true);
 
   // Fallback: keydown for environments where beforeinput isn't supported
+  // One capture-phase keydown handler covers BOTH the open-trigger
+  // ('/' when the menu isn't open) and the in-menu navigation
+  // (arrows / Enter / Escape / Backspace / printable-char filter).
+  // Registering two separate listeners for the same event both calling
+  // handleSlashMenuKeydown would cause every keypress to fire twice —
+  // the user would see ArrowDown jump two items and 'h2' filter to
+  // 'hh22'.
   container._slashKeyHandler = function(ev) {
     if (slashMenuActive) {
       handleSlashMenuKeydown(ev);
+      return;
+    }
+    if (atMentionActive) {
+      handleAtMentionKeydown(ev);
       return;
     }
     if (ev.key === '/' && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !ev.shiftKey) {
@@ -6931,19 +6941,30 @@ function attachSlashListeners(editor, container) {
           });
         }
       } catch(e) {}
+    } else if (ev.key === '@' && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !ev.shiftKey) {
+      try {
+        const md = editor.getValue();
+        const pos = getMdCursorPos(editor);
+        if (pos == null) return;
+        const before = md.substring(0, pos);
+        const lastChar = before.slice(-1);
+        if (lastChar === '' || lastChar === ' ' || lastChar === '\n') {
+          ev.preventDefault();
+          ev.stopPropagation();
+          queueMicrotask(() => {
+            if (!editor || atMentionActive) return;
+            const newPos = getMdCursorPos(editor);
+            if (newPos == null) return;
+            openAtMention(newPos);
+          });
+        }
+      } catch(e) {}
     }
   };
   container.addEventListener('keydown', container._slashKeyHandler, true);
-
-  // Navigation handler via capture on container (for arrow/enter/escape/backspace)
-  container._slashNavHandler = function(e) {
-    if (slashMenuActive) {
-      handleSlashMenuKeydown(e);
-    } else if (atMentionActive) {
-      handleAtMentionKeydown(e);
-    }
-  };
-  container.addEventListener('keydown', container._slashNavHandler, true);
+  // Alias kept for cleanup symmetry with the removeEventListener
+  // block at the top of attachSlashListeners.
+  container._slashNavHandler = container._slashKeyHandler;
 }
 
 // Also reposition menus on scroll/resize
