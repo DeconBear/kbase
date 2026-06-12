@@ -462,6 +462,30 @@ select option{background:var(--surface-2);color:var(--text)}
 /* ===== Markdown content ===== */
 /* ===== Markdown Typography (dark-theme, Feishu inspired) ===== */
 .markdown-content,.vditor-ir{font-size:15px;line-height:1.82;color:var(--text)}
+/* Block-anchor markers (<!--kb-block:...-->) are injected by the
+   server under each heading so we can recover anchor→block mapping
+   after Vditor's markdown round-trip. Vditor renders them as a
+   separate html-block (data-type="html-block"); hide it so the user
+   never sees the marker text in the document. The actual anchor
+   resolution still works because _findBlockAnchor scans
+   tab.lastContent, not the rendered DOM. */
+.vditor-ir [data-type="html-block"]{display:none}
+
+/* ===== KB EMOJI PANEL ===== */
+.kb-emoji-panel{position:fixed;z-index:10000;width:340px;max-height:380px;display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);box-shadow:var(--shadow-lg);overflow:hidden;font-size:14px}
+.kb-emoji-search{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--border)}
+.kb-emoji-search input{flex:1;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:5px 9px;color:var(--text);font:inherit;outline:none}
+.kb-emoji-search input:focus{border-color:var(--accent)}
+.kb-emoji-close{background:transparent;border:none;color:var(--text-3);font-size:18px;line-height:1;cursor:pointer;padding:2px 6px;border-radius:4px}
+.kb-emoji-close:hover{background:var(--surface-2);color:var(--text)}
+.kb-emoji-tabs{display:flex;flex-wrap:wrap;gap:4px;padding:6px 10px;border-bottom:1px solid var(--border);background:var(--surface-2)}
+.kb-emoji-tab{background:transparent;border:1px solid transparent;border-radius:5px;padding:3px 8px;font:inherit;font-size:12px;color:var(--text-3);cursor:pointer}
+.kb-emoji-tab:hover{background:var(--surface);color:var(--text)}
+.kb-emoji-tab.active{background:var(--accent-subtle);color:var(--text-strong);border-color:var(--accent)}
+.kb-emoji-grid{flex:1;overflow-y:auto;padding:8px;display:grid;grid-template-columns:repeat(8,1fr);gap:2px;align-content:start}
+.kb-emoji-item{background:transparent;border:none;border-radius:5px;font-size:20px;line-height:1;padding:4px;cursor:pointer;text-align:center;transition:background .08s}
+.kb-emoji-item:hover{background:var(--accent-subtle);transform:scale(1.15)}
+.kb-emoji-empty{grid-column:1/-1;text-align:center;padding:24px;color:var(--text-3);font-size:12px}
 .markdown-content h1,.vditor-ir h1{font-size:1.75em;margin:1.3em 0 .5em;padding-bottom:.3em;border-bottom:none !important;color:var(--text-strong);font-weight:700;letter-spacing:-.3px;scroll-margin-top:16px}
 .markdown-content h2,.vditor-ir h2{font-size:1.35em;margin:1.4em 0 .4em;border-bottom:none !important;color:var(--text-strong);font-weight:600;letter-spacing:-.2px;scroll-margin-top:16px}
 .markdown-content h3,.vditor-ir h3{font-size:1.1em;margin:1.2em 0 .35em;color:var(--text-strong);font-weight:600;scroll-margin-top:16px}
@@ -5164,6 +5188,15 @@ function _renderNoteEditor(id, content, meta) {
     outline: { enable: false },
     height: '100%',
     icon: 'material',
+    toolbar: [
+      'emoji', 'headings', 'bold', 'italic', 'strike', '|',
+      'list', 'ordered-list', 'check', 'quote', '|',
+      'code', 'inline-code', '|',
+      'link', 'image', 'table', '|',
+      'undo', 'redo', '|',
+      { name: 'kb-emoji', tip: '表情面板', icon: '😀',
+        click: () => openKbEmojiPanel(notesEditor) },
+    ],
     input: (val) => {
       const tab = _tabFor(currentNoteId);
       if (tab) tab.dirty = true;
@@ -5437,6 +5470,124 @@ function transformBlockWithAI(anchor, blockText, mode) {
     brainstorm: 'Brainstorm', grammar: '改语法', custom: '自定义',
   };
   toast(`AI ${labels[mode] || mode} 已请求（本地存根，未连接后端）`, 'info');
+}
+
+// ===== KB EMOJI PANEL =====
+// Vditor's stock `emoji` toolbar button only ships 8 reactions.
+// For a note editor we want the full Unicode emoji catalogue, grouped
+// by category, with a quick search box.
+const KB_EMOJI_GROUPS = [
+  { name: '表情', emojis: ['😀','😁','😂','🤣','😃','😄','😅','😆','😉','😊','😋','😎','😍','😘','😗','😙','😚','🙂','🤗','🤩','🤔','🤨','😐','😑','😶','🙄','😏','😣','😥','😮','🤐','😯','😪','😫','🥱','😴','😌','😛','😜','😝','🤤','😒','😓','😔','😕','🙃','🤑','😲','☹️','🙁','😖','😞','😟','😤','😢','😭','😦','😧','😨','😩','🤯','😬','😰','😱','🥵','🥶','😳','🤪','😵','😡','😠','🤬','😷','🤒','🤕','🤢','🤮','🤧','😇','🤠','🤡','🥳','🥴','🥺','🤥','🤫','🤭','🧐','🤓'] },
+  { name: '手势', emojis: ['👍','👎','👌','✌️','🤞','🤟','🤘','🤙','👈','👉','👆','🖕','👇','☝️','👋','🤚','🖐️','✋','🖖','👏','🙌','👐','🤲','🤝','🙏','✍️','💪','🦾','🦿','🦵','🦶','👂','🦻','👃','🧠','🦷','🦴','👀','👁️','👅','👄'] },
+  { name: '人物', emojis: ['👶','🧒','👦','👧','🧑','👨','👩','🧓','👴','👵','🙅','🙆','💁','🙋','🧏','🙇','🤦','🤷','👮','🕵️','💂','👷','🤴','👸','👳','👲','🧕','🤵','👰','🤰','🤱','👼','🎅','🤶','🦸','🦹','🧙','🧚','🧛','🧜','🧝','🧞','🧟','💆','💇','🚶','🏃','💃','🕺','🕴️','👯','🧖','🎅'] },
+  { name: '动物', emojis: ['🐶','🐱','🐭','🐹','🐰','🦊','🐻','🐼','🐨','🐯','🦁','🐮','🐷','🐽','🐸','🐵','🙈','🙉','🙊','🐒','🐔','🐧','🐦','🐤','🐣','🐥','🦆','🦅','🦉','🦇','🐺','🐗','🐴','🦄','🐝','🐛','🦋','🐌','🐞','🐜','🪰','🪲','🐢','🐍','🦎','🦖','🦕','🐙','🦑','🦐','🦞','🦀','🐡','🐠','🐟','🐬','🐳','🐋','🦈','🐊','🐅','🐆','🦓','🦍','🦧','🐘','🦛','🦏','🐪','🐫','🦒','🦘','🐃','🐂','🐄','🐎','🐖','🐏','🐑','🦙','🐐','🦌','🐕','🐩','🦮','🐕‍🦺','🐈','🐈‍⬛','🪶','🐓','🦃','🦚','🦜','🦢','🦩','🕊️','🐇','🦝','🦨','🦡','🦦','🦥','🐁','🐀','🐿️','🦔'] },
+  { name: '食物', emojis: ['🍏','🍎','🍐','🍊','🍋','🍌','🍉','🍇','🍓','🫐','🍈','🍒','🍑','🥭','🍍','🥥','🥝','🍅','🍆','🥑','🥦','🥬','🥒','🌶️','🫑','🌽','🥕','🫒','🧄','🧅','🥔','🍠','🥐','🥯','🍞','🥖','🥨','🧀','🥚','🍳','🧈','🥞','🧇','🥓','🥩','🍗','🍖','🦴','🌭','🍔','🍟','🍕','🥪','🥙','🧆','🌮','🌯','🫔','🥗','🥘','🫕','🥫','🍝','🍜','🍲','🍛','🍣','🍱','🥟','🦪','🍤','🍙','🍚','🍘','🍥','🥠','🥮','🍢','🍡','🍧','🍨','🍦','🥧','🧁','🍰','🎂','🍮','🍭','🍬','🍫','🍿','🍩','🍪'] },
+  { name: '活动', emojis: ['🎉','🎊','🎈','🎂','🎁','🎄','🎃','🎀','🎗️','🎟️','🎫','🎖️','🏆','🏅','🥇','🥈','🥉','⚽','🏀','🏈','⚾','🥎','🎾','🏐','🏉','🥏','🎱','🪀','🏓','🏸','🏒','🏑','🥍','🏏','🪃','🥅','⛳','🪁','🏹','🎣','🤿','🥊','🥋','🎽','🛹','🛼','🛷','⛸️','🥌','🎿','⛷️','🏂','🪂','🏋️','🤼','🤸','⛹️','🤺','🤾','🏌️','🏇','🧘','🏄','🏊','🤽','🚣','🧗','🚵','🚴','🏆','🥇','🎼','🎵','🎶','🎤','🎧','🎷','🎸','🎹','🎺','🎻','🥁','🎬','🎨','🎭','🎪','🎫','🎟️'] },
+  { name: '旅行', emojis: ['🚗','🚕','🚙','🚌','🚎','🏎️','🚓','🚑','🚒','🚐','🛻','🚚','🚛','🚜','🛴','🚲','🛵','🏍️','🛺','🚨','🚔','🚍','🚘','🚖','🚡','🚠','🚟','🚃','🚋','🚞','🚝','🚄','🚅','🚈','🚂','🚆','🚇','🚊','🚉','✈️','🛫','🛬','🛩️','💺','🛰️','🚀','🛸','🚁','🛶','⛵','🚤','🛥️','🛳️','⛴️','🚢','⚓','🚧','⛽','🚏','🚦','🚥','🗺️','🗿','🗽','🗼','🏰','🏯','🏟️','🎡','🎢','🎠','⛲','🏖️','🏝️','🏜️','🌋','⛰️','🏔️','🗻','🏕️','⛺','🏠','🏡','🏘️','🏚️','🏗️','🏭','🏢','🏬','🏣','🏤','🏥','🏦','🏨','🏪','🏫','🏩','💒','🏛️','⛪','🕌','🕍','🛕','🕋'] },
+  { name: '符号', emojis: ['❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❣️','💕','💞','💓','💗','💖','💘','💝','💟','☮️','✝️','☪️','🕉️','☸️','✡️','🔯','🕎','☯️','☦️','🛐','⛎','♈','♉','♊','♋','♌','♍','♎','♏','♐','♑','♒','♓','🆔','⚛️','🉑','☢️','☣️','📴','📳','🈶','🈚','🈸','🈺','🈷️','✴️','🆚','💮','🉐','㊙️','㊗️','🈴','🈵','🈹','🈲','🅰️','🅱️','🆎','🆑','🅾️','🆘','❌','⭕','🛑','⛔','📛','🚫','💯','💢','♨️','🚷','🚯','🚳','🚱','🔞','📵','🚭','❗','❕','❓','❔','‼️','⁉️','🔅','🔆','〽️','⚠️','🚸','🔱','⚜️','🔰','♻️','✅','🈯','💹','❇️','✳️','❎','🌐','💠','Ⓜ️','🌀','💤','🏧'] },
+];
+
+function openKbEmojiPanel(editor) {
+  if (!editor) return;
+  closeKbEmojiPanel();
+  const panel = document.createElement('div');
+  panel.id = 'kb-emoji-panel';
+  panel.className = 'kb-emoji-panel';
+  panel.innerHTML = `
+    <div class="kb-emoji-search">
+      <input type="text" placeholder="搜索表情…" autocomplete="off" />
+      <button type="button" class="kb-emoji-close" title="关闭">×</button>
+    </div>
+    <div class="kb-emoji-tabs"></div>
+    <div class="kb-emoji-grid"></div>
+  `;
+  document.body.appendChild(panel);
+
+  const tabs = panel.querySelector('.kb-emoji-tabs');
+  const grid = panel.querySelector('.kb-emoji-grid');
+  const search = panel.querySelector('input');
+  let activeGroup = KB_EMOJI_GROUPS[0].name;
+
+  const renderTabs = () => {
+    tabs.innerHTML = KB_EMOJI_GROUPS.map(g =>
+      `<button type="button" class="kb-emoji-tab${g.name === activeGroup ? ' active' : ''}" data-group="${esc(g.name)}">${esc(g.name)}</button>`
+    ).join('');
+  };
+  const renderGrid = (filter) => {
+    const q = (filter || '').trim().toLowerCase();
+    if (q) {
+      // Show all matching emojis across groups, with their group as a label
+      const rows = [];
+      KB_EMOJI_GROUPS.forEach(g => {
+        g.emojis.forEach(e => {
+          // No real name lookup without an emoji dataset, so just show
+          // everything that contains the query char (single-char only).
+          if (e.toLowerCase().includes(q)) rows.push({ e, g: g.name });
+        });
+      });
+      grid.innerHTML = rows.length
+        ? rows.map(r => `<button type="button" class="kb-emoji-item" data-emoji="${r.e}">${r.e}</button>`).join('')
+        : '<div class="kb-emoji-empty">无匹配</div>';
+    } else {
+      const group = KB_EMOJI_GROUPS.find(g => g.name === activeGroup) || KB_EMOJI_GROUPS[0];
+      grid.innerHTML = group.emojis.map(e =>
+        `<button type="button" class="kb-emoji-item" data-emoji="${e}">${e}</button>`
+      ).join('');
+    }
+  };
+
+  renderTabs();
+  renderGrid('');
+
+  // Position under the toolbar emoji button
+  const btn = document.querySelector('.vditor-toolbar button[data-type="kb-emoji"]');
+  if (btn) {
+    const r = btn.getBoundingClientRect();
+    panel.style.top = (r.bottom + 4) + 'px';
+    panel.style.left = r.left + 'px';
+  } else {
+    panel.style.top = '80px';
+    panel.style.left = '40px';
+  }
+
+  // Tab click
+  tabs.addEventListener('click', (ev) => {
+    const t = ev.target.closest('.kb-emoji-tab');
+    if (!t) return;
+    activeGroup = t.dataset.group;
+    renderTabs();
+    renderGrid(search.value);
+  });
+  // Grid click — insert emoji
+  grid.addEventListener('click', (ev) => {
+    const it = ev.target.closest('.kb-emoji-item');
+    if (!it) return;
+    withMdMode(() => {
+      editor.insertValue(it.dataset.emoji);
+    });
+    closeKbEmojiPanel();
+    editor.focus();
+  });
+  // Search
+  search.addEventListener('input', () => renderGrid(search.value));
+  // Close
+  panel.querySelector('.kb-emoji-close').addEventListener('click', closeKbEmojiPanel);
+  // Click outside
+  setTimeout(() => {
+    const onDoc = (ev) => {
+      if (!panel.contains(ev.target)) {
+        closeKbEmojiPanel();
+        document.removeEventListener('click', onDoc, true);
+      }
+    };
+    document.addEventListener('click', onDoc, true);
+  }, 0);
+  search.focus();
+}
+
+function closeKbEmojiPanel() {
+  const p = document.getElementById('kb-emoji-panel');
+  if (p) p.remove();
 }
 
 // openNote becomes a thin alias for backward compatibility with
@@ -5832,6 +5983,11 @@ let slashMenuIdx = 0;
 let slashFilterText = '';
 let slashFilteredItems = [];
 let slashInsertPos = null;
+// Timestamp (ms) when the slash menu was last opened. Used to
+// suppress Vditor's synthetic re-dispatch of the trigger character
+// for a short window after opening.
+let _slashMenuOpenedAt = 0;
+let _atMentionOpenedAt = 0;
 
 // @ mention state
 let atMentionActive = false;
@@ -5913,6 +6069,7 @@ function openSlashMenu(slashOffset) {
   slashMenuIdx = 0;
   slashFilterText = '';
   slashInsertPos = slashOffset;
+  _slashMenuOpenedAt = Date.now();
   renderSlashMenu();
   setTimeout(positionSlashMenu, 10);
 }
@@ -5931,6 +6088,7 @@ function openAtMention(pos) {
   atMentionIdx = 0;
   atMentionFilter = '';
   atMentionInsertPos = pos;
+  _atMentionOpenedAt = Date.now();
   atMentionItems = notesIndex.map(n => ({ id: n.id, title: n.title }));
   renderAtMention();
   setTimeout(positionAtMention, 10);
@@ -6000,6 +6158,12 @@ function positionAtMention() {
 
 function handleAtMentionKeydown(e) {
   if (!atMentionActive) return false;
+  // Swallow Vditor's synthetic re-dispatch of the trigger character.
+  if (e.key === '@' && Date.now() - _atMentionOpenedAt < 250) {
+    e.preventDefault();
+    e.stopPropagation();
+    return true;
+  }
   if (e.key === 'ArrowDown') {
     e.preventDefault(); e.stopPropagation();
     atMentionIdx = (atMentionIdx + 1) % atMentionItems.length;
@@ -6064,6 +6228,16 @@ function executeSlashCommand(idx) {
 
 function handleSlashMenuKeydown(e) {
   if (!slashMenuActive) return false;
+
+  // Swallow Vditor's synthetic re-dispatch of the trigger character.
+  // Vditor re-emits a keydown for the character we just typed; without
+  // this guard, the filter opens with '/' pre-filled and the menu
+  // collapses to items whose text contains '/'.
+  if (e.key === '/' && Date.now() - _slashMenuOpenedAt < 250) {
+    e.preventDefault();
+    e.stopPropagation();
+    return true;
+  }
 
   // Navigation
   if (e.key === 'ArrowDown') {
@@ -6314,6 +6488,68 @@ function withMdMode(fn) {
       if (el) requestAnimationFrame(() => { el.style.visibility = ''; });
     }
   }
+}
+
+// Return the cursor's character offset in the editor's markdown source.
+// Works in both MD mode (where getSelection returns [start,end]) and
+// IR mode (where getSelection returns the selected *text* — broken for
+// position math). In IR mode we walk the IR DOM to count characters
+// up to the cursor.
+function getMdCursorPos(editor) {
+  if (!editor) return 0;
+  const md = editor.getValue() || '';
+  // MD mode: getSelection is [start, end]
+  const sel = editor.getSelection();
+  if (Array.isArray(sel)) return sel[0] || 0;
+  // IR mode: walk the DOM to count characters before the cursor.
+  const ir = editor.vditor && editor.vditor.ir;
+  if (!ir || !ir.element) return md.length;
+  const winSel = window.getSelection();
+  if (!winSel || !winSel.rangeCount) return md.length;
+  const range = winSel.getRangeAt(0);
+  if (!ir.element.contains(range.commonAncestorContainer) &&
+      range.commonAncestorContainer !== ir.element) {
+    return md.length;
+  }
+  // Build an array of [data-block, rendered-text] pairs. The IR DOM
+  // renders each top-level block inside a `[data-block]` wrapper;
+  // the textContent of that wrapper is a close-enough approximation
+  // of the markdown line (heading markers and list bullets are
+  // included as part of the text by Vditor's IR renderer).
+  const blocks = Array.from(ir.element.querySelectorAll('[data-block]'));
+  // Find the block that contains the cursor's startContainer.
+  let blockIdx = -1;
+  for (let i = 0; i < blocks.length; i++) {
+    if (blocks[i].contains(range.startContainer)) { blockIdx = i; break; }
+  }
+  if (blockIdx < 0) return md.length;
+  // Sum the textContent of all preceding blocks, plus a newline per
+  // preceding block. Then add the offset of the cursor within the
+  // current block's textContent.
+  let pos = 0;
+  for (let i = 0; i < blockIdx; i++) {
+    // textContent already has the line content; the markdown source
+    // separates blocks with a single '\n'.
+    pos += (blocks[i].textContent || '').length + 1;
+  }
+  // Within the current block, count characters from the start of the
+  // block to the cursor. Walk text nodes from blocks[blockIdx] until
+  // we reach range.startContainer, then add range.startOffset.
+  const blockEl = blocks[blockIdx];
+  let col = 0;
+  let reached = false;
+  const walker = document.createTreeWalker(blockEl, NodeFilter.SHOW_TEXT, null);
+  let node;
+  while ((node = walker.nextNode())) {
+    if (node === range.startContainer) {
+      col += range.startOffset;
+      reached = true;
+      break;
+    }
+    col += (node.nodeValue || '').length;
+  }
+  if (!reached) col = (blockEl.textContent || '').length;
+  return pos + col;
 }
 
 function insertTextAtCursor(text) {
@@ -6579,23 +6815,64 @@ function attachSlashListeners(editor, container) {
 
   // Primary detection: 'beforeinput' event — fires BEFORE text is inserted, in both modes
   container._slashInputHandler = function(e) {
-    if (slashMenuActive || atMentionActive || !editor) return;
+    if (!editor) return;
+    // While the menu is open, intercept text input (covers IME,
+    // keypresses whose keydown e.key === 'Process', and paste) and
+    // route it into the filter. The keydown path handles regular
+    // ASCII characters; this catches everything else.
+    if (slashMenuActive) {
+      if (e.inputType === 'deleteContentBackward' || e.key === 'Backspace') {
+        // Handled by keydown path.
+        return;
+      }
+      if (typeof e.data === 'string' && e.data.length > 0) {
+        // For insertReplacementText or non-insert types, fall through.
+        if (e.inputType && e.inputType.indexOf('insert') !== 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        for (const ch of e.data) {
+          if (ch === ' ') slashFilterText += ' ';
+          else slashFilterText += ch.toLowerCase();
+        }
+        slashMenuIdx = 0;
+        renderSlashMenu();
+        positionSlashMenu();
+      }
+      return;
+    }
+    if (atMentionActive) {
+      if (e.inputType === 'deleteContentBackward' || e.key === 'Backspace') return;
+      if (typeof e.data === 'string' && e.data.length > 0) {
+        if (e.inputType && e.inputType.indexOf('insert') !== 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        atMentionFilter += e.data.toLowerCase();
+        atMentionIdx = 0;
+        renderAtMention();
+        positionAtMention();
+      }
+      return;
+    }
     // e.data is the text about to be inserted (works for keyboard, IME, paste)
     if (e.data === '/' || (e.inputType === 'insertText' && e.data === '/')) {
       try {
         const md = editor.getValue();
-        const sel = editor.getSelection();
-        if (!sel || !sel.length) return;
-        const before = md.substring(0, sel[0]);
+        const pos = getMdCursorPos(editor);
+        if (pos == null) return;
+        const before = md.substring(0, pos);
         const lineStart = before.lastIndexOf('\n');
         const currentLine = before.substring(lineStart + 1);
         const isSlashAllowed = /^[\s]*([-*+]|\d+\.|>)?[\s]*$/.test(currentLine);
         if (isSlashAllowed) {
+          // Suppress the actual '/' insertion — we want the menu to
+          // open on an empty line, not "/command" in the document.
+          e.preventDefault();
+          e.stopPropagation();
           queueMicrotask(() => {
             if (!editor || slashMenuActive) return;
-            const newSel = editor.getSelection();
-            if (!newSel || !newSel.length) return;
-            openSlashMenu(newSel[0] - 1);
+            const newPos = getMdCursorPos(editor);
+            if (newPos == null) return;
+            openSlashMenu(newPos);
           });
         }
       } catch(e) {}
@@ -6604,17 +6881,19 @@ function attachSlashListeners(editor, container) {
     if (e.data === '@' || (e.inputType === 'insertText' && e.data === '@')) {
       try {
         const md = editor.getValue();
-        const sel = editor.getSelection();
-        if (!sel || !sel.length) return;
-        const before = md.substring(0, sel[0]);
+        const pos = getMdCursorPos(editor);
+        if (pos == null) return;
+        const before = md.substring(0, pos);
         // @ can be typed anywhere — at line start or after a space
         const lastChar = before.slice(-1);
         if (lastChar === '' || lastChar === ' ' || lastChar === '\n') {
+          e.preventDefault();
+          e.stopPropagation();
           queueMicrotask(() => {
             if (!editor || atMentionActive) return;
-            const newSel = editor.getSelection();
-            if (!newSel || !newSel.length) return;
-            openAtMention(newSel[0] - 1);
+            const newPos = getMdCursorPos(editor);
+            if (newPos == null) return;
+            openAtMention(newPos);
           });
         }
       } catch(e) {}
@@ -6622,7 +6901,7 @@ function attachSlashListeners(editor, container) {
   };
   container.addEventListener('beforeinput', container._slashInputHandler, true);
 
-  // Fallback: ToastUI keydown for environments where beforeinput isn't supported
+  // Fallback: keydown for environments where beforeinput isn't supported
   container._slashKeyHandler = function(ev) {
     if (slashMenuActive) {
       handleSlashMenuKeydown(ev);
@@ -6631,18 +6910,24 @@ function attachSlashListeners(editor, container) {
     if (ev.key === '/' && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !ev.shiftKey) {
       try {
         const md = editor.getValue();
-        const sel = editor.getSelection();
-        if (!sel || !sel.length) return;
-        const before = md.substring(0, sel[0]);
+        const pos = getMdCursorPos(editor);
+        if (pos == null) return;
+        const before = md.substring(0, pos);
         const lineStart = before.lastIndexOf('\n');
         const currentLine = before.substring(lineStart + 1);
         const isSlashAllowed = /^[\s]*([-*+]|\d+\.|>)?[\s]*$/.test(currentLine);
         if (isSlashAllowed) {
+          // Suppress the '/' insertion. handleSlashMenuKeydown has a
+          // 250ms timestamp window that swallows Vditor's synthetic
+          // re-dispatch of the trigger character so the filter opens
+          // empty.
+          ev.preventDefault();
+          ev.stopPropagation();
           queueMicrotask(() => {
             if (!editor || slashMenuActive) return;
-            const newSel = editor.getSelection();
-            if (!newSel || !newSel.length) return;
-            openSlashMenu(newSel[0] - 1);
+            const newPos = getMdCursorPos(editor);
+            if (newPos == null) return;
+            openSlashMenu(newPos);
           });
         }
       } catch(e) {}

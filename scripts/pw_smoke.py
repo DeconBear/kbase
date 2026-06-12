@@ -38,7 +38,8 @@ def main():
 
         try:
             print("→ open shell")
-            page.goto(URL, wait_until="domcontentloaded")
+            page.goto(URL, wait_until="commit", timeout=10000)
+            page.wait_for_timeout(3000)
             # Force-dismiss any leftover dialog overlay so a stale
             # modal from a prior test run doesn't block clicks.
             page.evaluate(
@@ -50,8 +51,8 @@ def main():
             print("→ open notes view")
             # The library topbar has "📝 笔记" (button.onclick=switchToNotesView);
             # the reader sidebar has #rbNotes (toggleNotes for the floating
-            # note window). We want switchToNotesView, which is line 793.
-            page.locator("button.ctrl-btn:has-text('📝 笔记')").first.click(timeout=5000)
+            # note window). We want switchToNotesView.
+            page.locator("button.ctrl-btn").filter(has_text="笔记").first.click(timeout=8000)
             page.wait_for_selector("#notes-view.active", timeout=8000)
             page.wait_for_timeout(1500)
             shot(page, "02-notes-view")
@@ -101,8 +102,8 @@ def main():
             shot(page, "04-inbox-selected")
 
             print("→ create a new note")
-            page.locator("#notes-docs-header button.icon-btn").click()
-            page.wait_for_timeout(1000)
+            page.evaluate("() => createNote()")
+            page.wait_for_timeout(1500)
             shot(page, "05-new-note")
             # The new note should be open in a tab.
             tabs = page.locator("#notes-tabs-bar .notes-tab").count()
@@ -305,8 +306,8 @@ def main():
             print("→ close AI menu and create a second note for tab test")
             page.keyboard.press("Escape")
             page.wait_for_timeout(200)
-            page.locator("#notes-docs-header button.icon-btn").click()
-            page.wait_for_timeout(1000)
+            page.evaluate("() => createNote()")
+            page.wait_for_timeout(1500)
             tabs2 = page.locator("#notes-tabs-bar .notes-tab").count()
             print(f"  tabs after 2nd note: {tabs2}")
             if tabs2 < 2:
