@@ -6505,13 +6505,26 @@ function selectAtMention(idx) {
   const linkText = target.kind === 'article'
     ? `[[art-link:${target.id}]]`
     : `[[${target.title}]]`;
-  const removeLen = 1 + atMentionFilter.length;
-
-  for(let i=0; i<removeLen; i++) document.execCommand('delete', false);
-  editor.insertValue(linkText);
+  // Drop the trigger char + any filter chars the user typed, then
+  // splice in the link at the exact position recorded when the menu
+  // opened. We work on the markdown source directly via withMdMode
+  // (the only reliable way to mutate IR-mode content; the previous
+  // document.execCommand + insertValue combo corrupted the editor
+  // state and froze input).
+  const md = editor.getValue();
+  const dropFrom = atMentionInsertPos;
+  const dropTo = atMentionInsertPos + 1 + (atMentionFilter || '').length;
+  const newMd = md.substring(0, dropFrom) + linkText + md.substring(dropTo);
+  withMdMode(() => {
+    editor.setValue(newMd);
+    const newPos = dropFrom + linkText.length;
+    try { editor.setSelection([newPos, newPos]); } catch (e) {}
+  });
 
   closeAtMention();
-  editor.focus();
+  // Force focus into the editor (the menu was just removed; we
+  // need a real focus call so the cursor lands inside the IR).
+  setTimeout(() => { try { editor.focus(); } catch (e) {} }, 0);
 }
 
 function positionAtMention() {
@@ -6587,16 +6600,30 @@ function executeSlashCommand(idx) {
   const editor = getActiveEditor();
   if (!editor || slashInsertPos === null) { closeSlashMenu(); return; }
 
-  const removeLen = 1 + slashFilterText.length;
   const insertText = item.insert;
   const afterText = item.afterCursor || '';
-  const cursorOffset = item.insert.length;
-
-  for(let i=0; i<removeLen; i++) document.execCommand('delete', false);
-  editor.insertValue(insertText + afterText);
+  // Splice in the command at the recorded insertion position,
+  // stripping the trigger char + filter text. Working on the
+  // markdown source via withMdMode is the only mutation that
+  // doesn't corrupt Vditor IR's internal selection / block state
+  // (the previous document.execCommand + insertValue left the
+  // editor frozen on the next keystroke).
+  const md = editor.getValue();
+  const dropFrom = slashInsertPos;
+  const dropTo = slashInsertPos + 1 + (slashFilterText || '').length;
+  const newMd = md.substring(0, dropFrom) + insertText + afterText + md.substring(dropTo);
+  withMdMode(() => {
+    editor.setValue(newMd);
+    // Cursor lands between the inserted text and the after-cursor
+    // text, so the user can keep typing the title / content right
+    // after the inserted block (e.g. inside the empty code-block
+    // pair that '```\n' leaves behind).
+    const newPos = dropFrom + insertText.length;
+    try { editor.setSelection([newPos, newPos]); } catch (e) {}
+  });
 
   closeSlashMenu();
-  editor.focus();
+  setTimeout(() => { try { editor.focus(); } catch (e) {} }, 0);
 }
 
 function handleSlashMenuKeydown(e) {
@@ -6843,23 +6870,17 @@ function getActiveEditor() {
   return notesEditor;
 }
 
-// Run a callback in markdown mode for reliable text manipulation, then restore mode
+// Run a callback with reliable text manipulation. Vditor 3.9.6
+// doesn't have a public changeMode(), so we work in whatever
+// mode the editor is already in and use the markdown-position
+// setValue / setSelection API for atomic text mutation.
 function withMdMode(fn) {
   const editor = getActiveEditor();
   if (!editor) return;
-  const wasWysiwyg = editor.isWysiwygMode();
-  if (wasWysiwyg) {
-    // Hide editor content briefly to prevent visible flicker during mode switch
-    const el = editor.getEditorElements?.()?.el || editor.options?.el;
-    if (el) el.style.visibility = 'hidden';
-    editor.changeMode('markdown');
-  }
+  const el = editor.getEditorElements?.()?.el || editor.options?.el;
+  if (el) el.style.visibility = 'hidden';
   try { fn(); } finally {
-    if (wasWysiwyg) {
-      editor.changeMode('wysiwyg');
-      const el = editor.getEditorElements?.()?.el || editor.options?.el;
-      if (el) requestAnimationFrame(() => { el.style.visibility = ''; });
-    }
+    if (el) requestAnimationFrame(() => { el.style.visibility = ''; });
   }
 }
 
