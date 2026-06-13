@@ -8,6 +8,7 @@ ENGINES = {
     "vision": "engines.vision_ocr.VisionOcrEngine",
     "ocr": "engines.ocr.CloudOcrEngine",
     "llm_vision": "engines.llm_vision.LlmVisionEngine",
+    "unisound": "engines.unisound_parser.UnisoundParserEngine",
 }
 
 

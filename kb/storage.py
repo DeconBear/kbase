@@ -99,6 +99,12 @@ OCR_API_URL=
 OCR_API_KEY=
 OCR_PROVIDER=
 OCR_LANG=zh-CN+en
+
+# Unisound U1 Doc Parser (Token Plan / 开放平台 统一接入).
+# 异步 PDF 解析：上传文件 -> 提交任务 -> 轮询 -> 下载 Markdown
+UNISOUND_API_KEY=
+UNISOUND_BASE_URL=https://maas-api.hivoice.cn
+UNISOUND_MODEL=u1-ocr
 """
 
 
@@ -160,15 +166,41 @@ def set_data_root(new_root: str) -> dict:
 
 
 def load_local_env() -> None:
-    """Load data/local.env into os.environ without overriding existing vars."""
-    if not LOCAL_ENV.exists():
-        return
-    for line in LOCAL_ENV.read_text(encoding="utf-8").splitlines():
+    """Load env files into os.environ without overriding existing vars.
+
+    Precedence (lowest to highest, i.e. later wins on collision only when the
+    variable was not yet set in ``os.environ``):
+      1. Repo-root ``.env``                 — committed? no (gitignored), for
+         source-mode debug. Keys are NOT exposed to the Settings UI.
+      2. Repo-root ``.env.local``           — local-only override of #1.
+      3. ``data/local.env``                — managed by the Settings UI and
+         the application itself.
+    """
+    sources: list[Path] = []
+    for name in (".env", ".env.local"):
+        candidate = _REPO_ROOT / name
+        if candidate.exists() and candidate.is_file():
+            sources.append(candidate)
+    if LOCAL_ENV.exists():
+        sources.append(LOCAL_ENV)
+    for path in sources:
+        try:
+            _apply_env_file(path)
+        except Exception:
+            continue
+
+
+def _apply_env_file(path: Path) -> None:
+    for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, _, val = line.partition("=")
-        os.environ.setdefault(key.strip(), val.strip())
+        # .env style allows quoted values; strip matching quotes.
+        v = val.strip()
+        if len(v) >= 2 and v[0] == v[-1] and v[0] in ('"', "'"):
+            v = v[1:-1]
+        os.environ.setdefault(key.strip(), v)
 
 
 def _write_local_env(updates: dict[str, str]) -> None:
