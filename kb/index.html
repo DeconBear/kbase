@@ -1681,8 +1681,16 @@ const TabManager = {
     document.querySelectorAll('.iframe-tab').forEach(el => el.classList.remove('active'));
     // Reflect the active tab on <body> so CSS can hide native views
     // (library-view, reader-view, notes-view) reliably even if the
-    // JS-level hide hasn't caught up. Empty string for home.
-    document.body.dataset.tab = (id === 'home') ? '' : id;
+    // JS-level hide hasn't caught up. For home we REMOVE the attribute
+    // entirely (not set to ''), because an empty string is not equal
+    // to 'home' in CSS attribute selectors and would falsely match
+    // the [data-tab]:not([data-tab="home"]) rule that hides the
+    // library view.
+    if (id === 'home') {
+      delete document.body.dataset.tab;
+    } else {
+      document.body.dataset.tab = id;
+    }
 
     // Swap chat HTML
     const tabData = this.tabs.find(t => t.id === id);
