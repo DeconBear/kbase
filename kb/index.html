@@ -1066,6 +1066,36 @@ body { display: flex !important; flex-direction: column !important; height: 100v
       </div>
     </div>
 
+    <!-- Data Root -->
+    <div class="settings-section">
+      <div class="settings-section-head">
+        <h4>💾 数据存储路径</h4>
+        <span id="dataRootStatus" style="font-size:11px;color:var(--text-3)"></span>
+      </div>
+      <p style="font-size:11px;color:var(--text-3);margin:0 0 10px">数据库、文章、笔记、配置文件均存放于此。修改后需重启生效，已有数据不会被删除。</p>
+      <div style="display:flex;gap:6px">
+        <input type="text" id="dataRootInput" placeholder="默认：安装目录下的 data/ 文件夹" style="flex:1;font-size:12px">
+        <button class="btn-outline" onclick="browseDataRoot()">浏览</button>
+        <button class="btn-emerald" onclick="saveDataRoot()">保存</button>
+      </div>
+      <div id="dataRootMsg" style="font-size:11px;color:var(--emerald);margin-top:6px;display:none"></div>
+    </div>
+
+    <!-- Update -->
+    <div class="settings-section" id="updateSection">
+      <div class="settings-section-head">
+        <h4>🔄 软件更新</h4>
+        <span style="font-size:11px;color:var(--text-3)" id="updateCurrentVer"></span>
+      </div>
+      <div id="updateStatus" style="font-size:12px;color:var(--text-3);margin-bottom:10px"></div>
+      <div id="updateActions" style="display:flex;gap:8px">
+        <button class="btn-outline" onclick="checkUpdate()">检查更新</button>
+        <button class="btn-emerald" id="updateBtn" onclick="applyUpdate()" style="display:none">立即更新</button>
+      </div>
+      <div id="updateProgress" style="font-size:11px;color:var(--accent);margin-top:6px;display:none"></div>
+      <div id="updateReleaseNotes" style="max-height:200px;overflow-y:auto;font-size:12px;color:var(--text-2);background:var(--surface-2);border-radius:var(--radius-sm);padding:10px;margin-top:8px;display:none;white-space:pre-wrap"></div>
+    </div>
+
     <div style="display:flex;gap:10px;justify-content:space-between;align-items:center;margin-top:20px">
       <span id="settingsSaved" style="font-size:11px;color:var(--emerald);display:none">✅ 已保存</span>
       <div style="display:flex;gap:10px;margin-left:auto">
@@ -1973,6 +2003,8 @@ async function showSettings() {
   await ensureLLMConfigLoaded();
   renderLLMSettings();
   await loadApiKeys();
+  loadDataRoot();
+  loadUpdateInfo();
   document.getElementById('settingsModal').classList.add('active');
 }
 
@@ -2107,6 +2139,134 @@ function updateThemeCards() {
   document.getElementById('themeDarkCard')?.classList.toggle('selected', val === 'dark');
   document.getElementById('themeLightCard')?.classList.toggle('selected', val === 'light');
 }
+
+// ==================================================================
+// Data root
+// ==================================================================
+
+async function loadDataRoot() {
+  try {
+    const r = await fetch('/api/data-root');
+    const d = await r.json();
+    document.getElementById('dataRootInput').value = d.dataRoot || '';
+    const status = d.isOverridden ? '（已自定义）' : '（默认）';
+    document.getElementById('dataRootStatus').textContent = status;
+  } catch (e) {
+    document.getElementById('dataRootStatus').textContent = '（获取失败）';
+  }
+}
+
+async function saveDataRoot() {
+  const el = document.getElementById('dataRootInput');
+  const path = el.value.trim();
+  if (!path) { showDataRootMsg('请输入有效的绝对路径', 'rose'); return; }
+  try {
+    const r = await fetch('/api/data-root', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({dataRoot: path})
+    });
+    const d = await r.json();
+    const cls = d.ok ? 'emerald' : 'rose';
+    showDataRootMsg(d.message, cls);
+    if (d.ok) loadDataRoot();
+  } catch (e) {
+    showDataRootMsg('请求失败: ' + e.message, 'rose');
+  }
+}
+
+function browseDataRoot() {
+  const el = document.getElementById('dataRootInput');
+  el.focus();
+  el.select();
+}
+
+function showDataRootMsg(msg, colorClass) {
+  const el = document.getElementById('dataRootMsg');
+  el.textContent = msg;
+  el.style.color = colorClass === 'rose' ? 'var(--rose)' : 'var(--emerald)';
+  el.style.display = 'block';
+  setTimeout(() => el.style.display = 'none', 5000);
+}
+
+// ==================================================================
+// Update check & apply
+// ==================================================================
+
+let _updateCache = null;
+
+async function loadUpdateInfo() {
+  try {
+    const r = await fetch('/api/check-update');
+    _updateCache = await r.json();
+    const el = document.getElementById('updateCurrentVer');
+    el.textContent = _updateCache.current ? `当前 v${_updateCache.current}` : '';
+    const status = document.getElementById('updateStatus');
+
+    if (_updateCache.error) {
+      status.textContent = '⚠️ ' + _updateCache.error;
+      document.getElementById('updateBtn').style.display = 'none';
+      document.getElementById('updateReleaseNotes').style.display = 'none';
+    } else if (!_updateCache.installedBuild) {
+      status.textContent = '当前为绿色版，请手动下载新版本覆盖。';
+      document.getElementById('updateBtn').style.display = 'none';
+    } else if (_updateCache.hasUpdate) {
+      status.textContent = '';
+      document.getElementById('updateBtn').style.display = 'inline-block';
+      document.getElementById('updateBtn').textContent = `更新到 v${_updateCache.latest}`;
+      document.getElementById('updateBtn').classList.add('btn-accent');
+      if (_updateCache.releaseNotes) {
+        const rn = document.getElementById('updateReleaseNotes');
+        rn.textContent = _updateCache.releaseNotes;
+        rn.style.display = 'block';
+      }
+    } else {
+      status.textContent = '已是最新版本。';
+      document.getElementById('updateBtn').style.display = 'none';
+      document.getElementById('updateReleaseNotes').style.display = 'none';
+    }
+  } catch (e) {
+    document.getElementById('updateStatus').textContent = '无法检查更新: ' + e.message;
+  }
+}
+
+async function checkUpdate() {
+  document.getElementById('updateStatus').textContent = '正在检查…';
+  document.getElementById('updateBtn').style.display = 'none';
+  try {
+    const r = await fetch('/api/check-update?force=1');
+    _updateCache = await r.json();
+  } catch (e) {
+    document.getElementById('updateStatus').textContent = '检查失败: ' + e.message;
+    return;
+  }
+  loadUpdateInfo();
+}
+
+async function applyUpdate() {
+  if (!_updateCache || !_updateCache.assetUrl) return;
+  if (!confirm(`确定更新到 v${_updateCache.latest}？更新后应用程序将自动重启。`)) return;
+  const progress = document.getElementById('updateProgress');
+  progress.textContent = '正在下载更新包…';
+  progress.style.display = 'block';
+  document.getElementById('updateBtn').disabled = true;
+  try {
+    const r = await fetch('/api/apply-update', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({assetUrl: _updateCache.assetUrl})
+    });
+    const d = await r.json();
+    progress.textContent = d.message;
+    if (d.ok) {
+      // The app will exit shortly — the updater script takes over
+      setTimeout(() => { progress.textContent = '更新程序已接管，本窗口即将关闭。'; }, 1000);
+    }
+  } catch (e) {
+    progress.textContent = '更新请求失败: ' + e.message;
+    document.getElementById('updateBtn').disabled = false;
+  }
+}
+
+// ==================================================================
 
 // Initialize settings on page load
 (function(){

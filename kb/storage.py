@@ -37,7 +37,22 @@ if getattr(sys, "frozen", False):
 else:
     _REPO_ROOT = _KB_PKG_DIR.parent
 
-DATA_ROOT: Path = _REPO_ROOT / "data"
+REPO_ROOT: Path = _REPO_ROOT
+_DATA_PATH_FILE: Path = _REPO_ROOT / "data_path.txt"
+
+# Honour a user-chosen data root override (written by set_data_root).
+_DATA_ROOT_OVERRIDE: Path | None = None
+if _DATA_PATH_FILE.exists():
+    try:
+        candidate = Path(_DATA_PATH_FILE.read_text(encoding="utf-8").strip())
+        if candidate.name != "data":
+            candidate = candidate / "data"
+        if candidate.is_absolute():
+            _DATA_ROOT_OVERRIDE = candidate
+    except Exception:
+        pass
+
+DATA_ROOT: Path = _DATA_ROOT_OVERRIDE or (_REPO_ROOT / "data")
 ARTICLES_DIR: Path = DATA_ROOT / "articles"
 NOTES_DIR: Path = DATA_ROOT / "notes"
 KBASE_DIR: Path = DATA_ROOT / ".kbase"
@@ -100,6 +115,48 @@ def ensure_directories() -> None:
         path.mkdir(parents=True, exist_ok=True)
     if not LOCAL_ENV.exists():
         LOCAL_ENV.write_text(LOCAL_ENV_TEMPLATE, encoding="utf-8")
+
+
+def get_data_root_info() -> dict:
+    """Return the current data root and whether it has been overridden."""
+    return {
+        "dataRoot": str(DATA_ROOT),
+        "installRoot": str(REPO_ROOT),
+        "isOverridden": _DATA_ROOT_OVERRIDE is not None,
+    }
+
+
+def set_data_root(new_root: str) -> dict:
+    """Persist a user-chosen data root override.
+
+    Writes *new_root* to ``data_path.txt`` in the install/portable root.
+    The application must be restarted for the change to take effect on all
+    modules because the path constants are resolved at import time.
+
+    Returns a dict with ``{ok, message, dataRoot}`` suitable for the
+    frontend.
+    """
+    candidate = Path(new_root).resolve()
+    if not candidate.is_absolute():
+        return {"ok": False, "message": "路径必须是绝对路径"}
+
+    # Normalise: the user picks a parent directory; we store data/ under it.
+    if candidate.name != "data":
+        candidate = candidate / "data"
+
+    data_root_str = str(candidate)
+
+    try:
+        _DATA_PATH_FILE.write_text(data_root_str, encoding="utf-8")
+    except OSError as e:
+        return {"ok": False, "message": f"无法写入配置文件: {e}"}
+
+    return {
+        "ok": True,
+        "message": "数据路径已保存，请重启应用生效",
+        "dataRoot": data_root_str,
+        "needsRestart": True,
+    }
 
 
 def load_local_env() -> None:

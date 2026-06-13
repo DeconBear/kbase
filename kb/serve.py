@@ -42,6 +42,7 @@ from storage import (
     get_all_articles,
     get_all_notes,
     get_article,
+    get_data_root_info,
     get_article_note_count,
     get_conn,
     get_note_blocks,
@@ -65,6 +66,7 @@ from storage import (
     save_chat_index,
     save_chat_session_file,
     save_translation_state,
+    set_data_root,
     sync_note_blocks,
     update_article_fields,
     upsert_article,
@@ -78,6 +80,8 @@ from llm_config import (
     resolve_llm_settings,
     save_llm_config_from_public,
 )
+from updater import check_for_update, apply_update, is_installed_build
+from version import VERSION
 
 PORT = 8765
 INVALID_ARTICLE_CHARS = set("/\\:*?\"<>|'")
@@ -720,6 +724,10 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self._json({"notebooks": list_notebooks()})
             elif path == "/api/workspaces":
                 self._json({"workspaces": list_workspaces()})
+            elif path == "/api/check-update":
+                self._json(check_for_update())
+            elif path == "/api/data-root":
+                self._json(get_data_root_info())
             elif path == "/api/export":
                 qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
                 self.handle_export(
@@ -873,6 +881,10 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_open_folder()
             elif path == "/api/export":
                 self.handle_export()
+            elif path == "/api/apply-update":
+                self.handle_apply_update()
+            elif path == "/api/data-root":
+                self.handle_set_data_root()
             elif path.startswith("/api/articles/") and path.endswith("/attachments"):
                 self.handle_upload_attachment()
             elif path.startswith("/api/articles/") and path.endswith("/history/delete"):
@@ -1769,6 +1781,39 @@ def _unique_archive_name(name, used):
         index += 1
     used.add(candidate)
     return candidate
+
+
+    # ------------------------------------------------------------------
+    # Update & data-root endpoints
+    # ------------------------------------------------------------------
+
+    def handle_apply_update(self) -> None:
+        """POST /api/apply-update — download and launch the NSIS installer."""
+        data = self._read_json()
+        asset_url = (data.get("assetUrl") or "").strip()
+        if not asset_url:
+            self._error(400, "assetUrl is required")
+            return
+        if not is_installed_build():
+            self._json({"ok": False, "message": "当前为绿色版，不支持自动更新。请手动下载新版本覆盖。"})
+            return
+        # Spawn the updater in a thread so we can return a response first
+        result = {"ok": True, "message": "更新程序已启动，应用程序即将关闭…"}
+        self._json(result)
+        self.wfile.flush()
+
+        def _apply() -> None:
+            apply_update(asset_url)
+
+        t = threading.Thread(target=_apply, daemon=True)
+        t.start()
+
+    def handle_set_data_root(self) -> None:
+        """POST /api/data-root — persist a new data root path."""
+        data = self._read_json()
+        new_root = (data.get("dataRoot") or "").strip()
+        path_info = set_data_root(new_root)
+        self._json(path_info)
 
 
 # ---------------------------------------------------------------------------

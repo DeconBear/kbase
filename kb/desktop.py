@@ -24,6 +24,8 @@ if getattr(sys, "frozen", False):
         ("kb.engines", "engines"),
         ("kb.library_chat", "library_chat"),
         ("kb.serve", "serve"),
+        ("kb.version", "version"),
+        ("kb.updater", "updater"),
     ]
     for _fq_name, _alias in _aliases:
         try:
