@@ -1664,6 +1664,7 @@ const TabManager = {
             oldTab.data.currentRawMd = window.currentRawMd;
             oldTab.data.translatedMd = window.translatedMd;
             oldTab.data.summaryText = window.summaryText;
+            oldTab.data.currentView = window.currentView;
             oldTab.data.translationPollTimers = window.translationPollTimers;
             oldTab.data.convPollTimer = window.convPollTimer;
             oldTab.data.scrollTop = document.getElementById('md-scroll')?.scrollTop || 0;
@@ -1718,7 +1719,8 @@ const TabManager = {
        
        // Re-render the reader view with this article's data!
        initArticleTab(id, tab.data);
-       cycleLayout(); cycleLayout(); cycleLayout(); // Ensure layout applies correctly
+       // Layout should not change when re-entering a tab — the user
+       // chose their layout for a reason. Don't auto-cycle.
     } else if (tab.type === 'note' || tab.type === 'md') {
        document.getElementById('notes-view').classList.add('active');
        // init notes view
@@ -3575,6 +3577,69 @@ async function initArticleTab(tabId, tabData) {
   if (typeof loadArticleHighlights === 'function') loadArticleHighlights(article.id);
   if (typeof loadArticleNotes === 'function') {
     loadArticleNotes().catch(() => {});  // fire-and-forget; updates badge + list
+  }
+
+  // Reset only the in-DOM editor state — but PRESERVE the cached
+  // markdown / translation / summary so a second visit to the same
+  // tab (e.g. switching between article tabs) doesn't re-fetch from
+  // the server and re-render from scratch. The cached values are
+  // kept on tab.data by saveCurrentReaderState() on each tab leave.
+  currentRawMd = tabData.currentRawMd || '';
+  translatedMd = tabData.translatedMd || '';
+  summaryText = tabData.summaryText || '';
+  currentView = (tabData.currentView) || 'original';
+  isEditing = false;
+  if (markdownEditor) { markdownEditor.destroy(); markdownEditor = null; }
+  document.getElementById('md-content').style.display = 'none';
+  document.getElementById('md-content').innerHTML = '';
+  document.getElementById('md-container').style.display = 'block';
+  document.getElementById('md-loading').style.display = 'block';
+  document.getElementById('md-error').style.display = 'none';
+  document.getElementById('rbShowOrig').style.display = 'none';
+  document.getElementById('rbShowTrans').style.display = 'none';
+  document.getElementById('rbReconvert').style.display = 'none';
+  document.getElementById('rbCalibrate').style.display = 'none';
+  document.getElementById('toc-list').innerHTML = '';
+  document.getElementById('statusMsg').textContent = '';
+  document.getElementById('summary-body').innerHTML = '';
+
+  // Clear PDF
+  document.getElementById('pdf-embed').src = '';
+  document.getElementById('pdf-embed').style.display = 'none';
+  document.getElementById('pdf-placeholder').style.display = '';
+  document.getElementById('pdf-placeholder').innerHTML = '<div class="icon">📑</div><div>PDF 预览</div>';
+
+  document.getElementById('rbEdit').disabled = true;
+  document.getElementById('rbTranslate').disabled = true;
+  document.getElementById('rbSummarize').disabled = true;
+
+  // If we have cached content for this tab, render it immediately and
+  // skip the network round-trip.
+  if (currentRawMd) {
+    document.getElementById('md-loading').style.display = 'none';
+    document.getElementById('md-content').style.display = 'block';
+    document.getElementById('rbEdit').disabled = false;
+    document.getElementById('rbTranslate').disabled = false;
+    document.getElementById('rbSummarize').disabled = false;
+    document.getElementById('rbReconvert').style.display = article.pdf_available ? '' : 'none';
+    document.getElementById('rbCalibrate').style.display = article.pdf_available ? '' : 'none';
+    // If a translation is cached and the user was last viewing it,
+    // re-show the translated overlay.
+    if (translatedMd && currentView === 'translated' && article.translated) {
+      document.getElementById('rbShowOrig').style.display = '';
+      document.getElementById('rbShowTrans').style.display = '';
+      document.getElementById('rbShowOrig').classList.remove('active');
+      document.getElementById('rbShowTrans').classList.add('active');
+      renderReaderMarkdown(translatedMd, currentArticle, false);
+    } else {
+      renderReaderMarkdown(currentRawMd, currentArticle, true);
+    }
+    // Restore scroll position if we have one.
+    if (tabData.scrollTop) {
+      const sc = document.getElementById('md-scroll');
+      if (sc) sc.scrollTop = tabData.scrollTop;
+    }
+    return;
   }
 
   // Reset
