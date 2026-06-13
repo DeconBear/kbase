@@ -1048,15 +1048,9 @@ body { display: flex !important; flex-direction: column !important; height: 100v
             <h4>Provider / 模型</h4>
             <span id="llmConfigStatus"></span>
           </div>
-          <div class="settings-grid">
-            <div class="settings-field">
-              <label for="llmProviderSelect">Provider</label>
-              <select id="llmProviderSelect" onchange="onLLMProviderChange()"></select>
-            </div>
-            <div class="settings-field">
-              <label for="llmModelSelect">模型</label>
-              <input id="llmModelSelect" placeholder="输入模型名" oninput="onLLMModelSelect()">
-            </div>
+          <div class="settings-field">
+            <label for="llmProviderSelect">Provider</label>
+            <select id="llmProviderSelect" onchange="onLLMProviderChange()"></select>
           </div>
           <div class="settings-field">
             <label for="llmProviderName">名称</label>
@@ -1090,6 +1084,7 @@ body { display: flex !important; flex-direction: column !important; height: 100v
           <div class="llm-actions">
             <button class="btn-outline" onclick="addLLMProvider()">新增 Provider</button>
             <div class="llm-actions-right">
+              <button class="btn-emerald" onclick="saveLLMConfigFromForm()">保存配置</button>
               <button class="btn-outline" onclick="deleteLLMProvider()">删除</button>
               <button class="btn-outline" onclick="testLLMConfig()">测试</button>
             </div>
@@ -2139,19 +2134,26 @@ function updateLLMProviderFromForm(providerId=llmEditingProviderId) {
   if (key && key.trim()) provider.api_key = key;
   provider.models = getModelsFromRows();
   provider.long_context_models = getLongContextFromRows();
-  const selected = (document.getElementById('llmModelSelect').value || '').trim();
-  if (selected && !provider.models.includes(selected)) provider.models.unshift(selected);
-  provider.model = selected || provider.models[0] || '';
+  // The active model is the first model in the list. If the previous
+  // active model got deleted from the list, fall back to the first one.
+  if (provider.models.length && !provider.models.includes(provider.model)) {
+    provider.model = provider.models[0];
+  } else if (!provider.model && provider.models.length) {
+    provider.model = provider.models[0];
+  }
 }
 
 function renderLLMModelSelect(provider) {
-  // The active model is just a plain text input — the user types any
-  // model name. The 模型列表 below is where the user manages the list
-  // of known models for the active provider.
-  const modelInput = document.getElementById('llmModelSelect');
-  if (!modelInput) return;
-  const models = (provider.models && provider.models.length) ? provider.models : [];
-  modelInput.value = provider.model || models[0] || '';
+  // The active model is no longer a separate input — it's implicit:
+  // the first model in the model list is the active one. If a previous
+  // save had a model not in the list, prepend it so it stays visible.
+  if (!provider) return;
+  if (provider.model && !(provider.models || []).includes(provider.model)) {
+    provider.models = [provider.model, ...(provider.models || [])];
+  }
+  if (!provider.model && provider.models && provider.models.length) {
+    provider.model = provider.models[0];
+  }
 }
 
 function renderLLMSettings() {
@@ -2179,7 +2181,7 @@ function renderLLMSettings() {
   keyInput.type = 'password';
   keyInput.value = hasKey ? provider.api_key : '';
   keyInput.placeholder = hasKey ? '留空则保留已保存 key' : '输入 API key';
-  const eyeBtn = document.querySelector('[data-eye-for="llmApiKey"]');
+  const eyeBtn = document.querySelector('button[data-eye-for="llmApiKey"]');
   if (eyeBtn) eyeBtn.style.display = hasKey ? '' : 'none';
   // Render the model list as rows.
   renderLLMModelList(provider);
@@ -2201,10 +2203,8 @@ function onLLMModelListChange() {
 }
 
 function onLLMModelSelect() {
-  const provider = getActiveLLMProvider();
-  if (!provider) return;
-  provider.model = document.getElementById('llmModelSelect').value;
-  applyLLMConfig();
+  // No-op: the active model is now derived from the model list (first
+  // row wins). Kept as a no-op stub in case some legacy code calls it.
 }
 
 function onLLMProtocolChange() {
@@ -2413,7 +2413,7 @@ async function loadApiKeys() {
       el.value = hasValue ? entry.value : '';
       el.dataset.savedValue = el.value;
       // Eye button: only show when there is a saved key to reveal.
-      const btn = document.querySelector(`[data-eye-for="${inputId}"]`);
+      const btn = document.querySelector(`button[data-eye-for="${inputId}"]`);
       if (btn) {
         btn.style.display = hasValue ? '' : 'none';
         btn.textContent = '👁';
