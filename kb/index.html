@@ -1594,6 +1594,16 @@ let LLM_CFG = {apiUrl:'/api/chat',providerId:'',model:''};
 // ===== STATE =====
 
 // ===== TAB MANAGER =====
+
+// Defensive getters for chat panel children. If the chat panel was
+// removed (we detach it on non-home tabs), these return null and
+// callers should handle that gracefully.
+function chatEl(id) {
+  const root = document.getElementById('global-chat-panel');
+  if (!root) return null;
+  return root.querySelector('#' + id);
+}
+
 const TabManager = {
   tabs: [],
   activeTabId: null,
@@ -1740,13 +1750,26 @@ const TabManager = {
     const lv  = document.getElementById('library-view');
     const cht = document.getElementById('global-chat-panel');
     if (id === 'home') {
+      // Restore the home view to its normal CSS-driven layout.
+      // No inline-style overrides — the original CSS handles
+      // positioning. If something in pywebview's WebView2 ignored
+      // the previous hide styles, those will release cleanly.
       if (lv) {
         lv.classList.remove('hidden');
-        lv.style.position = 'absolute';
-        lv.style.inset = '0';
-        lv.style.zIndex = '1';
+        lv.style.cssText = '';
       }
-      if (cht) { cht.style.cssText = ''; }
+      // Recreate the chat panel from a saved HTML template if it
+      // was removed on the previous non-home activate. We save the
+      // innerHTML on first detach so we can re-attach the same
+      // content (including chat history) on home.
+      if (!cht && window.__chatTemplateHTML) {
+        const target = document.querySelector('#library-view #home-shell main') || lv;
+        if (target) target.insertAdjacentHTML('beforeend', window.__chatTemplateHTML);
+        const reattached = document.getElementById('global-chat-panel');
+        if (reattached) reattached.style.cssText = '';
+      } else if (cht) {
+        cht.style.cssText = '';
+      }
     } else {
       // The most aggressive possible hide: physically move the
       // element 10000px to the LEFT of the viewport. Combined with
@@ -1764,15 +1787,21 @@ const TabManager = {
         lv.style.visibility = 'hidden';
         lv.style.display = 'none';
       }
-      if (cht) {
-        cht.style.position = 'absolute';
-        cht.style.left = '-99999px';
-        cht.style.top = '-99999px';
-        cht.style.width = '1px';
-        cht.style.height = '1px';
-        cht.style.visibility = 'hidden';
-        cht.style.display = 'none';
-        cht.style.overflow = 'hidden';
+      // PHYSICALLY REMOVE the chat panel from the DOM. The only
+      // thing that survives pywebview's Edge WebView2 — every CSS-
+      // hide / inline-style attempt was rendered correctly in
+      // Chromium/Edge but ignored in WebView2, so the chat kept
+      // bleeding into settings/article tabs. The chat is only used
+      // on home tab, so removing it elsewhere is safe. We save the
+      // innerHTML once on first detach so we can re-insert the same
+      // content (including any in-flight chat history) on home.
+      if (cht && cht.parentNode) {
+        if (!window.__chatTemplateHTML) {
+          window.__chatTemplateHTML = cht.outerHTML;
+        }
+        cht.__savedParent = cht.parentNode;
+        cht.__savedNext = cht.nextSibling;
+        cht.parentNode.removeChild(cht);
       }
     }
 
@@ -2755,7 +2784,7 @@ async function init() {
   window.TabManager = TabManager;
 }
 init().catch(e => {
-  const gm = document.getElementById('global-chat-messages');
+  const gm = chatEl('global-chat-messages');
   if (gm) gm.innerHTML =
     '<div class="global-welcome"><h3>初始化失败</h3><p>' + esc(e.message) + '</p><p style="font-size:12px;color:#64748b;margin-top:8px">请检查后端服务是否运行在 localhost:8765</p></div>';
 });
