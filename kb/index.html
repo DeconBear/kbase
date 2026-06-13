@@ -1740,17 +1740,40 @@ const TabManager = {
     const lv  = document.getElementById('library-view');
     const cht = document.getElementById('global-chat-panel');
     if (id === 'home') {
-      if (lv)  { lv.classList.remove('hidden'); lv.style.display  = ''; lv.style.visibility = ''; lv.style.width = ''; }
-      if (cht) { cht.style.display = ''; cht.style.visibility = ''; cht.style.height = ''; cht.style.overflow = ''; }
+      if (lv) {
+        lv.classList.remove('hidden');
+        lv.style.position = 'absolute';
+        lv.style.inset = '0';
+        lv.style.zIndex = '1';
+      }
+      if (cht) { cht.style.cssText = ''; }
     } else {
-      // The most aggressive possible hide for embedded webview engines
-      // (Edge WebView2 in pywebview) that ignore some CSS selectors.
-      // We set FOUR inline styles simultaneously: display:none,
-      // visibility:hidden, height:0, and overflow:hidden. This
-      // collapses the column to zero visible space in the flex
-      // layout regardless of what the CSS cascade does.
-      if (lv)  { lv.classList.add('hidden'); lv.style.display  = 'none'; lv.style.visibility = 'hidden'; }
-      if (cht) { cht.style.display = 'none'; cht.style.visibility = 'hidden'; cht.style.height = '0'; cht.style.overflow = 'hidden'; }
+      // The most aggressive possible hide: physically move the
+      // element 10000px to the LEFT of the viewport. Combined with
+      // display:none + visibility:hidden + height:0 + overflow:hidden
+      // + position:absolute. Even if pywebview's Edge WebView2 ignores
+      // some CSS rules, moving the element far off-screen guarantees
+      // it can't be painted in the visible area.
+      if (lv) {
+        lv.classList.add('hidden');
+        lv.style.position = 'absolute';
+        lv.style.left = '-99999px';
+        lv.style.top = '-99999px';
+        lv.style.width = '1px';
+        lv.style.height = '1px';
+        lv.style.visibility = 'hidden';
+        lv.style.display = 'none';
+      }
+      if (cht) {
+        cht.style.position = 'absolute';
+        cht.style.left = '-99999px';
+        cht.style.top = '-99999px';
+        cht.style.width = '1px';
+        cht.style.height = '1px';
+        cht.style.visibility = 'hidden';
+        cht.style.display = 'none';
+        cht.style.overflow = 'hidden';
+      }
     }
 
     // Swap chat HTML
@@ -1769,16 +1792,23 @@ const TabManager = {
     if (!tab) return;
     
     // Hide all native views
-    document.getElementById('library-view').classList.add('hidden');
-    document.getElementById('reader-view').classList.remove('active');
-    document.getElementById('notes-view').classList.remove('active');
+    const lvEl = document.getElementById('library-view');
+    if (lvEl) lvEl.classList.add('hidden');
+    const rvEl = document.getElementById('reader-view');
+    if (rvEl) rvEl.classList.remove('active');
+    const nvEl = document.getElementById('notes-view');
+    if (nvEl) nvEl.classList.remove('active');
     
     if (tab.type === 'home') {
-       document.getElementById('library-view').classList.remove('hidden');
-       document.getElementById('library-view').style.display = '';
+       const lvHome = document.getElementById('library-view');
+       if (lvHome) {
+         lvHome.classList.remove('hidden');
+         lvHome.style.display = '';
+       }
        currentArticle = null;
     } else if (tab.type === 'article') {
-       document.getElementById('reader-view').classList.add('active');
+       const rvA = document.getElementById('reader-view');
+       if (rvA) rvA.classList.add('active');
        currentArticle = tab.data.article;
        currentRawMd = tab.data.currentRawMd || '';
        translatedMd = tab.data.translatedMd || '';
@@ -1791,7 +1821,8 @@ const TabManager = {
        // Layout should not change when re-entering a tab — the user
        // chose their layout for a reason. Don't auto-cycle.
     } else if (tab.type === 'note' || tab.type === 'md') {
-       document.getElementById('notes-view').classList.add('active');
+       const nvB = document.getElementById('notes-view');
+       if (nvB) nvB.classList.add('active');
        // init notes view
     } else if (tab.type === 'url' || tab.type === 'pdf_direct') {
        const iframe = document.getElementById('iframe-' + id);

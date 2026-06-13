@@ -54,23 +54,26 @@ def main() -> int:
 
         def state(label):
             s = page.evaluate("""() => {
+                const $ = (sel) => {
+                    const el = document.querySelector(sel);
+                    if (!el) return {present: false, display: '(detached)', inline: '(detached)'};
+                    return {present: true, display: getComputedStyle(el).display, inline: el.style.display};
+                };
                 const pdf = document.getElementById('pdf-embed');
                 return {
                     activeTabId: window.TabManager && window.TabManager.activeTabId,
                     pdfSrc: pdf ? pdf.src : null,
-                    chatDisplay: getComputedStyle(document.getElementById('global-chat-panel')).display,
-                    libraryDisplay: getComputedStyle(document.getElementById('library-view')).display,
+                    chat: $('main#global-chat-panel'),
+                    library: $('div#library-view'),
                     bodyClass: document.body.className,
                     bodyDataTab: document.body.dataset.tab || '(none)',
-                    chatInline: document.getElementById('global-chat-panel').style.display,
-                    libraryInline: document.getElementById('library-view').style.display,
                 };
             }""")
             print(f"  [{label}] active={s['activeTabId']!r}")
             print(f"    bodyClass={s['bodyClass']!r}  dataTab={s['bodyDataTab']!r}")
             print(f"    pdf.src     = {s['pdfSrc']}")
-            print(f"    chat        display={s['chatDisplay']!r}  inline={s['chatInline']!r}")
-            print(f"    library     display={s['libraryDisplay']!r}  inline={s['libraryInline']!r}")
+            print(f"    chat        present={s['chat']['present']}  display={s['chat']['display']}  inline={s['chat']['inline']}")
+            print(f"    library     present={s['library']['present']}  display={s['library']['display']}  inline={s['library']['inline']}")
 
         for i, aid in enumerate(article_ids[:2]):
             print(f"\n=== open article {chr(ord('A')+i)}: {aid} ===")
