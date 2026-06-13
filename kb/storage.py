@@ -222,7 +222,7 @@ CREATE TABLE IF NOT EXISTS notebooks (
 -- Note document tree: parent_id lets notes nest as Sub-document
 -- under another note. Depth is bounded by the application (the
 -- notebook -> document -> sub-document layer is intentional and
--- matches the SiYuan-style navigation we are replicating).
+-- matches the notebook navigation model we are implementing).
 -- The new columns notebook_id, parent_id, sort_order, doc_icon are
 -- added by an idempotent ALTER TABLE check in init_db (see below
 -- the schema block).

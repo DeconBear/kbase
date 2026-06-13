@@ -210,3 +210,9 @@ kbase-alias-err.log
 
 # Playwright smoke test artifacts
 scripts/smoke/
+
+# Release notes — published on GitHub Releases, not in-repo
+RELEASE_v*.md
+release-*.md
+release_*.md
+CHANGELOG*.md

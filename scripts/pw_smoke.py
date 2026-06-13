@@ -1,4 +1,4 @@
-"""Smoke test for the SiYuan-style notes refactor.
+"""Smoke test for the notes system refactor.
 
 Drives the KBase web UI (served at http://localhost:8765) using
 Playwright's Chromium, asserts the new 4-column layout, multi-tab
