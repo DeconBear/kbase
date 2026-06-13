@@ -354,11 +354,15 @@ select option{background:var(--surface-2);color:var(--text)}
 #reader-topbar button{font-size:12px}
 
 /* ===== Engine selector ===== */
-#engine-selector{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+#engine-selector{display:flex;flex-direction:column;gap:10px;align-items:stretch}
+#engine-selector .engine-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center}
+#engine-selector .engine-row > label{font-size:12px;color:var(--text-2);min-width:120px;text-align:right;flex-shrink:0}
 #engine-selector select{background:var(--surface-2);color:var(--text);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 28px 6px 10px;font-size:12px;font-family:inherit;outline:none;cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center}
 #engine-selector select:focus{border-color:var(--accent)}
-#engine-selector .engine-desc{font-size:11px;color:var(--text-3)}
+#engine-selector .engine-desc{font-size:11px;color:var(--text-3);margin-top:4px}
+#engine-selector .engine-actions{display:flex;gap:8px;justify-content:center;margin-top:6px}
 #engine-selector .btn-convert{padding:6px 18px;font-size:12px}
+#engine-selector .engine-row-llm select{flex:1;min-width:140px}
 
 /* ===== Version list ===== */
 #version-list{margin-top:16px;text-align:left;max-width:500px;margin-left:auto;margin-right:auto}
@@ -3452,33 +3456,11 @@ async function initArticleTab(tabId, tabData) {
     startConvPolling(article.id);
   } else if (article.pdf_available) {
     document.getElementById('md-content').innerHTML = `
-      <div style="max-width:500px;margin:60px auto;text-align:center">
-        <p style="font-size:14px;color:var(--text-2);margin-bottom:16px">选择识别引擎后开始解析</p>
-        <div id="engine-selector">
-          <select id="engine-select">
-            <option value="marker">Marker（本地）</option>
-            <option value="docmind">DocMind（云端 API）</option>
-            <option value="docparser">DocParser（云端 GPU）</option>
-            <option value="ocr">云 OCR（云知声 等）</option>
-            <option value="llm_vision">LLM 视觉解析（复用 DeepSeek 等）</option>
-          </select>
-          <button class="btn-emerald btn-convert" onclick="startConvert()">开始解析</button>
-        </div>
-        <p class="engine-desc" id="engine-desc" style="margin-top:8px">Marker：本地 Surya 模型，~6GB 显存，离线可用</p>
+      <div style="max-width:560px;margin:60px auto;text-align:center">
+        ${buildReparsePanelHtml()}
       </div>`;
     document.getElementById('md-content').style.display = 'block';
-
-    // Update engine description on change
-    const descs = {
-      marker: 'Marker：本地 Surya 模型，~6GB 显存，离线可用',
-      docmind: 'DocMind：阿里云文档解析 API，无需 GPU，需配置 RAM AccessKey',
-      docparser: 'DocParser：DeconBear 云端 GPU 加速解析，支持 struct/polyglot 引擎',
-      ocr: '云 OCR：通用 HTTP 接口（云知声 等），需在 local.env 中配置 OCR_API_URL / OCR_API_KEY，逐页发送 PNG',
-      llm_vision: 'LLM 视觉解析：复用已在「设置」中配置的 LLM（DeepSeek / OpenAI / Moonshot 等），逐页发图让模型抽 Markdown'
-    };
-    const sel = document.getElementById('engine-select');
-    const desc = document.getElementById('engine-desc');
-    sel.addEventListener('change', () => { desc.textContent = descs[sel.value] || ''; });
+    wireReparsePanel();
   } else {
     document.getElementById('md-content').innerHTML = `
       <div style="max-width:500px;margin:60px auto;text-align:center">
@@ -8008,17 +7990,8 @@ async function showReconvert() {
   }
 
   document.getElementById('md-content').innerHTML = `
-    <div style="max-width:500px;margin:60px auto;text-align:center">
-      <p style="font-size:14px;color:var(--text-2);margin-bottom:16px">选择识别引擎后开始重新解析</p>
-      <div id="engine-selector">
-        <select id="engine-select">
-          <option value="marker">Marker（本地）</option>
-          <option value="docmind">DocMind（云端 API）</option>
-          <option value="docparser">DocParser（云端 GPU）</option>
-        </select>
-        <button class="btn-emerald btn-convert" onclick="startConvert()">开始解析</button>
-      </div>
-      <p class="engine-desc" id="engine-desc" style="margin-top:8px">Marker：本地 Surya 模型，~6GB 显存，离线可用</p>
+    <div style="max-width:560px;margin:60px auto;text-align:center">
+      ${buildReparsePanelHtml()}
       <div id="docparser-key-container" style="display:none; margin-top:12px; flex-direction:row; gap:8px;">
         <input type="text" id="docparser-url-input" placeholder="输入 Base URL (如: https://docparser.deconbear.cn)" style="flex:1; padding:8px; border:1px solid var(--border); border-radius:4px; font-size:13px;" />
         <input type="password" id="docparser-key-input" placeholder="输入 DeconBear DocParser API Key (若已配置可留空)" style="flex:1; padding:8px; border:1px solid var(--border); border-radius:4px; font-size:13px;" />
@@ -8032,24 +8005,30 @@ async function showReconvert() {
     </div>`;
   document.getElementById('md-content').style.display = 'block';
 
+  wireReparsePanel();
+
+  // Show/hide docparser config row based on engine choice
   const sel = document.getElementById('engine-select');
   const keyContainer = document.getElementById('docparser-key-container');
-  sel.addEventListener('change', () => {
-    document.getElementById('engine-desc').textContent = descs[sel.value] || '';
-    if (sel.value === 'docparser') {
-      keyContainer.style.display = 'flex';
-      const urlInput = document.getElementById('docparser-url-input');
-      const engineInput = document.getElementById('docparser-engine-input');
-      if (urlInput && window.serverSettings && window.serverSettings.DOCPARSER_API_URL) {
-          urlInput.value = window.serverSettings.DOCPARSER_API_URL;
+  if (sel && keyContainer) {
+    const sync = () => {
+      if (sel.value === 'docparser') {
+        keyContainer.style.display = 'flex';
+        const urlInput = document.getElementById('docparser-url-input');
+        const engineInput = document.getElementById('docparser-engine-input');
+        if (urlInput && window.serverSettings && window.serverSettings.DOCPARSER_API_URL) {
+            urlInput.value = window.serverSettings.DOCPARSER_API_URL;
+        }
+        if (engineInput && window.serverSettings && window.serverSettings.DOCPARSER_ENGINE) {
+            engineInput.value = window.serverSettings.DOCPARSER_ENGINE;
+        }
+      } else {
+        keyContainer.style.display = 'none';
       }
-      if (engineInput && window.serverSettings && window.serverSettings.DOCPARSER_ENGINE) {
-          engineInput.value = window.serverSettings.DOCPARSER_ENGINE;
-      }
-    } else {
-      keyContainer.style.display = 'none';
-    }
-  });
+    };
+    sel.addEventListener('change', sync);
+    sync();
+  }
 }
 
 async function saveDocParserKey() {
@@ -8083,6 +8062,160 @@ async function loadVersion(articleId, engine) {
   } catch (e) {}
 }
 
+// ---------------------------------------------------------------------------
+// Reparse panel: engine + LLM choice
+// ---------------------------------------------------------------------------
+
+const ENGINE_OPTIONS = [
+  { value: 'marker',     label: 'Marker（本地）',          group: '本地',
+    desc: 'Marker：本地 Surya 模型，~6GB 显存，离线可用' },
+  { value: 'docmind',    label: 'DocMind（阿里云）',       group: '云端 API',
+    desc: 'DocMind：阿里云文档解析 API，无需 GPU，需配置 RAM AccessKey' },
+  { value: 'docparser',  label: 'DocParser（云 GPU）',     group: '云端 API',
+    desc: 'DocParser：DeconBear 云端 GPU 加速解析，支持 struct/polyglot 引擎' },
+  { value: 'unisound',   label: '云知声 U1（异步 PDF→MD）', group: 'OCR 异步',
+    desc: '云知声 U1 Doc Parser：异步上传 → 解析 → 拉取 Markdown。需 UNISOUND_API_KEY' },
+  { value: 'vision',     label: '云知声 Vision（逐页识图）', group: 'OCR 异步',
+    desc: '云知声 Vision：每页渲染成图发给 LLM，适合扫描件/版式复杂 PDF' },
+  { value: 'ocr',        label: '云 OCR（逐页 PNG）',      group: 'OCR 异步',
+    desc: '云 OCR：通用 HTTP 接口（云知声 等），需在 local.env 中配置 OCR_API_URL / OCR_API_KEY' },
+  { value: 'llm_vision', label: 'LLM 视觉解析',            group: 'OCR 异步',
+    desc: 'LLM 视觉解析：复用下方 LLM 配置（DeepSeek / OpenAI 等），逐页发图让模型抽 Markdown' },
+];
+
+const ENGINE_DESCS = Object.fromEntries(ENGINE_OPTIONS.map(o => [o.value, o.desc]));
+
+function buildReparsePanelHtml() {
+  // Two-row layout: engine row, LLM row, then a [开始解析] button.
+  const groups = [];
+  let lastGroup = null;
+  for (const opt of ENGINE_OPTIONS) {
+    if (opt.group !== lastGroup) {
+      groups.push(`<optgroup label="${esc(opt.group)}">`);
+      lastGroup = opt.group;
+    }
+    groups.push(`<option value="${opt.value}">${esc(opt.label)}</option>`);
+  }
+  // close last optgroup if open
+  if (lastGroup) groups.push('</optgroup>');
+
+  return `
+    <p style="font-size:14px;color:var(--text-2);margin-bottom:16px">选择识别引擎与 LLM 后开始重新解析</p>
+    <div id="engine-selector">
+      <div class="engine-row">
+        <label>识别引擎</label>
+        <select id="engine-select" style="flex:1;min-width:200px">
+          ${groups.join('')}
+        </select>
+      </div>
+      <p class="engine-desc" id="engine-desc"></p>
+      <div class="engine-row engine-row-llm">
+        <label>LLM 模型</label>
+        <select id="convert-llm-provider" style="flex:1;min-width:140px"></select>
+        <select id="convert-llm-model"    style="flex:1;min-width:140px"></select>
+      </div>
+      <p class="engine-desc" id="convert-llm-desc">用于元信息提取 / 翻译 / 校准。修改后会同步到全局 LLM 设置。</p>
+      <div class="engine-actions">
+        <button class="btn-emerald btn-convert" onclick="startConvert()">开始解析</button>
+      </div>
+    </div>
+  `;
+}
+
+function wireReparsePanel() {
+  const engineSel = document.getElementById('engine-select');
+  const engineDesc = document.getElementById('engine-desc');
+  if (engineSel && engineDesc) {
+    // Default: marker
+    if (!engineSel.value) engineSel.value = 'marker';
+    engineDesc.textContent = ENGINE_DESCS[engineSel.value] || '';
+    engineSel.addEventListener('change', () => {
+      engineDesc.textContent = ENGINE_DESCS[engineSel.value] || '';
+      // If the chosen engine is LLM-based (llm_vision), remind the user
+      // that the LLM dropdown below directly drives the parser.
+      const llmDesc = document.getElementById('convert-llm-desc');
+      if (llmDesc) {
+        if (engineSel.value === 'llm_vision' || engineSel.value === 'vision') {
+          llmDesc.textContent = '⚠️ 当前引擎会直接调用下方 LLM（逐页发图）。请确认 Provider / Model 已配置。';
+        } else {
+          llmDesc.textContent = '用于元信息提取 / 翻译 / 校准。修改后会同步到全局 LLM 设置。';
+        }
+      }
+    });
+  }
+
+  const providerSel = document.getElementById('convert-llm-provider');
+  const modelSel = document.getElementById('convert-llm-model');
+  if (providerSel && modelSel) {
+    // Fill from llmConfig (load if not loaded yet).
+    const fill = () => {
+      const providers = (llmConfig && llmConfig.providers) || [];
+      providerSel.innerHTML = providers
+        .map(p => `<option value="${esc(p.id)}">${esc(p.name || p.id)}</option>`)
+        .join('');
+      const activeId = (llmConfig && llmConfig.active_provider) || (providers[0] && providers[0].id);
+      if (activeId) providerSel.value = activeId;
+      const fillModels = () => {
+        const p = providers.find(x => x.id === providerSel.value) || providers[0];
+        if (!p) { modelSel.innerHTML = ''; return; }
+        const models = (p.models && p.models.length) ? p.models : [p.model || ''];
+        modelSel.innerHTML = models.filter(Boolean)
+          .map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('');
+        modelSel.value = p.model || models[0] || '';
+      };
+      providerSel.onchange = fillModels;
+      fillModels();
+    };
+    if (!llmConfig || !llmConfig.providers || !llmConfig.providers.length) {
+      ensureLLMConfigLoaded().then(fill);
+    } else {
+      fill();
+    }
+  }
+}
+
+async function persistConvertLLMChoice() {
+  const providerSel = document.getElementById('convert-llm-provider');
+  const modelSel = document.getElementById('convert-llm-model');
+  if (!providerSel || !modelSel) return;
+  const providerId = providerSel.value;
+  const model = modelSel.value;
+  if (!providerId) return;
+
+  // Skip the PUT if nothing actually changed.
+  if (llmConfig && llmConfig.active_provider === providerId) {
+    const activeP = (llmConfig.providers || []).find(p => p.id === providerId);
+    if (activeP && activeP.model === model) return;
+  }
+
+  // Build a save payload: preserve existing providers, just update
+  // active_provider + the target provider's model.
+  const providers = (llmConfig && llmConfig.providers) || [];
+  const payload = {
+    active_provider: providerId,
+    providers: providers.map(p => ({
+      id: p.id,
+      name: p.name,
+      api_url: p.api_url,
+      api_key: '',
+      keep_key: true,
+      models: p.models || [],
+      model: p.id === providerId ? model : (p.model || (p.models || [])[0] || ''),
+    })),
+  };
+  try {
+    const resp = await fetch('/api/llm-config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    llmConfig = await resp.json();
+  } catch (e) {
+    console.warn('persistConvertLLMChoice failed', e);
+  }
+}
+
 async function startConvert() {
   const sel = document.getElementById('engine-select');
   const engine = sel ? sel.value : 'marker';
@@ -8092,6 +8225,10 @@ async function startConvert() {
     document.getElementById('statusMsg').textContent = '当前资料不是 PDF，无法解析';
     return;
   }
+
+  // Persist the LLM dropdown choice to the global config so that
+  // run_conversion / extract_info_for_article / translate all see it.
+  await persistConvertLLMChoice();
 
   // Show converting UI
   article.converting = true;
