@@ -184,11 +184,26 @@ select option{background:var(--surface-2);color:var(--text)}
 #library-view{display:flex;height:100vh;background:var(--bg);overflow:hidden}
 #library-view.hidden{display:none}
 /* When the active tab is anything other than 'home' (e.g. settings,
-   article, note, url), hide the library view at the CSS level. This
-   is a belt-and-suspenders fix to the JS-level hide — guards against
-   any case where the inline-style + classList.hide combo fails. */
-body[data-tab]:not([data-tab="home"]) #library-view{display:none!important}
-body[data-tab]:not([data-tab="home"]) #global-chat-panel{display:none!important}
+   article, note, url), hide the library view at the CSS level. We
+   use a class on <body> rather than a data-attribute because some
+   embedded webview engines (Edge WebView2 in pywebview) have
+   inconsistent support for chained attribute selectors like
+   [data-tab]:not([data-tab='home']). The body class is
+   `tab-<id>` (e.g. tab-settings, tab-article-<id>). For home, the
+   body has class `tab-home`. We hide the library view for any
+   tab-* class that isn't tab-home. */
+body.tab-settings #library-view,
+body.tab-settings #global-chat-panel,
+body.tab-article #library-view,
+body.tab-article #global-chat-panel,
+body.tab-note #library-view,
+body.tab-note #global-chat-panel,
+body.tab-md #library-view,
+body.tab-md #global-chat-panel,
+body.tab-url #library-view,
+body.tab-url #global-chat-panel,
+body.tab-pdf_direct #library-view,
+body.tab-pdf_direct #global-chat-panel {display:none!important}
 #home-shell{display:flex;width:100%;height:100%;overflow:hidden}
 #global-chat-panel{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--panel-bg)}
 #home-topbar{height:54px;flex-shrink:0;padding:0 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;background:var(--topbar-bg);backdrop-filter:blur(12px)}
@@ -1661,10 +1676,22 @@ const TabManager = {
             oldTab.data.chatHtml = document.getElementById('chat-messages')?.innerHTML || '';
         }
         if (oldTab.type === 'article') {
-            oldTab.data.currentRawMd = window.currentRawMd;
-            oldTab.data.translatedMd = window.translatedMd;
-            oldTab.data.summaryText = window.summaryText;
-            oldTab.data.currentView = window.currentView;
+            // Only cache content that actually loaded. If the user
+            // switched away while the markdown was still fetching,
+            // currentRawMd is '' — in that case, leave the previous
+            // good cache alone so a future return still finds content.
+            if (window.currentRawMd) {
+                oldTab.data.currentRawMd = window.currentRawMd;
+            }
+            if (window.translatedMd) {
+                oldTab.data.translatedMd = window.translatedMd;
+            }
+            if (window.summaryText) {
+                oldTab.data.summaryText = window.summaryText;
+            }
+            if (window.currentView) {
+                oldTab.data.currentView = window.currentView;
+            }
             oldTab.data.translationPollTimers = window.translationPollTimers;
             oldTab.data.convPollTimer = window.convPollTimer;
             oldTab.data.scrollTop = document.getElementById('md-scroll')?.scrollTop || 0;
@@ -1680,17 +1707,17 @@ const TabManager = {
     document.querySelectorAll('.tab-item').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.iframe-tab').forEach(el => el.classList.remove('active'));
     // Reflect the active tab on <body> so CSS can hide native views
-    // (library-view, reader-view, notes-view) reliably even if the
-    // JS-level hide hasn't caught up. For home we REMOVE the attribute
-    // entirely (not set to ''), because an empty string is not equal
-    // to 'home' in CSS attribute selectors and would falsely match
-    // the [data-tab]:not([data-tab="home"]) rule that hides the
-    // library view.
-    if (id === 'home') {
-      delete document.body.dataset.tab;
-    } else {
-      document.body.dataset.tab = id;
+    // (library-view, reader-view, notes-view) reliably. We use a
+    // tab-* class on <body> because class selectors are universally
+    // supported across embedded webview engines. The data-tab
+    // attribute is kept for any future hooks.
+    // Strip every prior tab-* class, then add the current one.
+    const cl = document.body.classList;
+    for (const c of [...cl]) {
+      if (c.startsWith('tab-')) cl.remove(c);
     }
+    cl.add('tab-' + id);
+    document.body.dataset.tab = (id === 'home') ? '' : id;
 
     // Swap chat HTML
     const tabData = this.tabs.find(t => t.id === id);
@@ -3587,17 +3614,54 @@ async function initArticleTab(tabId, tabData) {
     loadArticleNotes().catch(() => {});  // fire-and-forget; updates badge + list
   }
 
-  // Reset only the in-DOM editor state — but PRESERVE the cached
-  // markdown / translation / summary so a second visit to the same
-  // tab (e.g. switching between article tabs) doesn't re-fetch from
-  // the server and re-render from scratch. The cached values are
-  // kept on tab.data by saveCurrentReaderState() on each tab leave.
-  currentRawMd = tabData.currentRawMd || '';
-  translatedMd = tabData.translatedMd || '';
-  summaryText = tabData.summaryText || '';
-  currentView = (tabData.currentView) || 'original';
+  // FAST PATH: if this tab has cached content, set the globals and
+  // re-render WITHOUT touching the DOM reset block below. The DOM is
+  // already in its previous-render state (we just left this tab), so
+  // we only need to update what depends on the cached values (the
+  // title, the show-orig/trans buttons, the scroll position). This
+  // makes switching back to a previously-visited article tab feel
+  // instant — no loading spinner, no editor rebuild flash.
+  if (tabData.currentRawMd) {
+    currentRawMd = tabData.currentRawMd;
+    translatedMd = tabData.translatedMd || '';
+    summaryText = tabData.summaryText || '';
+    currentView = tabData.currentView || 'original';
+    document.getElementById('readerTitle').textContent = article.title;
+    document.getElementById('readerVenue').textContent = article.venue ? `| 期刊/会议: ${article.venue}` : '';
+    document.getElementById('md-loading').style.display = 'none';
+    document.getElementById('md-error').style.display = 'none';
+    document.getElementById('rbEdit').disabled = false;
+    document.getElementById('rbTranslate').disabled = false;
+    document.getElementById('rbSummarize').disabled = false;
+    document.getElementById('rbReconvert').style.display = article.pdf_available ? '' : 'none';
+    document.getElementById('rbCalibrate').style.display = article.pdf_available ? '' : 'none';
+    if (translatedMd && currentView === 'translated' && article.translated) {
+      document.getElementById('rbShowOrig').style.display = '';
+      document.getElementById('rbShowTrans').style.display = '';
+      document.getElementById('rbShowOrig').classList.remove('active');
+      document.getElementById('rbShowTrans').classList.add('active');
+      renderReaderMarkdown(translatedMd, currentArticle, false);
+    } else {
+      document.getElementById('rbShowOrig').style.display = 'none';
+      document.getElementById('rbShowTrans').style.display = 'none';
+      renderReaderMarkdown(currentRawMd, currentArticle, true);
+    }
+    if (tabData.scrollTop) {
+      const sc = document.getElementById('md-scroll');
+      if (sc) sc.scrollTop = tabData.scrollTop;
+    }
+    return;
+  }
+
+  // SLOW PATH: first time this tab is opened, or the cached content
+  // was empty (the previous save happened mid-load). Reset the editor
+  // and fetch from the server.
   isEditing = false;
   if (markdownEditor) { markdownEditor.destroy(); markdownEditor = null; }
+  currentRawMd = '';
+  translatedMd = '';
+  summaryText = '';
+  currentView = 'original';
   document.getElementById('md-content').style.display = 'none';
   document.getElementById('md-content').innerHTML = '';
   document.getElementById('md-container').style.display = 'block';
@@ -3621,8 +3685,7 @@ async function initArticleTab(tabId, tabData) {
   document.getElementById('rbTranslate').disabled = true;
   document.getElementById('rbSummarize').disabled = true;
 
-  // If we have cached content for this tab, render it immediately and
-  // skip the network round-trip.
+  // Continue to the network fetch below.
   if (currentRawMd) {
     document.getElementById('md-loading').style.display = 'none';
     document.getElementById('md-content').style.display = 'block';
