@@ -1705,23 +1705,41 @@ const TabManager = {
   activateTab(id) {
     if (this.activeTabId === id) return;
     this.saveCurrentReaderState();
-    
+
     this.activeTabId = id;
     document.querySelectorAll('.tab-item').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.iframe-tab').forEach(el => el.classList.remove('active'));
     // Reflect the active tab on <body> so CSS can hide native views
     // (library-view, reader-view, notes-view) reliably across all
-    // embedded webview engines. We set BOTH:
-    //   (a) body.dataset.tab = id  (used by the data-tab CSS selector)
+    // embedded webview engines. We use FOUR mechanisms because the
+    // user kept seeing the AI chat panel bleed into settings and
+    // article tabs on pywebview's Edge WebView2:
+    //   (a) body.dataset.tab = id
     //   (b) body.classList.add('tab-active') when non-home
-    // CSS uses the data-tab selector; the class is a redundant
-    // hook for cases where the data-tab selector might fail.
+    //   (c) inline style.display = 'none' / '' on the elements
+    //   (d) the CSS rules at the top of this file use the same
+    //       selectors
+    // Inline style trumps everything else and is the most reliable
+    // across embedded engines.
     if (id === 'home') {
       delete document.body.dataset.tab;
       document.body.classList.remove('tab-active');
     } else {
       document.body.dataset.tab = id;
       document.body.classList.add('tab-active');
+    }
+    // Inline-style show/hide of the home-view elements. This is
+    // belt-and-suspenders: the CSS rules at the top should already
+    // hide them, but in some Edge WebView2 builds attribute
+    // selectors behave inconsistently.
+    const lv  = document.getElementById('library-view');
+    const cht = document.getElementById('global-chat-panel');
+    if (id === 'home') {
+      if (lv)  { lv.classList.remove('hidden'); lv.style.display  = ''; }
+      if (cht) { cht.style.display = ''; }
+    } else {
+      if (lv)  { lv.classList.add('hidden'); lv.style.display  = 'none'; }
+      if (cht) { cht.style.display = 'none'; }
     }
 
     // Swap chat HTML
@@ -3642,6 +3660,23 @@ async function initArticleTab(tabId, tabData) {
     document.getElementById('rbSummarize').disabled = false;
     document.getElementById('rbReconvert').style.display = article.pdf_available ? '' : 'none';
     document.getElementById('rbCalibrate').style.display = article.pdf_available ? '' : 'none';
+    // IMPORTANT: also update the PDF column. Without this, the iframe
+    // still shows the previous tab's PDF (cross-tab bleed). The slow
+    // path resets it via setting src = ''; we set it to the right PDF.
+    if (article.pdf_available) {
+      const pdfEmbed = document.getElementById('pdf-embed');
+      const pdfUrl = `articles/${article.id}/original.pdf?t=${Date.now()}`;
+      if (pdfEmbed.src.indexOf(article.id) === -1) {
+        pdfEmbed.src = pdfUrl;
+        pdfEmbed.style.display = '';
+        document.getElementById('pdf-placeholder').style.display = 'none';
+      }
+    } else {
+      document.getElementById('pdf-embed').src = '';
+      document.getElementById('pdf-embed').style.display = 'none';
+      document.getElementById('pdf-placeholder').style.display = '';
+      document.getElementById('pdf-placeholder').innerHTML = '<div class="icon">📑</div><div>PDF 不可用</div>';
+    }
     if (translatedMd && currentView === 'translated' && article.translated) {
       document.getElementById('rbShowOrig').style.display = '';
       document.getElementById('rbShowTrans').style.display = '';
