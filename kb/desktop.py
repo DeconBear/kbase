@@ -7,6 +7,20 @@ from __future__ import annotations
 
 import os
 import sys
+import traceback
+
+# ---------- crash log for frozen builds (console flashes too fast) ----------
+if getattr(sys, "frozen", False):
+    _CRASH_LOG = os.path.join(os.path.dirname(sys.executable), "kbase_crash.log")
+    def _excepthook(exc_type, exc_value, exc_tb):
+        msg = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        try:
+            with open(_CRASH_LOG, "w", encoding="utf-8") as f:
+                f.write(msg)
+        except Exception:
+            pass
+        sys.__excepthook__(exc_type, exc_value, exc_tb)
+    sys.excepthook = _excepthook
 
 # In PyInstaller frozen bundles the bare imports used throughout ``kb/``
 # (``import storage``, ``from llm_config import ...``) cannot find the
@@ -23,9 +37,9 @@ if getattr(sys, "frozen", False):
         ("kb.document_info", "document_info"),
         ("kb.engines", "engines"),
         ("kb.library_chat", "library_chat"),
-        ("kb.serve", "serve"),
         ("kb.version", "version"),
         ("kb.updater", "updater"),
+        ("kb.serve", "serve"),
     ]
     for _fq_name, _alias in _aliases:
         try:
