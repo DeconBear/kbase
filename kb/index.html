@@ -1666,6 +1666,7 @@ const TabManager = {
     
     if (tab.type === 'home') {
        document.getElementById('library-view').classList.remove('hidden');
+       document.getElementById('library-view').style.display = '';
        currentArticle = null;
     } else if (tab.type === 'article') {
        document.getElementById('reader-view').classList.add('active');
@@ -1688,6 +1689,14 @@ const TabManager = {
     } else if (tab.type === 'settings') {
        const iframe = document.getElementById('iframe-settings');
        if (iframe) iframe.classList.add('active');
+       // Belt-and-suspenders: ensure the home view (and its AI chat
+       // panel) is fully gone, since some browser/zoom combinations
+       // have rendered the .hidden class ineffective.
+       const lv = document.getElementById('library-view');
+       if (lv) {
+         lv.classList.add('hidden');
+         lv.style.display = 'none';
+       }
     }
     if (typeof applyColumnVisibility === 'function') applyColumnVisibility();
   },
