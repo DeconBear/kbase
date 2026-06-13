@@ -22,8 +22,8 @@ DEFAULT_PROVIDERS = [
         "name": "DeepSeek",
         "api_url": "https://api.deepseek.com/v1/chat/completions",
         "api_key": "",
-        "models": ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-flash"],
-        "model": "deepseek-chat",
+        "models": ["deepseek-v4-flash", "deepseek-v4-pro"],
+        "model": "deepseek-v4-flash",
     },
     {
         "id": "openai",

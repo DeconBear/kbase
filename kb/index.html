@@ -1029,7 +1029,9 @@ body { display: flex !important; flex-direction: column !important; height: 100v
             </div>
             <div class="settings-field">
               <label for="llmModelSelect">模型</label>
-              <select id="llmModelSelect" onchange="onLLMModelSelect()"></select>
+              <input id="llmModelSelect" list="llmModelOptions" placeholder="选择或输入模型名" oninput="onLLMModelSelect()" onchange="onLLMModelSelect()">
+              <datalist id="llmModelOptions"></datalist>
+              <p style="font-size:11px;color:var(--text-3);margin:4px 0 0">当前 Provider 使用的模型名。可以从下拉选择，也可以手动输入任意模型名。</p>
             </div>
           </div>
           <div class="settings-field">
@@ -2022,10 +2024,16 @@ function updateLLMProviderFromForm(providerId=llmEditingProviderId) {
 }
 
 function renderLLMModelSelect(provider) {
-  const modelSelect = document.getElementById('llmModelSelect');
-  const models = (provider.models && provider.models.length) ? provider.models : [provider.model || ''];
-  modelSelect.innerHTML = models.filter(Boolean).map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('');
-  modelSelect.value = provider.model || models[0] || '';
+  // The active model is a free-text input backed by a <datalist> of
+  // suggestions. This lets the user type a custom model name (e.g. one
+  // not yet in the provider's list) while still getting autocomplete
+  // from the configured model list.
+  const modelInput = document.getElementById('llmModelSelect');
+  const datalist = document.getElementById('llmModelOptions');
+  if (!modelInput || !datalist) return;
+  const models = (provider.models && provider.models.length) ? provider.models : [];
+  datalist.innerHTML = models.filter(Boolean).map(m => `<option value="${esc(m)}"></option>`).join('');
+  modelInput.value = provider.model || models[0] || '';
 }
 
 function renderLLMSettings() {

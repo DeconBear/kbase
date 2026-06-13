@@ -80,7 +80,7 @@ LOCAL_ENV_TEMPLATE = """# KBase configuration - generated automatically on first
 # OpenAI-compatible chat API
 LLM_API_KEY=
 LLM_API_URL=https://api.deepseek.com/v1/chat/completions
-LLM_MODEL=deepseek-chat
+LLM_MODEL=deepseek-v4-flash
 
 # Alibaba Cloud DocMind (RAM access with AK/SK)
 DOCMIND_ACCESS_KEY_ID=
@@ -121,6 +121,32 @@ def ensure_directories() -> None:
         path.mkdir(parents=True, exist_ok=True)
     if not LOCAL_ENV.exists():
         LOCAL_ENV.write_text(LOCAL_ENV_TEMPLATE, encoding="utf-8")
+    else:
+        # Backfill: if a newer LOCAL_ENV_TEMPLATE has keys the existing file
+        # doesn't know about, append them so the UI surfaces them and they
+        # can be edited/saved. Existing user-set values are preserved.
+        try:
+            existing = LOCAL_ENV.read_text(encoding="utf-8")
+        except Exception:
+            existing = ""
+        have = {line.split("=", 1)[0].strip()
+                for line in existing.splitlines()
+                if line.strip() and not line.strip().startswith("#") and "=" in line}
+        missing: list[str] = []
+        for tmpl_line in LOCAL_ENV_TEMPLATE.splitlines():
+            stripped = tmpl_line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in tmpl_line:
+                continue
+            key = tmpl_line.split("=", 1)[0].strip()
+            if key not in have:
+                missing.append(tmpl_line)
+        if missing:
+            with LOCAL_ENV.open("a", encoding="utf-8") as f:
+                if existing and not existing.endswith("\n"):
+                    f.write("\n")
+                f.write("\n# --- keys backfilled by a newer version ---\n")
+                for line in missing:
+                    f.write(line + "\n")
 
 
 def get_data_root_info() -> dict:
