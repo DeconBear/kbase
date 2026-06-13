@@ -184,26 +184,17 @@ select option{background:var(--surface-2);color:var(--text)}
 #library-view{display:flex;height:100vh;background:var(--bg);overflow:hidden}
 #library-view.hidden{display:none}
 /* When the active tab is anything other than 'home' (e.g. settings,
-   article, note, url), hide the library view at the CSS level. We
-   use a class on <body> rather than a data-attribute because some
-   embedded webview engines (Edge WebView2 in pywebview) have
-   inconsistent support for chained attribute selectors like
-   [data-tab]:not([data-tab='home']). The body class is
-   `tab-<id>` (e.g. tab-settings, tab-article-<id>). For home, the
-   body has class `tab-home`. We hide the library view for any
-   tab-* class that isn't tab-home. */
-body.tab-settings #library-view,
-body.tab-settings #global-chat-panel,
-body.tab-article #library-view,
-body.tab-article #global-chat-panel,
-body.tab-note #library-view,
-body.tab-note #global-chat-panel,
-body.tab-md #library-view,
-body.tab-md #global-chat-panel,
-body.tab-url #library-view,
-body.tab-url #global-chat-panel,
-body.tab-pdf_direct #library-view,
-body.tab-pdf_direct #global-chat-panel {display:none!important}
+   article, note, url), hide the library view + the global AI chat
+   panel. We rely on TWO mechanisms to maximise compatibility with
+   embedded webview engines:
+   (a) data-tab attribute: the body gets data-tab="<id>" on activate,
+       the attribute is removed for home.
+   (b) .tab-active class: redundant hook for engines that handle
+       class selectors better. */
+body[data-tab]:not([data-tab="home"]) #library-view,
+body[data-tab]:not([data-tab="home"]) #global-chat-panel,
+body.tab-active #library-view,
+body.tab-active #global-chat-panel {display:none!important}
 #home-shell{display:flex;width:100%;height:100%;overflow:hidden}
 #global-chat-panel{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--panel-bg)}
 #home-topbar{height:54px;flex-shrink:0;padding:0 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;background:var(--topbar-bg);backdrop-filter:blur(12px)}
@@ -1603,6 +1594,12 @@ let LLM_CFG = {apiUrl:'/api/chat',providerId:'',model:''};
 const TabManager = {
   tabs: [],
   activeTabId: null,
+
+  init() {
+    this.openTab('home', 'home', '🏠 文库', {}, false);
+  },
+  tabs: [],
+  activeTabId: null,
   
   init() {
     this.openTab('home', 'home', '🏠 文库', {}, false);
@@ -1680,20 +1677,26 @@ const TabManager = {
             // switched away while the markdown was still fetching,
             // currentRawMd is '' — in that case, leave the previous
             // good cache alone so a future return still finds content.
-            if (window.currentRawMd) {
-                oldTab.data.currentRawMd = window.currentRawMd;
+            //
+            // IMPORTANT: currentRawMd / translatedMd / summaryText /
+            // currentView / translationPollTimers / convPollTimer are
+            // module-level `let` variables (not `window.x`), so we read
+            // them as bare identifiers — `window.x` would always be
+            // undefined here.
+            if (currentRawMd) {
+                oldTab.data.currentRawMd = currentRawMd;
             }
-            if (window.translatedMd) {
-                oldTab.data.translatedMd = window.translatedMd;
+            if (translatedMd) {
+                oldTab.data.translatedMd = translatedMd;
             }
-            if (window.summaryText) {
-                oldTab.data.summaryText = window.summaryText;
+            if (summaryText) {
+                oldTab.data.summaryText = summaryText;
             }
-            if (window.currentView) {
-                oldTab.data.currentView = window.currentView;
+            if (currentView) {
+                oldTab.data.currentView = currentView;
             }
-            oldTab.data.translationPollTimers = window.translationPollTimers;
-            oldTab.data.convPollTimer = window.convPollTimer;
+            oldTab.data.translationPollTimers = translationPollTimers;
+            oldTab.data.convPollTimer = convPollTimer;
             oldTab.data.scrollTop = document.getElementById('md-scroll')?.scrollTop || 0;
         }
      }
@@ -1707,17 +1710,19 @@ const TabManager = {
     document.querySelectorAll('.tab-item').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.iframe-tab').forEach(el => el.classList.remove('active'));
     // Reflect the active tab on <body> so CSS can hide native views
-    // (library-view, reader-view, notes-view) reliably. We use a
-    // tab-* class on <body> because class selectors are universally
-    // supported across embedded webview engines. The data-tab
-    // attribute is kept for any future hooks.
-    // Strip every prior tab-* class, then add the current one.
-    const cl = document.body.classList;
-    for (const c of [...cl]) {
-      if (c.startsWith('tab-')) cl.remove(c);
+    // (library-view, reader-view, notes-view) reliably across all
+    // embedded webview engines. We set BOTH:
+    //   (a) body.dataset.tab = id  (used by the data-tab CSS selector)
+    //   (b) body.classList.add('tab-active') when non-home
+    // CSS uses the data-tab selector; the class is a redundant
+    // hook for cases where the data-tab selector might fail.
+    if (id === 'home') {
+      delete document.body.dataset.tab;
+      document.body.classList.remove('tab-active');
+    } else {
+      document.body.dataset.tab = id;
+      document.body.classList.add('tab-active');
     }
-    cl.add('tab-' + id);
-    document.body.dataset.tab = (id === 'home') ? '' : id;
 
     // Swap chat HTML
     const tabData = this.tabs.find(t => t.id === id);
@@ -2686,6 +2691,8 @@ async function init() {
   // every article) without first visiting the notes view.
   await loadNotebooksAndNotes();
   TabManager.init();
+  // Expose for debugging from devtools / Playwright.
+  window.TabManager = TabManager;
 }
 init().catch(e => {
   const gm = document.getElementById('global-chat-messages');
