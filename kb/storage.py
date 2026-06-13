@@ -76,6 +76,14 @@ DOCMIND_REGION=cn-hangzhou
 DOCPARSER_API_URL=https://your-cloud-parser.com
 DOCPARSER_API_KEY=
 DOCPARSER_ENGINE=struct
+
+# Cloud OCR PDF parsing (e.g. 云知声). The endpoint should accept
+# multipart/form-data with a `file` field (PNG) and return
+# {"text": "..."} or {"pages": [{"text": "..."}]}.
+OCR_API_URL=
+OCR_API_KEY=
+OCR_PROVIDER=
+OCR_LANG=zh-CN+en
 """
 
 

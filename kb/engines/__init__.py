@@ -6,6 +6,8 @@ ENGINES = {
     "docmind": "engines.docmind.DocMindEngine",
     "docparser": "engines.docparser.DocParserEngine",
     "vision": "engines.vision_ocr.VisionOcrEngine",
+    "ocr": "engines.ocr.CloudOcrEngine",
+    "llm_vision": "engines.llm_vision.LlmVisionEngine",
 }
 
 

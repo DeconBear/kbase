@@ -1037,6 +1037,27 @@ body { display: flex !important; flex-direction: column !important; height: 100v
         <label for="envDocmindRegion">DocMind Region</label>
         <input type="text" id="envDocmindRegion" placeholder="cn-hangzhou">
       </div>
+      <div class="settings-field">
+        <label for="envOcrApiUrl">云 OCR API URL（云知声 等）</label>
+        <input type="url" id="envOcrApiUrl" placeholder="https://your-ocr-provider.com/v1/ocr">
+      </div>
+      <div class="settings-grid">
+        <div class="settings-field">
+          <label for="envOcrApiKey">云 OCR API Key</label>
+          <div style="display:flex;gap:6px">
+            <input type="password" id="envOcrApiKey" autocomplete="off" placeholder="留空保留原值">
+            <button class="btn-outline" type="button" onclick="toggleEnvReveal('envOcrApiKey', this)">显示</button>
+          </div>
+        </div>
+        <div class="settings-field">
+          <label for="envOcrProvider">云 OCR 厂商名（可选）</label>
+          <input type="text" id="envOcrProvider" placeholder="yunzhisheng">
+        </div>
+      </div>
+      <div class="settings-field">
+        <label for="envOcrLang">云 OCR 识别语言（可选）</label>
+        <input type="text" id="envOcrLang" placeholder="zh-CN+en">
+      </div>
       <div class="llm-actions">
         <div class="llm-actions-right">
           <button class="btn-outline" onclick="loadApiKeys()">刷新</button>
@@ -1982,6 +2003,11 @@ const ENV_KEY_TO_INPUT = {
   DOCMIND_ACCESS_KEY_ID: 'envDocmindAkId',
   DOCMIND_ACCESS_KEY_SECRET: 'envDocmindAkSecret',
   DOCMIND_REGION: 'envDocmindRegion',
+  // Cloud OCR engine (云知声 etc.)
+  OCR_API_URL: 'envOcrApiUrl',
+  OCR_API_KEY: 'envOcrApiKey',
+  OCR_PROVIDER: 'envOcrProvider',
+  OCR_LANG: 'envOcrLang',
 };
 
 function toggleEnvReveal(inputId, btn) {
@@ -3093,6 +3119,8 @@ async function initArticleTab(tabId, tabData) {
             <option value="marker">Marker（本地）</option>
             <option value="docmind">DocMind（云端 API）</option>
             <option value="docparser">DocParser（云端 GPU）</option>
+            <option value="ocr">云 OCR（云知声 等）</option>
+            <option value="llm_vision">LLM 视觉解析（复用 DeepSeek 等）</option>
           </select>
           <button class="btn-emerald btn-convert" onclick="startConvert()">开始解析</button>
         </div>
@@ -3104,7 +3132,9 @@ async function initArticleTab(tabId, tabData) {
     const descs = {
       marker: 'Marker：本地 Surya 模型，~6GB 显存，离线可用',
       docmind: 'DocMind：阿里云文档解析 API，无需 GPU，需配置 RAM AccessKey',
-      docparser: 'DocParser：DeconBear 云端 GPU 加速解析，支持 struct/polyglot 引擎'
+      docparser: 'DocParser：DeconBear 云端 GPU 加速解析，支持 struct/polyglot 引擎',
+      ocr: '云 OCR：通用 HTTP 接口（云知声 等），需在 local.env 中配置 OCR_API_URL / OCR_API_KEY，逐页发送 PNG',
+      llm_vision: 'LLM 视觉解析：复用已在「设置」中配置的 LLM（DeepSeek / OpenAI / Moonshot 等），逐页发图让模型抽 Markdown'
     };
     const sel = document.getElementById('engine-select');
     const desc = document.getElementById('engine-desc');
