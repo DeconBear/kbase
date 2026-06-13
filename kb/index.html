@@ -937,8 +937,8 @@ body { display: flex !important; flex-direction: column !important; height: 100v
         <div class="settings-sidebar-item" data-pane="paneLLM" data-keywords="llm 大语言模型 chatgpt deepseek openai provider 模型">
           <span class="icon">🧠</span><span>LLM 模型</span>
         </div>
-        <div class="settings-sidebar-item" data-pane="paneCredentials" data-keywords="api 凭证 key token docparser docmind ocr unisound 云知声 密钥">
-          <span class="icon">🔑</span><span>API 凭证</span>
+        <div class="settings-sidebar-item" data-pane="paneCredentials" data-keywords="文档解析 docparser docmind ocr unisound 云知声 凭证 引擎">
+          <span class="icon">🔑</span><span>文档解析模型</span>
         </div>
       </nav>
     </aside>
@@ -1046,31 +1046,14 @@ body { display: flex !important; flex-direction: column !important; height: 100v
         </div>
       </section>
 
-      <!-- Pane: API 凭证 -->
+      <!-- Pane: 文档解析模型 -->
       <section class="settings-content-pane" data-pane="paneCredentials">
-        <h3 class="settings-pane-title">🔑 API 凭证 &amp; 服务端点</h3>
-        <p class="settings-pane-desc">所有密钥均以占位符形式展示，原始值仅写入 <code>data/local.env</code>。也可用项目根目录的 <code>.env.local</code>（gitignored）写入调试 key。</p>
+        <h3 class="settings-pane-title">🔑 文档解析模型</h3>
+        <p class="settings-pane-desc">所有密钥均以占位符形式展示，原始值仅写入 <code>data/local.env</code>。也可用项目根目录的 <code>.env.local</code>（gitignored）写入调试 key。<br>LLM 凭证请在 <b>LLM 模型</b> 页面配置。</p>
         <div class="settings-section" id="apiKeysSection">
           <div class="settings-section-head">
-            <h4>LLM</h4>
+            <h4>解析引擎凭证</h4>
             <span id="apiKeysStatus" style="font-size:11px;color:var(--text-3)"></span>
-          </div>
-          <div class="settings-field">
-            <label for="envLLMApiKey">LLM API Key</label>
-            <div style="display:flex;gap:6px">
-              <input type="password" id="envLLMApiKey" autocomplete="off" placeholder="留空保留原值">
-              <button class="btn-outline" type="button" onclick="toggleEnvReveal('envLLMApiKey', this)">显示</button>
-            </div>
-          </div>
-          <div class="settings-grid">
-            <div class="settings-field">
-              <label for="envLLMApiUrl">LLM API URL</label>
-              <input type="url" id="envLLMApiUrl" placeholder="https://api.deepseek.com/v1/chat/completions">
-            </div>
-            <div class="settings-field">
-              <label for="envLLMModel">LLM 模型</label>
-              <input type="text" id="envLLMModel" placeholder="deepseek-chat">
-            </div>
           </div>
         </div>
 
@@ -2214,10 +2197,11 @@ async function saveAndCloseSettings() {
   }
 }
 
+// Maps data/local.env keys to the DOM input ids that hold them in the
+// '文档解析模型' settings pane. LLM keys (LLM_API_KEY, LLM_API_URL,
+// LLM_MODEL) are intentionally NOT here — those are edited via the
+// 'LLM 模型' pane (which talks to /api/llm-config, not /api/local-env).
 const ENV_KEY_TO_INPUT = {
-  LLM_API_KEY: 'envLLMApiKey',
-  LLM_API_URL: 'envLLMApiUrl',
-  LLM_MODEL: 'envLLMModel',
   DOCPARSER_API_URL: 'envDocparserApiUrl',
   DOCPARSER_API_KEY: 'envDocparserApiKey',
   DOCPARSER_ENGINE: 'envDocparserEngine',
