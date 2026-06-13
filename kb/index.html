@@ -181,7 +181,7 @@ select option{background:var(--surface-2);color:var(--text)}
 #statusMsg{font-size:12px;color:var(--amber);margin-left:4px;font-weight:500}
 
 /* ===== Home / Library Chat View ===== */
-#library-view{display:flex;height:100vh;background:var(--bg);overflow:hidden}
+#library-view{display:flex;height:100vh;background:var(--bg);overflow:hidden;position:absolute;inset:0;z-index:1}
 #library-view.hidden{display:none}
 /* When the active tab is anything other than 'home' (e.g. settings,
    article, note, url), hide the library view + the global AI chat
@@ -195,6 +195,18 @@ body[data-tab]:not([data-tab="home"]) #library-view,
 body[data-tab]:not([data-tab="home"]) #global-chat-panel,
 body.tab-active #library-view,
 body.tab-active #global-chat-panel {display:none!important}
+
+/* Architecture note: the home view (#library-view, which contains
+   the AI chat panel #global-chat-panel + article list #library-side)
+   lives OUTSIDE of #views-container. They are siblings of
+   #views-container in the document tree, so they cannot overlap
+   any tab view. The hide rules above use the simplest possible
+   selector (class + descendant) which works on every browser.
+   When the home tab is active, library-view overlays views-
+   container; when any other tab is active, library-view is hidden
+   and views-container takes the full screen. */
+body.tab-home #views-container {display:none}
+body.tab-active #library-view {display:none!important}
 #home-shell{display:flex;width:100%;height:100%;overflow:hidden}
 #global-chat-panel{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--panel-bg)}
 #home-topbar{height:54px;flex-shrink:0;padding:0 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;background:var(--topbar-bg);backdrop-filter:blur(12px)}
@@ -894,8 +906,6 @@ body { display: flex !important; flex-direction: column !important; height: 100v
      <input type="text" id="url-input" placeholder="输入 URL (http://...)" onkeydown="if(event.key==='Enter') TabManager.openTab('url-'+Date.now(), 'url', this.value, {url: this.value})" style="padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 12px; width: 180px;">
   </div>
 </div>
-<div id="views-container">
-
 
 <!-- ==================== LIBRARY VIEW ==================== -->
 <div id="library-view">
@@ -960,6 +970,9 @@ body { display: flex !important; flex-direction: column !important; height: 100v
       <button id="ctxOpenFolder" onclick="openContextFolder()">打开所在文件夹</button>
       <button class="danger" onclick="deleteContextSelection()">删除</button>
     </div>
+<div id="views-container">
+
+
   </div>
 </div>
 
@@ -1724,9 +1737,11 @@ const TabManager = {
     if (id === 'home') {
       delete document.body.dataset.tab;
       document.body.classList.remove('tab-active');
+      document.body.classList.add('tab-home');
     } else {
       document.body.dataset.tab = id;
       document.body.classList.add('tab-active');
+      document.body.classList.remove('tab-home');
     }
     // Inline-style show/hide of the home-view elements. This is
     // belt-and-suspenders: the CSS rules at the top should already
