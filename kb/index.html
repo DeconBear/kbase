@@ -364,6 +364,18 @@ select option{background:var(--surface-2);color:var(--text)}
 #engine-selector .btn-convert{padding:6px 18px;font-size:12px}
 #engine-selector .engine-row-llm select{flex:1;min-width:140px}
 
+/* ===== API key input + eye toggle (settings → 文档解析模型) ===== */
+.env-eye-btn{
+  position:absolute;right:6px;top:50%;transform:translateY(-50%);
+  background:transparent;border:0;cursor:pointer;font-size:14px;
+  padding:2px 6px;border-radius:6px;color:var(--text-3);
+  line-height:1;
+}
+.env-eye-btn:hover{background:var(--surface);color:var(--text)}
+.settings-field{position:relative}
+.settings-field input[type="password"],
+.settings-field input[type="text"]{padding-right:36px}
+
 /* ===== Version list ===== */
 #version-list{margin-top:16px;text-align:left;max-width:500px;margin-left:auto;margin-right:auto}
 #version-list h5{font-size:12px;color:var(--text-3);margin-bottom:8px}
@@ -1078,7 +1090,7 @@ body { display: flex !important; flex-direction: column !important; height: 100v
             <label for="envDocparserApiKey">DocParser API Key</label>
             <div style="display:flex;gap:6px">
               <input type="password" id="envDocparserApiKey" autocomplete="off" placeholder="留空保留原值">
-              <button class="btn-outline" type="button" onclick="toggleEnvReveal('envDocparserApiKey', this)">显示</button>
+              <button class="env-eye-btn" type="button" data-eye-for="envDocparserApiKey" onclick="toggleEnvReveal('envDocparserApiKey', this)" style="display:none" title="点击显示">👁</button>
             </div>
           </div>
         </div>
@@ -1092,14 +1104,14 @@ body { display: flex !important; flex-direction: column !important; height: 100v
               <label for="envDocmindAkId">Access Key ID</label>
               <div style="display:flex;gap:6px">
                 <input type="password" id="envDocmindAkId" autocomplete="off" placeholder="留空保留原值">
-                <button class="btn-outline" type="button" onclick="toggleEnvReveal('envDocmindAkId', this)">显示</button>
+                <button class="env-eye-btn" type="button" data-eye-for="envDocmindAkId" onclick="toggleEnvReveal('envDocmindAkId', this)" style="display:none" title="点击显示">👁</button>
               </div>
             </div>
             <div class="settings-field">
               <label for="envDocmindAkSecret">Access Key Secret</label>
               <div style="display:flex;gap:6px">
                 <input type="password" id="envDocmindAkSecret" autocomplete="off" placeholder="留空保留原值">
-                <button class="btn-outline" type="button" onclick="toggleEnvReveal('envDocmindAkSecret', this)">显示</button>
+                <button class="env-eye-btn" type="button" data-eye-for="envDocmindAkSecret" onclick="toggleEnvReveal('envDocmindAkSecret', this)" style="display:none" title="点击显示">👁</button>
               </div>
             </div>
           </div>
@@ -1122,7 +1134,7 @@ body { display: flex !important; flex-direction: column !important; height: 100v
               <label for="envOcrApiKey">云 OCR API Key</label>
               <div style="display:flex;gap:6px">
                 <input type="password" id="envOcrApiKey" autocomplete="off" placeholder="留空保留原值">
-                <button class="btn-outline" type="button" onclick="toggleEnvReveal('envOcrApiKey', this)">显示</button>
+                <button class="env-eye-btn" type="button" data-eye-for="envOcrApiKey" onclick="toggleEnvReveal('envOcrApiKey', this)" style="display:none" title="点击显示">👁</button>
               </div>
             </div>
             <div class="settings-field">
@@ -1145,7 +1157,7 @@ body { display: flex !important; flex-direction: column !important; height: 100v
             <label for="envUnisoundApiKey">API Key (Token Plan, 以 <code>tp-</code> 开头)</label>
             <div style="display:flex;gap:6px">
               <input type="password" id="envUnisoundApiKey" autocomplete="off" placeholder="留空保留原值">
-              <button class="btn-outline" type="button" onclick="toggleEnvReveal('envUnisoundApiKey', this)">显示</button>
+              <button class="env-eye-btn" type="button" data-eye-for="envUnisoundApiKey" onclick="toggleEnvReveal('envUnisoundApiKey', this)" style="display:none" title="点击显示">👁</button>
             </div>
           </div>
           <div class="settings-grid">
@@ -2222,12 +2234,16 @@ const ENV_KEY_TO_INPUT = {
 function toggleEnvReveal(inputId, btn) {
   const input = document.getElementById(inputId);
   if (!input) return;
+  // No key saved → nothing to reveal; ignore clicks.
+  if (!input.value) return;
   if (input.type === 'password') {
     input.type = 'text';
-    btn.textContent = '隐藏';
+    btn.textContent = '🙈';
+    btn.title = '点击隐藏';
   } else {
     input.type = 'password';
-    btn.textContent = '显示';
+    btn.textContent = '👁';
+    btn.title = '点击显示';
   }
 }
 
@@ -2242,8 +2258,20 @@ async function loadApiKeys() {
       const el = document.getElementById(inputId);
       if (!el) continue;
       const entry = data[key];
-      el.value = entry && entry.set ? entry.value : '';
+      const hasValue = !!(entry && entry.set && entry.value);
+      // Always use password type by default — the user can flip to text
+      // with the eye button. Real value is populated; placeholder is the
+      // empty-state hint.
+      el.type = 'password';
+      el.value = hasValue ? entry.value : '';
       el.dataset.savedValue = el.value;
+      // Eye button: only show when there is a saved key to reveal.
+      const btn = document.querySelector(`[data-eye-for="${inputId}"]`);
+      if (btn) {
+        btn.style.display = hasValue ? '' : 'none';
+        btn.textContent = '👁';
+        btn.title = '显示 / 隐藏';
+      }
     }
     status.textContent = '已加载';
   } catch (e) {

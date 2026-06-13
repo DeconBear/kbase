@@ -591,18 +591,34 @@ SENSITIVE_KEYS = {
 
 
 def _mask_value(key: str, value: str) -> str:
-    if not value:
-        return ""
-    if key in SENSITIVE_KEYS:
-        if len(value) <= 8:
-            return "•" * len(value)
-        return f"{value[:4]}…{value[-4:]}"
+    # No longer mask: the user wants to see the real value in the settings
+    # input so they can edit / copy it. This is safe because the endpoint
+    # is served on localhost inside a desktop app (no remote exposure).
+    # If you ever expose KBase over a network, add masking back here.
     return value
 
 
 def public_env() -> dict:
+    """Return all known env keys with their effective values.
+
+    Resolution order (first non-empty wins):
+      1. ``data/local.env`` — values saved via the Settings UI.
+      2. ``os.environ`` — includes values sourced from repo-root
+         ``.env.local`` (gitignored, used for source-mode debug keys).
+
+    The frontend uses this to display the real value of API keys so the
+    user can see and edit them. Safe because the endpoint is served on
+    localhost inside the desktop app.
+    """
+    import os
     data = public_local_env()
-    return {k: {"value": _mask_value(k, v), "set": bool(v)} for k, v in data.items() if k in KNOWN_ENV_KEYS}
+    out: dict[str, dict] = {}
+    for k in KNOWN_ENV_KEYS:
+        v = (data.get(k) or "").strip()
+        if not v:
+            v = (os.environ.get(k) or "").strip()
+        out[k] = {"value": _mask_value(k, v), "set": bool(v)}
+    return out
 
 
 def _persist_env_updates(updates: dict[str, str]) -> None:
