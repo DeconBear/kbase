@@ -194,7 +194,7 @@ select option{background:var(--surface-2);color:var(--text)}
 body[data-tab]:not([data-tab="home"]) #library-view,
 body[data-tab]:not([data-tab="home"]) #global-chat-panel,
 body.tab-active #library-view,
-body.tab-active #global-chat-panel {display:none!important}
+body.tab-active #global-chat-panel {display:none!important;visibility:hidden!important;height:0!important;overflow:hidden!important}
 #home-shell{display:flex;width:100%;height:100%;overflow:hidden}
 #global-chat-panel{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--panel-bg)}
 #home-topbar{height:54px;flex-shrink:0;padding:0 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;background:var(--topbar-bg);backdrop-filter:blur(12px)}
@@ -1740,11 +1740,17 @@ const TabManager = {
     const lv  = document.getElementById('library-view');
     const cht = document.getElementById('global-chat-panel');
     if (id === 'home') {
-      if (lv)  { lv.classList.remove('hidden'); lv.style.display  = ''; }
-      if (cht) { cht.style.display = ''; }
+      if (lv)  { lv.classList.remove('hidden'); lv.style.display  = ''; lv.style.visibility = ''; lv.style.width = ''; }
+      if (cht) { cht.style.display = ''; cht.style.visibility = ''; cht.style.height = ''; cht.style.overflow = ''; }
     } else {
-      if (lv)  { lv.classList.add('hidden'); lv.style.display  = 'none'; }
-      if (cht) { cht.style.display = 'none'; }
+      // The most aggressive possible hide for embedded webview engines
+      // (Edge WebView2 in pywebview) that ignore some CSS selectors.
+      // We set FOUR inline styles simultaneously: display:none,
+      // visibility:hidden, height:0, and overflow:hidden. This
+      // collapses the column to zero visible space in the flex
+      // layout regardless of what the CSS cascade does.
+      if (lv)  { lv.classList.add('hidden'); lv.style.display  = 'none'; lv.style.visibility = 'hidden'; }
+      if (cht) { cht.style.display = 'none'; cht.style.visibility = 'hidden'; cht.style.height = '0'; cht.style.overflow = 'hidden'; }
     }
 
     // Swap chat HTML
