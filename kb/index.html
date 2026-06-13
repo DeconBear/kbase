@@ -183,6 +183,12 @@ select option{background:var(--surface-2);color:var(--text)}
 /* ===== Home / Library Chat View ===== */
 #library-view{display:flex;height:100vh;background:var(--bg);overflow:hidden}
 #library-view.hidden{display:none}
+/* When the active tab is anything other than 'home' (e.g. settings,
+   article, note, url), hide the library view at the CSS level. This
+   is a belt-and-suspenders fix to the JS-level hide — guards against
+   any case where the inline-style + classList.hide combo fails. */
+body[data-tab]:not([data-tab="home"]) #library-view{display:none!important}
+body[data-tab]:not([data-tab="home"]) #global-chat-panel{display:none!important}
 #home-shell{display:flex;width:100%;height:100%;overflow:hidden}
 #global-chat-panel{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--panel-bg)}
 #home-topbar{height:54px;flex-shrink:0;padding:0 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;background:var(--topbar-bg);backdrop-filter:blur(12px)}
@@ -1672,6 +1678,10 @@ const TabManager = {
     this.activeTabId = id;
     document.querySelectorAll('.tab-item').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.iframe-tab').forEach(el => el.classList.remove('active'));
+    // Reflect the active tab on <body> so CSS can hide native views
+    // (library-view, reader-view, notes-view) reliably even if the
+    // JS-level hide hasn't caught up. Empty string for home.
+    document.body.dataset.tab = (id === 'home') ? '' : id;
 
     // Swap chat HTML
     const tabData = this.tabs.find(t => t.id === id);

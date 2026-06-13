@@ -134,7 +134,7 @@ def _env_provider() -> dict | None:
     return _normalize_provider(
         {
             "id": "local_env",
-            "name": "local.env",
+            "name": "default",
             "api_url": api_url,
             "api_key": api_key,
             "models": [model],
@@ -182,6 +182,21 @@ def load_llm_config() -> dict:
                 cfg["active_provider"] = active
             elif cfg["providers"]:
                 cfg["active_provider"] = cfg["providers"][0]["id"]
+    # Migration: rename any stale "local.env" labels to "default" so
+    # the auto-generated local_env provider shows the right display
+    # name. Older installs saved name='local.env' under the hood.
+    migrated = False
+    for p in cfg.get("providers", []):
+        if p.get("id") == "local_env" and p.get("name") == "local.env":
+            p["name"] = "default"
+            migrated = True
+    if migrated and CONFIG_FILE.exists():
+        try:
+            CONFIG_FILE.write_text(
+                json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+        except Exception:
+            pass
     return cfg
 
 
