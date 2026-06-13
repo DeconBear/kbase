@@ -98,6 +98,18 @@ def _normalize_provider(provider, fallback_id="custom") -> dict:
     models = _normalize_models(provider.get("models"), model)
     if not model:
         model = models[0]
+    protocol = str(provider.get("protocol") or "openai").strip().lower()
+    if protocol not in ("openai", "anthropic"):
+        protocol = "openai"
+    # long_context_models is a list of model names that should be sent
+    # with the 1M-context window hint (where the API supports it,
+    # e.g. moonshot v1, kimi-k2). Stored as a separate list rather than
+    # nesting into the model strings to keep the format simple.
+    raw_lc = provider.get("long_context_models")
+    if isinstance(raw_lc, list):
+        long_context_models = [str(m).strip() for m in raw_lc if str(m).strip()]
+    else:
+        long_context_models = []
     return {
         "id": provider_id,
         "name": name,
@@ -105,6 +117,8 @@ def _normalize_provider(provider, fallback_id="custom") -> dict:
         "api_key": api_key,
         "models": models,
         "model": model,
+        "protocol": protocol,
+        "long_context_models": long_context_models,
     }
 
 
@@ -180,12 +194,23 @@ def _mask_key(api_key: str) -> str:
 
 
 def public_llm_config() -> dict:
+    """Return the LLM config for the frontend.
+
+    The API key is returned in full so the settings UI can show and
+    edit it (same trade-off as the env keys: localhost-only endpoint,
+    desktop app). The frontend can choose to mask in its own input
+    via type='password'.
+    """
     cfg = load_llm_config()
     providers = []
     for provider in cfg["providers"]:
+        # Backfill any missing schema fields so the UI never sees null.
         item = {k: v for k, v in provider.items() if k != "api_key"}
+        item["api_key"] = provider.get("api_key", "")
         item["api_key_set"] = bool(provider.get("api_key"))
         item["api_key_hint"] = _mask_key(provider.get("api_key", ""))
+        item["protocol"] = provider.get("protocol") or "openai"
+        item["long_context_models"] = list(provider.get("long_context_models") or [])
         providers.append(item)
     return {"active_provider": cfg.get("active_provider"), "providers": providers}
 
@@ -248,6 +273,8 @@ def resolve_llm_settings(provider_id: str = "", model: str = "") -> dict:
         "api_url": provider.get("api_url", ""),
         "api_key": provider.get("api_key", ""),
         "model": selected_model,
+        "protocol": provider.get("protocol", "openai"),
+        "long_context": selected_model in (provider.get("long_context_models") or []),
     }
 
 
@@ -267,22 +294,52 @@ def call_chat_completion(
     if not settings["api_key"]:
         raise ValueError(f"LLM provider {settings['provider_name']} has no API key")
 
-    body = {
-        "model": settings["model"],
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
-    }
-    if stream is not None:
-        body["stream"] = stream
+    protocol = settings.get("protocol", "openai")
+
+    if protocol == "anthropic":
+        # Anthropic-compatible endpoint. We use the Messages-style body
+        # (system prompt extracted, model in body, max_tokens not
+        # optional). API key is sent via x-api-key, plus
+        # anthropic-version header.
+        system_prompts = [m["content"] for m in messages if m.get("role") == "system"]
+        chat_messages = [
+            {"role": m["role"], "content": m["content"]}
+            for m in messages if m.get("role") in ("user", "assistant")
+        ]
+        body = {
+            "model": settings["model"],
+            "messages": chat_messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        if system_prompts:
+            body["system"] = "\n\n".join(system_prompts)
+        if stream is not None:
+            body["stream"] = stream
+        headers = {
+            "Content-Type": "application/json",
+            "x-api-key": settings["api_key"],
+            "anthropic-version": "2023-06-01",
+        }
+    else:
+        # OpenAI-compatible (default). Includes system messages inline.
+        body = {
+            "model": settings["model"],
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        if stream is not None:
+            body["stream"] = stream
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {settings['api_key']}",
+        }
 
     req = urllib.request.Request(
         settings["api_url"],
         data=json.dumps(body).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {settings['api_key']}",
-        },
+        headers=headers,
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read())
