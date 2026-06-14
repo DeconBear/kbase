@@ -743,6 +743,9 @@ select option{background:var(--surface-2);color:var(--text)}
 .note-context-menu .menu-item:hover{background:var(--accent-subtle);color:var(--text-strong)}
 .note-context-menu .menu-item.danger{color:var(--rose)}
 .note-context-menu .menu-item.danger:hover{background:var(--rose-subtle)}
+.note-context-menu .menu-item.submenu{position:relative;display:flex;align-items:center;justify-content:space-between}
+.note-context-menu .menu-item.submenu .submenu-arrow{font-size:10px;margin-left:8px}
+.note-context-menu .submenu-list{position:absolute;left:100%;top:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);box-shadow:var(--shadow-lg);padding:4px;min-width:160px;z-index:2001}
 
 /* ----- Right panel tab strip ----- */
 .notes-right-tab{flex:1;padding:8px 4px;font-size:11px;background:transparent;border:none;color:var(--text-3);cursor:pointer;transition:background .15s,color .15s;border-bottom:2px solid transparent;font-weight:500}
@@ -7255,10 +7258,17 @@ function showNoteContextMenu(e, id) {
   if (ids.length === 1) {
     const singleId = ids[0];
     const note = notesIndex.find(n => n.id === singleId);
+    const nb = notebooksStore.get(note?.notebook_id);
+    const nbLabel = nb ? ` (当前: ${esc(nb.name)})` : '';
     const folderLabel = note?.folder ? ` (${note.folder})` : '';
     menuHtml += `
       <div class="menu-item" onclick="openNote('${esc(singleId)}');this.parentElement.remove()">打开</div>
       <div class="menu-item" onclick="renameNotePrompt('${esc(singleId)}');this.parentElement.remove()">重命名</div>
+      <div class="menu-item submenu" onclick="toggleNotebookSubmenu(event,'${esc(singleId)}')">移动到笔记本${nbLabel}<span class="submenu-arrow">▸</span>
+        <div class="submenu-list" style="display:none">${
+          notebooksStore.snapshot().map(nb => `<div class="menu-item" onclick="moveNoteToNotebook('${esc(singleId)}','${esc(nb.id)}');this.parentElement.parentElement.parentElement.remove()">${esc(nb.icon||'📓')} ${esc(nb.name)}</div>`).join('')
+        }</div>
+      </div>
       <div class="menu-item" onclick="moveNoteToFolderPrompt('${esc(singleId)}');this.parentElement.remove()">移动到文件夹${esc(folderLabel)}</div>
     `;
   } else {
@@ -7310,9 +7320,9 @@ async function deleteContextNotes() {
 }
 
 async function moveNoteToFolderPrompt(id) {
-  const note = notesIndex.find(n => n.id === id);
+  const note = notesStore.get(id);
   if (!note) return;
-  const folders = [...new Set(notesIndex.map(n => n.folder).filter(Boolean))].sort();
+  const folders = [...new Set(notesStore.snapshot().map(n => n.folder).filter(Boolean))].sort();
   const current = note.folder || '';
   const suggestion = folders.length ? `\n现有文件夹: ${folders.join(', ')}` : '';
   const newFolder = await uiPrompt(`移动到文件夹 (留空移除):${suggestion}`, current);
@@ -7325,10 +7335,34 @@ async function moveNoteToFolderPrompt(id) {
       body: JSON.stringify({folder})
     });
     if (!resp.ok) throw new Error(await resp.text());
-    note.folder = folder;
+    notesStore.upsert({id, folder});
     renderNoteTree();
   } catch (e) {
     console.error(e);
+  }
+}
+
+function toggleNotebookSubmenu(e, noteId) {
+  e.stopPropagation();
+  const list = e.currentTarget.querySelector('.submenu-list');
+  if (!list) return;
+  list.style.display = list.style.display === 'none' ? 'block' : 'none';
+}
+
+async function moveNoteToNotebook(noteId, nbId) {
+  try {
+    const resp = await fetch(`/api/notes/${encodeURIComponent(noteId)}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({notebook_id: nbId})
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    notesStore.upsert({id: noteId, notebook_id: nbId});
+    renderNotebooksTree();
+    renderNoteTree();
+    toast('已移动到笔记本', 'success');
+  } catch (e) {
+    toast('移动失败：' + (e.message || e), 'error');
   }
 }
 

@@ -1537,6 +1537,7 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             "modified_at": now,
             "tags": [],
             "folder": folder,
+            "notebook_id": str(body.get("notebook_id") or "").strip()[:64] or None,
             "article_id": article_id,
             "links": [],
         }
@@ -1567,6 +1568,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             existing["doc_icon"] = str(body.get("doc_icon") or "").strip()[:16]
         if "article_id" in body:
             existing["article_id"] = (str(body.get("article_id") or "").strip()[:128] or None)
+        if "notebook_id" in body:
+            existing["notebook_id"] = str(body.get("notebook_id") or "").strip()[:64] or None
         existing.setdefault("created_at", now)
         upsert_note(existing)
         try:
