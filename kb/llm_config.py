@@ -310,7 +310,9 @@ def save_llm_config_from_public(data) -> dict:
         active = providers[0]["id"]
 
     cfg = {"active_provider": active, "providers": providers}
-    CONFIG_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp = CONFIG_FILE.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, CONFIG_FILE)
     return public_llm_config()
 
 
@@ -423,4 +425,19 @@ def call_chat_completion(
         headers=headers,
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read())
+        raw = json.loads(resp.read())
+
+    # Normalize Anthropic-style responses to the OpenAI shape so every
+    # caller can use `data["choices"][0]["message"]["content"]` uniformly.
+    if protocol == "anthropic" and "content" in raw and "choices" not in raw:
+        text = ""
+        for block in raw.get("content") or []:
+            if isinstance(block, dict) and block.get("type") == "text":
+                text += block.get("text", "")
+        if not text:
+            text = raw.get("content", [{}])[0].get("text", "") if isinstance(raw.get("content"), list) else str(raw.get("content", ""))
+        raw = {
+            "choices": [{"message": {"content": text}}],
+        }
+
+    return raw

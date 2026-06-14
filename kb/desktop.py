@@ -118,6 +118,13 @@ def main() -> None:
                 return str(exc)
             return False
 
+        def quit_app(self) -> None:
+            """Close the application window — used by the auto-updater flow."""
+            try:
+                webview.windows[0].destroy()
+            except Exception:
+                pass
+
     window = webview.create_window(
         js_api=Api(),
         title="Knowledge Base",

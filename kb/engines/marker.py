@@ -161,7 +161,16 @@ class MarkerEngine:
             if line:
                 log(line)
 
-        proc.wait(timeout=600)
+        try:
+            proc.wait(timeout=600)
+        except subprocess.TimeoutExpired:
+            log("ERROR: Marker process timed out after 600 s — killing...")
+            proc.kill()
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                log("ERROR: Marker process did not respond to SIGKILL")
+            return False
         log(f"Process exited with code {proc.returncode}")
 
         if proc.returncode != 0:

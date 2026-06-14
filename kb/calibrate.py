@@ -20,7 +20,7 @@ def _llm_chat(messages, temperature=0.3, max_tokens=8192):
         max_tokens=max_tokens,
         timeout=300,
     )
-    return data["choices"][0]["message"]["content"]
+    return (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
 
 
 def _extract_pymupdf(pdf_path):

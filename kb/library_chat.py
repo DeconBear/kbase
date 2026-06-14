@@ -317,7 +317,7 @@ def _article_markdown_paths(article_id):
             continue
 
 def _note_markdown_paths(note_id):
-    path = DIR / "notes" / f"{note_id}.md"
+    path = storage.DATA_ROOT / "notes" / f"{note_id}.md"
     if path.exists():
         yield "笔记", path
 
@@ -559,7 +559,7 @@ def _compact_session_if_needed(session, provider_id="", model=""):
             max_tokens=1800,
             timeout=180,
         )
-        summary = data["choices"][0]["message"]["content"].strip()
+        summary = ((data.get("choices") or [{}])[0].get("message", {}).get("content") or "").strip()
         if summary:
             session["memory_summary"] = summary
             session["messages"] = recent_messages
@@ -621,15 +621,20 @@ def prepare_library_question(question, session_id="", provider_id="", model="", 
             session["title"] = question[:28] + ("..." if len(question) > 28 else "")
         session["messages"].append(user_message)
         session["updated_at"] = _now()
+
+        # Compact inside the lock so concurrent requests don't race on
+        # truncation. We compact the real session, persist it, and
+        # also use it to build the prompt below.
+        session = _compact_session_if_needed(
+            session,
+            provider_id=provider_id,
+            model=model,
+        )
+
         store["active_session_id"] = session["id"]
         _save_store_unlocked(store)
         working_session = copy.deepcopy(session)
 
-    working_session = _compact_session_if_needed(
-        working_session,
-        provider_id=provider_id,
-        model=model,
-    )
     sources = search_library(_session_query(working_session, question), workspace_id=workspace_id)
     client_sources = _sanitize_sources_for_client(sources)
 
@@ -689,18 +694,7 @@ def finalize_library_answer(prepared, answer):
         if not session:
             session = working_session
             store["sessions"].insert(0, session)
-        was_compacted = working_session.get("compacted_count", 0) > session.get("compacted_count", 0)
-        if was_compacted and working_session.get("memory_summary"):
-            compacted_count = working_session.get("compacted_count", 0)
-            store_messages = session.get("messages") or []
-            if len(store_messages) > KEEP_RECENT_MESSAGES:
-                session["messages"] = store_messages[-KEEP_RECENT_MESSAGES:]
-            else:
-                session["messages"] = list(store_messages)
-            session["memory_summary"] = working_session.get("memory_summary", "")
-            session["compacted_count"] = compacted_count
-        else:
-            session["messages"] = session.get("messages") or []
+        session["messages"] = session.get("messages") or []
         session["messages"].append(assistant_message)
         session["updated_at"] = _now()
         store["active_session_id"] = session["id"]
@@ -732,5 +726,5 @@ def ask_library_question(question, session_id="", provider_id="", model="", work
         max_tokens=8192,
         timeout=300,
     )
-    answer = data["choices"][0]["message"]["content"].strip()
+    answer = ((data.get("choices") or [{}])[0].get("message", {}).get("content") or "").strip()
     return finalize_library_answer(prepared, answer)

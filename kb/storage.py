@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json
 import os
-import os
 import re
 import sqlite3
 import sys
@@ -248,32 +247,38 @@ def _write_local_env(updates: dict[str, str]) -> None:
 
     Lines whose key appears in ``updates`` are rewritten in place; any
     unknown key is appended at the bottom of the file.
+
+    Protected by ``_ENV_LOCK`` to prevent lost updates from concurrent
+    settings saves (ThreadingTCPServer can serve multiple requests).
     """
-    ensure_directories()
-    existing_lines: list[str] = []
-    if LOCAL_ENV.exists():
-        existing_lines = LOCAL_ENV.read_text(encoding="utf-8").splitlines()
-    seen: set[str] = set()
-    new_lines: list[str] = []
-    for line in existing_lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in line:
-            new_lines.append(line)
-            continue
-        key, _, _ = line.partition("=")
-        key = key.strip()
-        if key in updates:
-            new_lines.append(f"{key}={updates[key]}")
-            seen.add(key)
-        else:
-            new_lines.append(line)
-    for key, value in updates.items():
-        if key not in seen:
-            new_lines.append(f"{key}={value}")
-    LOCAL_ENV.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
-    # refresh process env so subsequent LLM calls see the new value
-    for key, value in updates.items():
-        os.environ[key] = value
+    with _ENV_LOCK:
+        ensure_directories()
+        existing_lines: list[str] = []
+        if LOCAL_ENV.exists():
+            existing_lines = LOCAL_ENV.read_text(encoding="utf-8").splitlines()
+        seen: set[str] = set()
+        new_lines: list[str] = []
+        for line in existing_lines:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in line:
+                new_lines.append(line)
+                continue
+            key, _, _ = line.partition("=")
+            key = key.strip()
+            if key in updates:
+                new_lines.append(f"{key}={updates[key]}")
+                seen.add(key)
+            else:
+                new_lines.append(line)
+        for key, value in updates.items():
+            if key not in seen:
+                new_lines.append(f"{key}={value}")
+        tmp = LOCAL_ENV.with_suffix(".env.tmp")
+        tmp.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+        os.replace(tmp, LOCAL_ENV)
+        # refresh process env so subsequent LLM calls see the new value
+        for key, value in updates.items():
+            os.environ[key] = value
 
 
 def public_local_env() -> dict[str, str]:
@@ -462,7 +467,7 @@ _BOOL_FIELDS = {
 }
 
 _CONNECT_LOCK = threading.Lock()
-_CONNECTIONS: set[int] = set()
+_ENV_LOCK = threading.Lock()  # protects read-modify-write in _write_local_env
 
 
 def _connect() -> sqlite3.Connection:

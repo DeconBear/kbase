@@ -20,6 +20,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11/languages/css.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11/languages/sql.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
 <style>
 :root{
   --bg:#0b1020;
@@ -1951,6 +1952,19 @@ let llmConfig = {active_provider:'', providers:[]};
 let llmEditingProviderId = '';
 let chatSaveTimer = null;
 let translationPollTimers = {};
+
+// ---- AbortController helper: cancels stale in-flight requests ----
+let _activeFetchCtrl = null;
+function abortableFetch(url, opts = {}) {
+  if (_activeFetchCtrl) { _activeFetchCtrl.abort(); }
+  _activeFetchCtrl = new AbortController();
+  opts.signal = _activeFetchCtrl.signal;
+  return fetch(url, opts).finally(() => {
+    if (_activeFetchCtrl && _activeFetchCtrl.signal === opts.signal) {
+      _activeFetchCtrl = null;
+    }
+  });
+}
 let translationStatusById = {};
 let librarySessions = [];
 let activeLibrarySession = null;
@@ -3044,7 +3058,7 @@ async function applyUpdate() {
   if (!_updateCache || !_updateCache.assetUrl) return;
   if (!confirm(`确定更新到 v${_updateCache.latest}？更新后应用程序将自动重启。`)) return;
   const progress = document.getElementById('updateProgress');
-  progress.textContent = '正在下载更新包…';
+  progress.textContent = '正在准备更新…';
   progress.style.display = 'block';
   document.getElementById('updateBtn').disabled = true;
   try {
@@ -3054,9 +3068,22 @@ async function applyUpdate() {
     });
     const d = await r.json();
     progress.textContent = d.message;
-    if (d.ok) {
-      // The app will exit shortly — the updater script takes over
-      setTimeout(() => { progress.textContent = '更新程序已接管，本窗口即将关闭。'; }, 1000);
+    if (d.ok && d.closeWindow) {
+      // The updater PowerShell script is now running independently.
+      // Close the application window so the updater can take over.
+      progress.textContent = '更新程序已接管，窗口即将关闭…';
+      setTimeout(() => {
+        try {
+          if (window.pywebview && window.pywebview.api) {
+            window.pywebview.api.quit_app();
+          } else {
+            // Fallback: running in browser dev mode — just show a message.
+            progress.textContent = '请手动关闭应用窗口以完成更新。';
+          }
+        } catch (e) {
+          progress.textContent = '请手动关闭应用窗口以完成更新。';
+        }
+      }, 1500);
     }
   } catch (e) {
     progress.textContent = '更新请求失败: ' + e.message;
@@ -3110,7 +3137,7 @@ window.addEventListener('unhandledrejection', function(e) {
 
 async function loadArticles() {
   try {
-    const resp = await fetch('/api/articles');
+    const resp = await abortableFetch('/api/articles');
     const data = await resp.json();
     articles = data.articles || [];
     const liveIds = new Set(articles.map(a => a.id));
@@ -4683,7 +4710,7 @@ function renderChatMarkdown(text) {
   html = html.replace(/@@CB(\d+)@@/g,(m,i)=>codeBlocks[+i]);
   html = html.replace(/@@MB(\d+)@@/g,(m,i)=>`<div class="math-block">$$${mathBlocks[+i]}$$</div>`);
   html = html.replace(/@@MI(\d+)@@/g,(m,i)=>`<span class="math-inline">$${mathInlines[+i]}$</span>`);
-  return html;
+  return DOMPurify.sanitize(html, {ADD_ATTR: ['target']});
 }
 
 function renderAssistantMsg(el, text, streaming=false) {
@@ -5052,7 +5079,7 @@ function renderReaderMarkdown(md, article, rebuildTOC) {
     return `src="articles/${article.id}/${src}"`;
   });
 
-  mdContent.innerHTML = html;
+  mdContent.innerHTML = DOMPurify.sanitize(html, {ADD_ATTR: ['target']});
   bindMarkdownInternalLinks(mdContent);
 
   if (rebuildTOC) {
@@ -8627,7 +8654,7 @@ async function checkGpuConflict() {
 
   // Check if any article is converting
   try {
-    const resp = await fetch('/api/articles');
+    const resp = await abortableFetch('/api/articles');
     const data = await resp.json();
     const converting = (data.articles || []).some(a => a.converting);
 

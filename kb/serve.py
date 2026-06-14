@@ -62,7 +62,6 @@ from storage import (
     public_local_env,
     record_conversion,
     remove_item_from_workspace,
-    replace_article_tags,
     save_chat_index,
     save_chat_session_file,
     save_translation_state,
@@ -449,11 +448,9 @@ def run_conversion(pdf_path: str, article_id: str, engine_name: str = "marker", 
 
 def record_article_history_safe(article_id: str, engine: str, file_path: Path) -> None:
     try:
-        record_article_history_check = list_article_history  # noqa: F841
+        record_article_history(article_id, engine, file_path)
     except Exception:
         pass
-    from storage import record_article_history
-    record_article_history(article_id, engine, file_path)
 
 
 def _run_calibrate(article_id: str, log_callback) -> None:
@@ -686,10 +683,16 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def _read_json(self) -> dict:
+        content_type = self.headers.get("Content-Type", "")
+        if "application/json" not in content_type:
+            raise ValueError("Expected Content-Type: application/json")
         length = int(self.headers.get("Content-Length", 0))
         if not length:
             return {}
-        return json.loads(self.rfile.read(length))
+        body = self.rfile.read(length)
+        if not body:
+            return {}
+        return json.loads(body)
 
     def do_OPTIONS(self):
         self.send_response(204)
@@ -821,7 +824,10 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                     self._error(404, "Asset not found")
                     return
             else:
-                target = PACKAGE_DIR / relative
+                target = (PACKAGE_DIR / relative).resolve()
+                if not _is_inside(target, PACKAGE_DIR.resolve()):
+                    self._error(403, "Access denied")
+                    return
         if not target.exists():
             self._error(404, f"Not found: {path}")
             return
@@ -1066,7 +1072,6 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             if match:
                 filename = Path(match.group(1).strip()).name or filename
 
-            base = Path(filename).stem or "upload"
             article_id = sanitize_article_id(filename)
             ext = Path(filename).suffix.lower()
             if not re.fullmatch(r"\.[a-z0-9]{1,12}", ext or ""):
@@ -1343,8 +1348,6 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             self._error(400, "updates must be an object")
             return
         update_article_fields(article_id, updates)
-        if "tags" in updates:
-            replace_article_tags(article_id, updates.get("tags") or [])
         self._json({"status": "ok"})
 
     def handle_article_delete(self):
@@ -1736,28 +1739,31 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
     # ------------------------------------------------------------------
 
     def handle_apply_update(self) -> None:
-        """POST /api/apply-update — download and launch the updater.
+        """POST /api/apply-update — launch a detached PowerShell updater.
 
-        For installed (NSIS) builds: runs the new installer silently
-        with /S. For portable builds: expands the new portable zip
-        over the install dir. The current process is asked to exit
-        via the PowerShell bootstrap.
+        The PS script downloads the update, waits for KBase.exe to exit,
+        applies the update (silent NSIS or portable zip extract), and
+        restarts the app — all independently of the current process.
+
+        The frontend should call pywebview.api.quit_app() after receiving
+        the "ok" response so the updater can proceed.
         """
         data = self._read_json()
         asset_url = (data.get("assetUrl") or "").strip()
         if not asset_url:
             self._error(400, "assetUrl is required")
             return
-        # Spawn the updater in a thread so we can return a response first.
-        result = {"ok": True, "message": "更新程序已启动，应用程序即将关闭…"}
-        self._json(result)
-        self.wfile.flush()
 
-        def _apply() -> None:
-            apply_update(asset_url)
+        ok = apply_update(asset_url)
+        if not ok:
+            self._error(500, "无法启动更新程序")
+            return
 
-        t = threading.Thread(target=_apply, daemon=True)
-        t.start()
+        self._json({
+            "ok": True,
+            "message": "更新程序已启动，窗口即将关闭…",
+            "closeWindow": True,
+        })
 
     def handle_set_data_root(self) -> None:
         """POST /api/data-root — persist a new data root path."""
@@ -1876,118 +1882,6 @@ def _unique_archive_name(name, used):
     used.add(candidate)
     return candidate
 
-
-# ---------------------------------------------------------------------------
-# Note helpers
-# ---------------------------------------------------------------------------
-
-
-def validate_note_id(note_id: str) -> str:
-    note_id = str(note_id or "").strip()
-    if not note_id:
-        raise ValueError("Note id is required")
-    path = Path(note_id)
-    if (
-        path.is_absolute()
-        or len(path.parts) != 1
-        or any(ch in INVALID_ARTICLE_CHARS or ord(ch) < 32 for ch in note_id)
-        or note_id in {".", ".."}
-    ):
-        raise ValueError("Invalid note id")
-    return note_id
-
-
-def note_file_for(note_id: str) -> Path:
-    note_id = validate_note_id(note_id)
-    NOTES_DIR.mkdir(parents=True, exist_ok=True)
-    return NOTES_DIR / f"{note_id}.md"
-
-
-# ---------------------------------------------------------------------------
-# Export helpers
-# ---------------------------------------------------------------------------
-
-
-def _clean_bib_value(value):
-    return re.sub(r"\s+", " ", str(value or "")).strip()
-
-
-def _escape_bib_value(value):
-    return _clean_bib_value(value).replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
-
-
-def _split_authors(value):
-    return [item.strip() for item in re.split(r"\s*(?:;|,|\band\b|和)\s*", _clean_bib_value(value), flags=re.I) if item.strip()]
-
-
-def _bib_key_part(value, fallback="kbase"):
-    value = re.sub(r"[^\w\s:-]+", "", _clean_bib_value(value), flags=re.UNICODE)
-    value = re.sub(r"\s+", "", value)
-    return (value or fallback)[:32]
-
-
-def _article_bib_key(article, used):
-    authors = article.get("authors") if isinstance(article.get("authors"), list) else []
-    if not authors:
-        authors = _split_authors(article.get("author", ""))
-    author_token = (authors[0] if authors else article.get("author") or "kbase").split()
-    author_part = _bib_key_part(author_token[-1] if author_token else "kbase", "kbase")
-    year_match = re.search(r"\d{4}", str(article.get("year") or article.get("date_added") or ""))
-    year_part = _bib_key_part(article.get("year") or (year_match.group(0) if year_match else "nd"), "nd")
-    title_part = _bib_key_part((_clean_bib_value(article.get("title")) or article.get("id") or "item").split()[0], article.get("id") or "item")
-    base = f"{author_part}{year_part}{title_part}"
-    key = base
-    suffix = 2
-    while key in used:
-        key = f"{base}{suffix}"
-        suffix += 1
-    used.add(key)
-    return key
-
-
-def _article_to_bibtex(article, used):
-    entry_type = "article" if (article.get("kind") or "paper") == "paper" else "misc"
-    authors = article.get("authors") if isinstance(article.get("authors"), list) else []
-    if not authors:
-        authors = _split_authors(article.get("author", ""))
-    fields = [
-        ("title", article.get("title") or article.get("source_filename") or article.get("id")),
-        ("author", " and ".join(_escape_bib_value(a) for a in authors if _clean_bib_value(a))),
-        ("year", article.get("year")),
-        ("journal" if entry_type == "article" else "howpublished", article.get("venue")),
-        ("doi", article.get("doi")),
-        ("keywords", ", ".join(article.get("tags") or []) if isinstance(article.get("tags"), list) else ""),
-        ("note", "; ".join(
-            item for item in [
-                f"Source file: {article.get('source_filename')}" if article.get("source_filename") else "",
-                f"KBase ID: {article.get('id')}" if article.get("id") else "",
-            ] if item
-        )),
-    ]
-    body = [f"  {key} = {{{_escape_bib_value(value)}}}" for key, value in fields if _clean_bib_value(value)]
-    return f"@{entry_type}{{{_article_bib_key(article, used)},\n" + ",\n".join(body) + "\n}"
-
-
-def _export_stem(article):
-    raw = article.get("title") or article.get("source_filename") or article.get("id") or "kbase_item"
-    return sanitize_article_id(raw)[:80] or str(article.get("id") or "kbase_item")
-
-
-def _unique_archive_name(name, used):
-    base = Path(name).stem
-    suffix = Path(name).suffix
-    candidate = name
-    index = 2
-    while candidate in used:
-        candidate = f"{base}_{index}{suffix}"
-        index += 1
-    used.add(candidate)
-    return candidate
-
-
-    # ------------------------------------------------------------------
-    # Update & data-root endpoints
-    # ------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------

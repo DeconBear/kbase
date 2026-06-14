@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -76,8 +75,15 @@ def check_for_update(force: bool = False) -> dict:
         with urllib.request.urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
-        if e.code == 403 and "rate limit" in str(e.read()[:200]).lower():
-            result["error"] = "GitHub API rate limited — try again later"
+        if e.code == 403:
+            try:
+                body_preview = e.read()[:200].decode(errors="replace").lower()
+            except Exception:
+                body_preview = ""
+            if "rate limit" in body_preview:
+                result["error"] = "GitHub API rate limited — try again later"
+            else:
+                result["error"] = f"GitHub returned {e.code}"
         else:
             result["error"] = f"GitHub returned {e.code}"
         _last_check = result
@@ -132,108 +138,145 @@ def check_for_update(force: bool = False) -> dict:
     return result
 
 
-def apply_update(asset_url: str, log_callback=None) -> bool:
-    """Download the update package and replace the running install.
+def apply_update(asset_url: str) -> bool:
+    """Launch a self-contained PowerShell updater that survives parent exit.
 
-    Two flows are supported:
-      - Installed (NSIS) build: download the new installer and run
-        it silently with /S after the current process exits.
-      - Portable / source build: download the new portable zip and
-        extract over the current install dir after exit.
+    The PowerShell script does everything in order:
+      1. Download the update package to a temp directory.
+      2. Poll-wait for the KBase process to exit (up to 60 s).
+      3. Apply the update (silent NSIS installer or portable zip extract).
+      4. Restart KBase.exe.
 
-    Returns True if the updater was launched successfully.
+    This function returns as soon as the PowerShell process is spawned;
+    the calling server handler should tell the frontend to close the
+    window, which triggers KBase.exe shutdown → the PS script proceeds.
     """
-
-    def log(msg: str) -> None:
-        if log_callback:
-            log_callback(msg)
-
     if not asset_url:
-        log("no update package URL available")
         return False
 
     installed = is_installed_build()
     tmp_dir = Path(tempfile.gettempdir()) / "KBaseUpdate"
     tmp_dir.mkdir(parents=True, exist_ok=True)
     install_dir = str(_exe_dir())
+    exe_name = "KBase.exe" if getattr(sys, "frozen", False) else "python.exe"
 
     if installed:
         pkg_path = tmp_dir / "KBase-Setup.exe"
+        apply_block = f"""Write-Host '[3/4] Running silent installer...'
+$installArgs = @('/S', '/D=' + $targetDir)
+$p = Start-Process -FilePath $pkg -ArgumentList $installArgs -Wait -PassThru -NoNewWindow
+if ($p.ExitCode -ne 0) {{
+    Write-Host "ERROR: Installer exited with code $($p.ExitCode)"
+    exit 1
+}}
+Write-Host '[4/4] Installer finished successfully.'"""
     else:
         pkg_path = tmp_dir / "KBase-portable.zip"
+        # For portable builds, extract to a staging dir then robocopy over
+        # the install dir so we don't hit locked-file errors on _internal/.
+        apply_block = f"""Write-Host '[3/4] Extracting portable update...'
+$stageDir = Join-Path $env:TEMP 'KBaseUpdateStage'
+Remove-Item $stageDir -Recurse -Force -ErrorAction SilentlyContinue
+Expand-Archive -Path $pkg -DestinationPath $stageDir -Force
+Write-Host '[4/4] Copying files over $targetDir...'
+# Use robocopy to mirror the staging dir over the install dir.
+# Retry on locked files (up to 3 attempts with 2 s delay).
+$maxRetry = 3
+$retry = 0
+$robocopyOk = $false
+while ($retry -lt $maxRetry) {{
+    $result = robocopy $stageDir $targetDir /MIR /R:2 /W:2 /NP /NDL /NFL
+    if ($LASTEXITCODE -lt 8) {{
+        $robocopyOk = $true
+        break
+    }}
+    $retry++
+    Write-Host "  Retry $retry/$maxRetry (robocopy exit $LASTEXITCODE)..."
+    Start-Sleep 2
+}}
+Remove-Item $stageDir -Recurse -Force -ErrorAction SilentlyContinue
+if (-not $robocopyOk) {{
+    Write-Host "WARNING: Some files could not be overwritten — they will be updated on next launch."
+}}"""
 
-    log(f"downloading update package... ({asset_url})")
-    try:
-        req = urllib.request.Request(asset_url, headers={"User-Agent": "KBase-Updater"})
-        with urllib.request.urlopen(req, timeout=300) as resp:
-            with open(pkg_path, "wb") as f:
-                shutil.copyfileobj(resp, f, length=8192 * 1024)
-    except Exception as e:
-        log(f"download failed: {e}")
-        return False
+    updater_body = f"""$ErrorActionPreference = 'Stop'
+$pkg = '{pkg_path}'
+$targetDir = '{install_dir}'
+$exeName = '{exe_name}'
 
-    pkg_size_mb = pkg_path.stat().st_size / (1024 * 1024)
-    log(f"download done ({pkg_size_mb:.1f} MB) -> {pkg_path}")
+Write-Host '=== KBase Updater ==='
+Write-Host "  Package  : $pkg"
+Write-Host "  Target   : $targetDir"
+Write-Host "  Mode     : {'NSIS installer' if installed else 'Portable zip'}"
 
-    updater_ps1 = tmp_dir / "update.ps1"
-    if installed:
-        updater_body = """$ErrorActionPreference = 'Stop'
-$installer = '""" + str(pkg_path) + """'
-$targetDir = '""" + install_dir + """'
+# ---- 1. Download ----
+Write-Host '[1/4] Downloading update package...'
+$ProgressPreference = 'SilentlyContinue'
+try {{
+    Invoke-WebRequest -Uri '{asset_url}' -OutFile $pkg -UseBasicParsing -TimeoutSec 600
+}} catch {{
+    Write-Host "ERROR: Download failed: $($_.Exception.Message)"
+    exit 1
+}}
+$pkgSize = [math]::Round((Get-Item $pkg).Length / 1MB, 1)
+Write-Host "  Downloaded $pkgSize MB"
 
-Write-Host "Waiting for KBase to exit..."
-Start-Sleep 2
-$proc = Get-Process -Name "KBase" -ErrorAction SilentlyContinue
-if ($proc) { $proc | Wait-Process -Timeout 30 }
+# ---- 2. Wait for KBase to exit ----
+Write-Host '[2/4] Waiting for KBase to exit...'
+$timeout = 60
+$elapsed = 0
+while ($elapsed -lt $timeout) {{
+    $proc = Get-Process -Name 'KBase' -ErrorAction SilentlyContinue
+    if (-not $proc) {{
+        Write-Host '  KBase has exited.'
+        break
+    }}
+    Start-Sleep 1
+    $elapsed++
+}}
+if ($elapsed -ge $timeout) {{
+    Write-Host '  Timeout waiting for KBase to exit — forcing termination.'
+    Get-Process -Name 'KBase' -ErrorAction SilentlyContinue | Stop-Process -Force
+    Start-Sleep 2
+}}
 
-Write-Host "Running installer silently..."
-$args = @('/S', '/D=' + $targetDir)
-$p = Start-Process -FilePath $installer -ArgumentList $args -Wait -PassThru -NoNewWindow
-if ($p.ExitCode -eq 0) {
-    Write-Host "Update successful, restarting KBase..."
-    Start-Process (Join-Path $targetDir 'KBase.exe')
-}
+# ---- 3. Apply update ----
+{apply_block}
 
-Start-Sleep 2
-Remove-Item $installer -Force -ErrorAction SilentlyContinue
-Remove-Item $PSCommandPath -Force -ErrorAction SilentlyContinue
-"""
-    else:
-        updater_body = """$ErrorActionPreference = 'Stop'
-$pkg = '""" + str(pkg_path) + """'
-$targetDir = '""" + install_dir + """'
+# ---- 4. Restart ----
+Write-Host 'Restarting KBase...'
+$kbaseExe = Join-Path $targetDir 'KBase.exe'
+if (Test-Path $kbaseExe) {{
+    Start-Process -FilePath $kbaseExe
+}} else {{
+    Write-Host 'WARNING: KBase.exe not found at expected location.'
+}}
 
-Write-Host "Waiting for KBase to exit..."
-Start-Sleep 2
-$proc = Get-Process -Name "KBase" -ErrorAction SilentlyContinue
-if ($proc) { $proc | Wait-Process -Timeout 30 }
-
-Write-Host "Extracting portable update over $targetDir..."
-Expand-Archive -Path $pkg -DestinationPath $targetDir -Force
-
-Write-Host "Update successful, restarting KBase..."
-Start-Process (Join-Path $targetDir 'KBase.exe')
-
+# ---- Cleanup ----
 Start-Sleep 2
 Remove-Item $pkg -Force -ErrorAction SilentlyContinue
 Remove-Item $PSCommandPath -Force -ErrorAction SilentlyContinue
+Write-Host 'Updater finished.'
 """
+
+    updater_ps1 = tmp_dir / "update.ps1"
     updater_ps1.write_text(updater_body, encoding="utf-8")
 
     try:
         subprocess.Popen(
             ["powershell.exe", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden",
              "-File", str(updater_ps1)],
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | getattr(subprocess, "DETACHED_PROCESS", 0)
-             if sys.platform == "win32" else 0,
+            creationflags=(
+                subprocess.CREATE_NEW_PROCESS_GROUP
+                | getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
+            ) if sys.platform == "win32" else 0,
             close_fds=True,
         )
-    except Exception as e:
-        log(f"failed to launch updater: {e}")
+    except Exception:
         return False
 
-    log("updater launched, application will exit shortly...")
     return True
+
 
 def _version_greater(a: str, b: str) -> bool:
     """Compare two semver-like version strings (e.g. '0.4.0' > '0.3.0')."""
@@ -247,4 +290,6 @@ def _version_greater(a: str, b: str) -> bool:
             parts_b.append(0)
         return parts_a > parts_b
     except (ValueError, AttributeError):
-        return a != b  # fallback: any difference counts
+        # If we can't parse versions, assume no update
+        # (safer than assuming any difference is an update).
+        return False
