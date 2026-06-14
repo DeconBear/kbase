@@ -1,0 +1,112 @@
+name: build-release
+
+# Triggers
+#   * push a tag matching v*        — build + draft GitHub Release (unsigned)
+#   * workflow_dispatch             — manual run (build + optional draft release)
+#
+# To add code signing later, see the previous iteration of this workflow
+# (build-and-sign.yml in git history) for the SignPath.io integration
+# — it was removed to avoid a "SmartScreen — Windows protected your PC"
+# warning before an EV cert is in place.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Publish a draft GitHub Release'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write   # create the draft release
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. BUILD — produce unsigned PyInstaller onedir output and NSIS installer.
+  #    scripts/build_release.ps1 is the single source of truth — run it the
+  #    same way locally to reproduce a CI build before tagging.
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build (PyInstaller + NSIS)
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # need git describe for non-tag runs
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          if ("${{ github.ref_type }}" -eq 'tag') {
+            $tag = '${{ github.ref_name }}'
+          } else {
+            $tag = (git describe --tags --abbrev=0).Trim()
+          }
+          $version = $tag -replace '^v', ''
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "tag=$tag"       | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Resolved tag=$tag  version=$version"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install NSIS
+        uses: nsis-dev/install-nsis@v1
+
+      - name: Build release artifacts
+        shell: pwsh
+        run: |
+          pwsh scripts/build_release.ps1 `
+            -Version '${{ steps.version.outputs.version }}'
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: |
+            dist/KBase-v*-portable.zip
+            dist/KBase-Setup-*.exe
+          if-no-files-found: error
+          retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # 2. RELEASE — create a draft GitHub Release with the build artifacts.
+  # ---------------------------------------------------------------------------
+  release:
+    name: Create GitHub Release
+    needs: build
+    if: |
+      github.event_name == 'push'
+        || (github.event_name == 'workflow_dispatch' && inputs.release)
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: dist
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.build.outputs.tag }}
+          name: 'KBase ${{ needs.build.outputs.tag }}'
+          draft: true
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/*.zip
+            dist/*.exe
