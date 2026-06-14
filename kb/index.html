@@ -181,20 +181,8 @@ select option{background:var(--surface-2);color:var(--text)}
 #statusMsg{font-size:12px;color:var(--amber);margin-left:4px;font-weight:500}
 
 /* ===== Home / Library Chat View ===== */
-#library-view{display:flex;height:100vh;background:var(--bg);overflow:hidden;position:absolute;inset:0;z-index:1}
+#library-view{display:flex;height:100vh;background:var(--bg);overflow:hidden}
 #library-view.hidden{display:none}
-/* When the active tab is anything other than 'home' (e.g. settings,
-   article, note, url), hide the library view + the global AI chat
-   panel. We rely on TWO mechanisms to maximise compatibility with
-   embedded webview engines:
-   (a) data-tab attribute: the body gets data-tab="<id>" on activate,
-       the attribute is removed for home.
-   (b) .tab-active class: redundant hook for engines that handle
-       class selectors better. */
-body[data-tab]:not([data-tab="home"]) #library-view,
-body[data-tab]:not([data-tab="home"]) #global-chat-panel,
-body.tab-active #library-view,
-body.tab-active #global-chat-panel {display:none!important;visibility:hidden!important;height:0!important;overflow:hidden!important}
 #home-shell{display:flex;width:100%;height:100%;overflow:hidden}
 #global-chat-panel{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--panel-bg)}
 #home-topbar{height:54px;flex-shrink:0;padding:0 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;background:var(--topbar-bg);backdrop-filter:blur(12px)}
@@ -523,7 +511,7 @@ body.tab-active #global-chat-panel {display:none!important;visibility:hidden!imp
 #pdf-column{flex:1;overflow:hidden;background:#1e293b;position:relative}
 #pdf-column.hidden{display:none}
 #pdf-container{width:100%;height:100%}
-#pdf-embed{width:100%;height:100%;border:none}
+.article-pdf-embed{width:100%;height:100%;border:none}
 #pdf-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--text-3)}
 #pdf-placeholder .icon{font-size:3em;margin-bottom:10px;opacity:.4}
 
@@ -1424,7 +1412,7 @@ body { display: flex !important; flex-direction: column !important; height: 100v
     <div id="pdf-column">
       <div id="pdf-container">
         <div id="pdf-placeholder"><div class="icon">📑</div><div>PDF 预览</div></div>
-        <iframe id="pdf-embed" style="display:none"></iframe>
+        <iframe class="article-pdf-embed" style="display:none"></iframe>
       </div>
       <div id="pdf-gpu-warning" style="display:none;position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(15,23,42,.92);flex-direction:column;align-items:center;justify-content:center;z-index:10;text-align:center;padding:30px">
         <div style="font-size:3em;margin-bottom:12px;opacity:.6">🖥️</div>
@@ -1595,25 +1583,19 @@ let LLM_CFG = {apiUrl:'/api/chat',providerId:'',model:''};
 
 // ===== TAB MANAGER =====
 
-// Defensive getters for chat panel children. If the chat panel was
-// removed (we detach it on non-home tabs), these return null and
-// callers should handle that gracefully.
+// Defensive getters for the home chat panel.
 function chatEl(id) {
   const root = document.getElementById('global-chat-panel');
   if (!root) return null;
   return root.querySelector('#' + id);
 }
 
+const ARTICLE_TAB_CACHE_TTL_MS = 5 * 60 * 60 * 1000;
+
 const TabManager = {
   tabs: [],
   activeTabId: null,
 
-  init() {
-    this.openTab('home', 'home', '🏠 文库', {}, false);
-  },
-  tabs: [],
-  activeTabId: null,
-  
   init() {
     this.openTab('home', 'home', '🏠 文库', {}, false);
   },
@@ -1632,6 +1614,9 @@ const TabManager = {
        data.currentRawMd = '';
        data.translatedMd = '';
        data.summaryText = '';
+       data.chatHistory = [];
+       data.chatLoaded = false;
+       data.lastActivatedAt = Date.now();
        data.translationPollTimers = {};
        data.convPollTimer = null;
     }
@@ -1711,99 +1696,45 @@ const TabManager = {
             oldTab.data.translationPollTimers = translationPollTimers;
             oldTab.data.convPollTimer = convPollTimer;
             oldTab.data.scrollTop = document.getElementById('md-scroll')?.scrollTop || 0;
+            oldTab.data.chatHistory = normalizeChatMessages(chatHistory).map(message => ({...message}));
+            oldTab.data.chatLoaded = true;
+            oldTab.data.lastActivatedAt = Date.now();
+            if (!isEditing) {
+                oldTab.data.renderedHtml = document.getElementById('md-content')?.innerHTML || '';
+                oldTab.data.renderedView = currentView;
+                oldTab.data.tocHtml = document.getElementById('toc-list')?.innerHTML || '';
+            }
         }
-     }
-  },
+      }
+   },
   
   activateTab(id) {
     if (this.activeTabId === id) return;
     this.saveCurrentReaderState();
+    const now = Date.now();
+    this.tabs.forEach(tab => {
+      if (
+        tab.type === 'article' &&
+        tab.data.lastActivatedAt &&
+        now - tab.data.lastActivatedAt > ARTICLE_TAB_CACHE_TTL_MS
+      ) {
+        removeArticlePdf(tab.data.article?.id);
+        tab.data.currentRawMd = '';
+        tab.data.translatedMd = '';
+        tab.data.summaryText = '';
+        tab.data.translationChecked = false;
+        delete tab.data.renderedHtml;
+        delete tab.data.renderedView;
+        delete tab.data.tocHtml;
+      }
+    });
 
     this.activeTabId = id;
     document.querySelectorAll('.tab-item').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.iframe-tab').forEach(el => el.classList.remove('active'));
-    // Reflect the active tab on <body> so CSS can hide native views
-    // (library-view, reader-view, notes-view) reliably across all
-    // embedded webview engines. We use FOUR mechanisms because the
-    // user kept seeing the AI chat panel bleed into settings and
-    // article tabs on pywebview's Edge WebView2:
-    //   (a) body.dataset.tab = id
-    //   (b) body.classList.add('tab-active') when non-home
-    //   (c) inline style.display = 'none' / '' on the elements
-    //   (d) the CSS rules at the top of this file use the same
-    //       selectors
-    // Inline style trumps everything else and is the most reliable
-    // across embedded engines.
-    if (id === 'home') {
-      delete document.body.dataset.tab;
-      document.body.classList.remove('tab-active');
-      document.body.classList.add('tab-home');
-    } else {
-      document.body.dataset.tab = id;
-      document.body.classList.add('tab-active');
-      document.body.classList.remove('tab-home');
-    }
-    // Inline-style show/hide of the home-view elements. This is
-    // belt-and-suspenders: the CSS rules at the top should already
-    // hide them, but in some Edge WebView2 builds attribute
-    // selectors behave inconsistently.
-    const lv  = document.getElementById('library-view');
-    const cht = document.getElementById('global-chat-panel');
-    if (id === 'home') {
-      // Restore the home view to its normal CSS-driven layout.
-      // No inline-style overrides — the original CSS handles
-      // positioning. If something in pywebview's WebView2 ignored
-      // the previous hide styles, those will release cleanly.
-      if (lv) {
-        lv.classList.remove('hidden');
-        lv.style.cssText = '';
-      }
-      // Recreate the chat panel from a saved HTML template if it
-      // was removed on the previous non-home activate. We save the
-      // innerHTML on first detach so we can re-attach the same
-      // content (including chat history) on home.
-      if (!cht && window.__chatTemplateHTML) {
-        const target = document.querySelector('#library-view #home-shell main') || lv;
-        if (target) target.insertAdjacentHTML('beforeend', window.__chatTemplateHTML);
-        const reattached = document.getElementById('global-chat-panel');
-        if (reattached) reattached.style.cssText = '';
-      } else if (cht) {
-        cht.style.cssText = '';
-      }
-    } else {
-      // The most aggressive possible hide: physically move the
-      // element 10000px to the LEFT of the viewport. Combined with
-      // display:none + visibility:hidden + height:0 + overflow:hidden
-      // + position:absolute. Even if pywebview's Edge WebView2 ignores
-      // some CSS rules, moving the element far off-screen guarantees
-      // it can't be painted in the visible area.
-      if (lv) {
-        lv.classList.add('hidden');
-        lv.style.position = 'absolute';
-        lv.style.left = '-99999px';
-        lv.style.top = '-99999px';
-        lv.style.width = '1px';
-        lv.style.height = '1px';
-        lv.style.visibility = 'hidden';
-        lv.style.display = 'none';
-      }
-      // PHYSICALLY REMOVE the chat panel from the DOM. The only
-      // thing that survives pywebview's Edge WebView2 — every CSS-
-      // hide / inline-style attempt was rendered correctly in
-      // Chromium/Edge but ignored in WebView2, so the chat kept
-      // bleeding into settings/article tabs. The chat is only used
-      // on home tab, so removing it elsewhere is safe. We save the
-      // innerHTML once on first detach so we can re-insert the same
-      // content (including any in-flight chat history) on home.
-      if (cht && cht.parentNode) {
-        if (!window.__chatTemplateHTML) {
-          window.__chatTemplateHTML = cht.outerHTML;
-        }
-        cht.__savedParent = cht.parentNode;
-        cht.__savedNext = cht.nextSibling;
-        cht.parentNode.removeChild(cht);
-      }
-    }
+    document.body.dataset.tab = id;
+    document.body.classList.toggle('tab-home', id === 'home');
+    document.body.classList.toggle('tab-active', id !== 'home');
 
     // Swap chat HTML
     const tabData = this.tabs.find(t => t.id === id);
@@ -1819,6 +1750,8 @@ const TabManager = {
     
     const tab = this.tabs.find(t => t.id === id);
     if (!tab) return;
+    if (tab.type === 'article') tab.data.lastActivatedAt = now;
+    if (tab.type !== 'article') currentArticle = null;
     
     // Hide all native views
     const lvEl = document.getElementById('library-view');
@@ -1842,6 +1775,8 @@ const TabManager = {
        currentRawMd = tab.data.currentRawMd || '';
        translatedMd = tab.data.translatedMd || '';
        summaryText = tab.data.summaryText || '';
+       chatHistory = normalizeChatMessages(tab.data.chatHistory || []).map(message => ({...message}));
+       renderChatHistory();
        translationPollTimers = tab.data.translationPollTimers || {};
        convPollTimer = tab.data.convPollTimer || null;
        
@@ -1880,6 +1815,7 @@ const TabManager = {
     if (tab.type === 'article') {
         Object.keys(tab.data.translationPollTimers || {}).forEach(tid => clearTimeout(tab.data.translationPollTimers[tid]));
         if (tab.data.convPollTimer) clearInterval(tab.data.convPollTimer);
+        removeArticlePdf(tab.data.article?.id);
     }
     
     this.tabs.splice(idx, 1);
@@ -1902,7 +1838,7 @@ let currentView = 'original';
 let isEditing = false, isTranslating = false, isSummarizing = false;
 let markdownEditor = null, notesTimer = null;
 let chatHistory = [];
-let colVisible = {md:true, chat:true, pdf:true};
+let colVisible = {md:true, chat:false, pdf:true};
 let llmConfig = {active_provider:'', providers:[]};
 let llmEditingProviderId = '';
 let chatSaveTimer = null;
@@ -3692,6 +3628,62 @@ async function uploadFile(file) {
 }
 
 // ===== READER =====
+function getActiveArticlePdf() {
+  return document.querySelector('#pdf-container .article-pdf-embed.active');
+}
+
+function getArticlePdf(articleId) {
+  return Array.from(document.querySelectorAll('#pdf-container .article-pdf-embed'))
+    .find(frame => frame.dataset.articleId === articleId) || null;
+}
+
+function activateArticlePdf(article, options={}) {
+  const container = document.getElementById('pdf-container');
+  const placeholder = document.getElementById('pdf-placeholder');
+  const warning = document.getElementById('pdf-gpu-warning');
+  const frames = Array.from(container.querySelectorAll('.article-pdf-embed'));
+  frames.forEach(frame => {
+    frame.classList.remove('active');
+    frame.style.display = 'none';
+  });
+
+  if (options.gpuBusy) {
+    warning.style.display = 'flex';
+    placeholder.style.display = 'none';
+    return null;
+  }
+
+  warning.style.display = 'none';
+  if (!article?.pdf_available) {
+    placeholder.style.display = '';
+    placeholder.innerHTML = '<div class="icon">📦</div><div>资料块</div>';
+    return null;
+  }
+
+  let frame = getArticlePdf(article.id);
+  if (!frame) {
+    frame = frames.find(candidate => !candidate.dataset.articleId && !candidate.getAttribute('src'));
+    if (!frame) {
+      frame = document.createElement('iframe');
+      frame.className = 'article-pdf-embed';
+      container.appendChild(frame);
+    }
+    frame.dataset.articleId = article.id;
+  }
+
+  const pdfUrl = `articles/${article.id}/original.pdf`;
+  if (frame.getAttribute('src') !== pdfUrl) frame.src = pdfUrl;
+  frame.classList.add('active');
+  frame.style.display = 'block';
+  placeholder.style.display = 'none';
+  return frame;
+}
+
+function removeArticlePdf(articleId) {
+  const frame = getArticlePdf(articleId);
+  if (frame) frame.remove();
+}
+
 async function openReader(id) {
   const article = articles.find(a => a.id === id);
   if (!article) return;
@@ -3700,14 +3692,28 @@ async function openReader(id) {
 
 async function initArticleTab(tabId, tabData) {
   const article = tabData.article;
+  const loadVersion = (tabData.loadVersion || 0) + 1;
+  tabData.loadVersion = loadVersion;
+  const isCurrentTab = () => (
+    TabManager.activeTabId === tabId &&
+    tabData.loadVersion === loadVersion &&
+    currentArticle?.id === article.id
+  );
+  const settings = loadSettings();
+  const gpuBusy = article.converting && settings.device === 'cuda' && !settings.protect_pdf;
+
   document.getElementById('readerTitle').textContent = article.title;
   document.getElementById('readerVenue').textContent = article.venue ? `| 期刊/会议: ${article.venue}` : '';
   document.getElementById('readerDoi').textContent = '';
+  activateArticlePdf(article, {gpuBusy});
 
   // Load saved highlights + the 文章小记 badge count for this article.
   if (typeof loadArticleHighlights === 'function') loadArticleHighlights(article.id);
   if (typeof loadArticleNotes === 'function') {
     loadArticleNotes().catch(() => {});  // fire-and-forget; updates badge + list
+  }
+  if (!tabData.chatLoaded) {
+    loadChatHistory(article.id, tabData).catch(() => {});
   }
 
   // FAST PATH: if this tab has cached content, set the globals and
@@ -3717,7 +3723,7 @@ async function initArticleTab(tabId, tabData) {
   // title, the show-orig/trans buttons, the scroll position). This
   // makes switching back to a previously-visited article tab feel
   // instant — no loading spinner, no editor rebuild flash.
-  if (tabData.currentRawMd) {
+  if (tabData.currentRawMd && (!article.translated || tabData.translationChecked)) {
     currentRawMd = tabData.currentRawMd;
     translatedMd = tabData.translatedMd || '';
     summaryText = tabData.summaryText || '';
@@ -3731,24 +3737,19 @@ async function initArticleTab(tabId, tabData) {
     document.getElementById('rbSummarize').disabled = false;
     document.getElementById('rbReconvert').style.display = article.pdf_available ? '' : 'none';
     document.getElementById('rbCalibrate').style.display = article.pdf_available ? '' : 'none';
-    // IMPORTANT: also update the PDF column. Without this, the iframe
-    // still shows the previous tab's PDF (cross-tab bleed). The slow
-    // path resets it via setting src = ''; we set it to the right PDF.
-    if (article.pdf_available) {
-      const pdfEmbed = document.getElementById('pdf-embed');
-      const pdfUrl = `articles/${article.id}/original.pdf?t=${Date.now()}`;
-      if (pdfEmbed.src.indexOf(article.id) === -1) {
-        pdfEmbed.src = pdfUrl;
-        pdfEmbed.style.display = '';
-        document.getElementById('pdf-placeholder').style.display = 'none';
-      }
-    } else {
-      document.getElementById('pdf-embed').src = '';
-      document.getElementById('pdf-embed').style.display = 'none';
-      document.getElementById('pdf-placeholder').style.display = '';
-      document.getElementById('pdf-placeholder').innerHTML = '<div class="icon">📑</div><div>PDF 不可用</div>';
-    }
-    if (translatedMd && currentView === 'translated' && article.translated) {
+    const cachedHtmlMatchesView = (
+      tabData.renderedHtml &&
+      tabData.renderedView === currentView
+    );
+    if (cachedHtmlMatchesView) {
+      if (markdownEditor) { markdownEditor.destroy(); markdownEditor = null; }
+      const mdContent = document.getElementById('md-content');
+      mdContent.classList.add('markdown-content');
+      mdContent.innerHTML = tabData.renderedHtml;
+      document.getElementById('toc-list').innerHTML = tabData.tocHtml || '';
+      bindMarkdownInternalLinks(mdContent);
+      fixPreviewImages(mdContent, article.id);
+    } else if (translatedMd && currentView === 'translated' && article.translated) {
       document.getElementById('rbShowOrig').style.display = '';
       document.getElementById('rbShowTrans').style.display = '';
       document.getElementById('rbShowOrig').classList.remove('active');
@@ -3759,66 +3760,6 @@ async function initArticleTab(tabId, tabData) {
       document.getElementById('rbShowTrans').style.display = 'none';
       renderReaderMarkdown(currentRawMd, currentArticle, true);
     }
-    if (tabData.scrollTop) {
-      const sc = document.getElementById('md-scroll');
-      if (sc) sc.scrollTop = tabData.scrollTop;
-    }
-    return;
-  }
-
-  // SLOW PATH: first time this tab is opened, or the cached content
-  // was empty (the previous save happened mid-load). Reset the editor
-  // and fetch from the server.
-  isEditing = false;
-  if (markdownEditor) { markdownEditor.destroy(); markdownEditor = null; }
-  currentRawMd = '';
-  translatedMd = '';
-  summaryText = '';
-  currentView = 'original';
-  document.getElementById('md-content').style.display = 'none';
-  document.getElementById('md-content').innerHTML = '';
-  document.getElementById('md-container').style.display = 'block';
-  document.getElementById('md-loading').style.display = 'block';
-  document.getElementById('md-error').style.display = 'none';
-  document.getElementById('rbShowOrig').style.display = 'none';
-  document.getElementById('rbShowTrans').style.display = 'none';
-  document.getElementById('rbReconvert').style.display = 'none';
-  document.getElementById('rbCalibrate').style.display = 'none';
-  document.getElementById('toc-list').innerHTML = '';
-  document.getElementById('statusMsg').textContent = '';
-  document.getElementById('summary-body').innerHTML = '';
-
-  // Clear PDF
-  document.getElementById('pdf-embed').src = '';
-  document.getElementById('pdf-embed').style.display = 'none';
-  document.getElementById('pdf-placeholder').style.display = '';
-  document.getElementById('pdf-placeholder').innerHTML = '<div class="icon">📑</div><div>PDF 预览</div>';
-
-  document.getElementById('rbEdit').disabled = true;
-  document.getElementById('rbTranslate').disabled = true;
-  document.getElementById('rbSummarize').disabled = true;
-
-  // Continue to the network fetch below.
-  if (currentRawMd) {
-    document.getElementById('md-loading').style.display = 'none';
-    document.getElementById('md-content').style.display = 'block';
-    document.getElementById('rbEdit').disabled = false;
-    document.getElementById('rbTranslate').disabled = false;
-    document.getElementById('rbSummarize').disabled = false;
-    document.getElementById('rbReconvert').style.display = article.pdf_available ? '' : 'none';
-    document.getElementById('rbCalibrate').style.display = article.pdf_available ? '' : 'none';
-    // If a translation is cached and the user was last viewing it,
-    // re-show the translated overlay.
-    if (translatedMd && currentView === 'translated' && article.translated) {
-      document.getElementById('rbShowOrig').style.display = '';
-      document.getElementById('rbShowTrans').style.display = '';
-      document.getElementById('rbShowOrig').classList.remove('active');
-      document.getElementById('rbShowTrans').classList.add('active');
-      renderReaderMarkdown(translatedMd, currentArticle, false);
-    } else {
-      renderReaderMarkdown(currentRawMd, currentArticle, true);
-    }
-    // Restore scroll position if we have one.
     if (tabData.scrollTop) {
       const sc = document.getElementById('md-scroll');
       if (sc) sc.scrollTop = tabData.scrollTop;
@@ -3843,12 +3784,6 @@ async function initArticleTab(tabId, tabData) {
   document.getElementById('statusMsg').textContent = '';
   document.getElementById('summary-body').innerHTML = '';
 
-  // Clear PDF
-  document.getElementById('pdf-embed').src = '';
-  document.getElementById('pdf-embed').style.display = 'none';
-  document.getElementById('pdf-placeholder').style.display = '';
-  document.getElementById('pdf-placeholder').innerHTML = '<div class="icon">📑</div><div>PDF 预览</div>';
-
   document.getElementById('rbEdit').disabled = true;
   document.getElementById('rbTranslate').disabled = true;
   document.getElementById('rbSummarize').disabled = true;
@@ -3859,8 +3794,16 @@ async function initArticleTab(tabId, tabData) {
     let t = Date.now();
     let resp = await fetch(`articles/${article.id}/${article.id}_calibrated.md?t=${t}`);
     if (!resp.ok) resp = await fetch(`articles/${article.id}/${article.id}.md?t=${t}`);
-    if (resp.ok) { currentRawMd = await resp.text(); renderReaderMarkdown(currentRawMd, article, true); mdLoaded = true; }
+    if (resp.ok) {
+      const loadedMarkdown = await resp.text();
+      tabData.currentRawMd = loadedMarkdown;
+      if (!isCurrentTab()) return;
+      currentRawMd = loadedMarkdown;
+      renderReaderMarkdown(currentRawMd, article, true);
+      mdLoaded = true;
+    }
   } catch(e) { console.error("Error loading markdown:", e); }
+  if (!isCurrentTab()) return;
   document.getElementById('md-loading').style.display = 'none';
   if (mdLoaded) {
     document.getElementById('md-content').style.display = 'block';
@@ -3902,7 +3845,11 @@ async function initArticleTab(tabId, tabData) {
     try {
       const trResp = await fetch(`articles/${article.id}/${article.id}_translated.md?t=${Date.now()}`);
       if (trResp.ok) {
-        translatedMd = await trResp.text();
+        const loadedTranslation = await trResp.text();
+        tabData.translatedMd = loadedTranslation;
+        tabData.translationChecked = true;
+        if (!isCurrentTab()) return;
+        translatedMd = loadedTranslation;
         document.getElementById('rbShowOrig').style.display = '';
         document.getElementById('rbShowTrans').style.display = '';
         document.getElementById('rbShowOrig').classList.remove('active');
@@ -3910,41 +3857,22 @@ async function initArticleTab(tabId, tabData) {
         currentView = 'translated';
         renderReaderMarkdown(translatedMd, currentArticle, false);
       }
-    } catch(e) {}
+    } catch(e) {
+      tabData.translationChecked = true;
+    }
+  } else {
+    tabData.translationChecked = true;
   }
 
+  if (!isCurrentTab()) return;
   checkTranslationStatus(article.id);
 
   // Load summary
   if (article.summarized) {
     const loaded = await loadSavedSummary(false);
+    if (!isCurrentTab()) return;
     if (loaded) document.getElementById('rbSummarize').disabled = false;
   }
-
-  // Load PDF — check GPU protection
-  const settings = loadSettings();
-  const gpuBusy = article.converting && settings.device === 'cuda' && !settings.protect_pdf;
-  const warnEl = document.getElementById('pdf-gpu-warning');
-  if (gpuBusy) {
-    warnEl.style.display = 'flex';
-    document.getElementById('pdf-placeholder').style.display = 'none';
-    document.getElementById('pdf-embed').style.display = 'none';
-    document.getElementById('pdf-embed').src = '';
-  } else if (article.pdf_available) {
-    warnEl.style.display = 'none';
-    document.getElementById('pdf-placeholder').style.display = 'none';
-    document.getElementById('pdf-embed').style.display = 'block';
-    document.getElementById('pdf-embed').src = `articles/${article.id}/original.pdf`;
-  } else {
-    warnEl.style.display = 'none';
-    document.getElementById('pdf-placeholder').style.display = '';
-    document.getElementById('pdf-placeholder').innerHTML = '<div class="icon">📦</div><div>资料块</div>';
-    document.getElementById('pdf-embed').style.display = 'none';
-    document.getElementById('pdf-embed').src = '';
-  }
-
-  // Restore saved chat for this article
-  await loadChatHistory(tabId);
 
   // Apply column visibility
   applyColumnVisibility();
@@ -3963,9 +3891,8 @@ async function initArticleTab(tabId, tabData) {
 
 function backToLibrary() {
   stopGpuMonitor();
-  document.getElementById('reader-view').classList.remove('active');
-  document.getElementById('library-view').classList.remove('hidden');
   if (markdownEditor) { markdownEditor.destroy(); markdownEditor = null; }
+  TabManager.activateTab('home');
   renderLibrary();
 }
 
@@ -3981,13 +3908,14 @@ function applyColumnVisibility() {
   const h1 = document.getElementById('handle1');
   const chatCol = document.getElementById('chat-column');
   const chatHandle = document.getElementById('global-chat-handle');
+  const activeTab = TabManager.tabs.find(tab => tab.id === TabManager.activeTabId);
+  const articleChatVisible = activeTab?.type === 'article' && colVisible.chat;
 
   mdCol.style.display = colVisible.md ? 'flex' : 'none';
   pdfCol.classList.toggle('hidden', !colVisible.pdf);
   
-  // Chat column toggle logic
   if (chatCol && chatHandle) {
-     if (colVisible.chat && TabManager.activeTabId !== 'home') {
+     if (articleChatVisible) {
          chatCol.style.display = 'flex';
          chatHandle.style.display = 'block';
      } else {
@@ -4166,7 +4094,8 @@ function cycleLayout() {
     startRightPct = rightCol.clientWidth / total * 100;
     document.body.style.userSelect = 'none';
     document.body.style.cursor = 'col-resize';
-    document.getElementById('pdf-embed').style.pointerEvents = 'none';
+    const pdfEmbed = getActiveArticlePdf();
+    if (pdfEmbed) pdfEmbed.style.pointerEvents = 'none';
     handle1.classList.add('dragging');
     if (globalChatHandle) globalChatHandle.classList.add('dragging');
   }
@@ -4193,7 +4122,8 @@ function cycleLayout() {
     leftCol = null; rightCol = null;
     document.body.style.userSelect = '';
     document.body.style.cursor = '';
-    document.getElementById('pdf-embed').style.pointerEvents = '';
+    const pdfEmbed = getActiveArticlePdf();
+    if (pdfEmbed) pdfEmbed.style.pointerEvents = '';
     handle1.classList.remove('dragging');
     if (globalChatHandle) globalChatHandle.classList.remove('dragging');
   }
@@ -4300,18 +4230,33 @@ function setChatSaveStatus(text, tone='muted') {
   el.style.color = tone === 'ok' ? 'var(--emerald)' : tone === 'error' ? 'var(--rose)' : 'var(--text-3)';
 }
 
-async function loadChatHistory(articleId) {
-  chatHistory = [];
-  setChatSaveStatus('');
-  renderChatHistory();
+async function loadChatHistory(articleId, tabData=null) {
+  if (tabData?.chatLoaded) {
+    if (currentArticle?.id === articleId) {
+      chatHistory = normalizeChatMessages(tabData.chatHistory || []).map(message => ({...message}));
+      renderChatHistory();
+    }
+    return;
+  }
+
+  let loadedHistory = [];
   try {
     const resp = await fetch(`articles/${articleId}/${articleId}_chat.json?ts=${Date.now()}`);
-    if (!resp.ok) return;
-    const saved = await resp.json();
-    chatHistory = normalizeChatMessages(saved.messages || saved);
-    renderChatHistory();
-    if (chatHistory.length) setChatSaveStatus('已恢复', 'ok');
+    if (resp.ok) {
+      const saved = await resp.json();
+      loadedHistory = normalizeChatMessages(saved.messages || saved);
+    }
   } catch(e) {}
+
+  if (tabData) {
+    tabData.chatHistory = loadedHistory.map(message => ({...message}));
+    tabData.chatLoaded = true;
+  }
+  if (currentArticle?.id !== articleId) return;
+
+  chatHistory = loadedHistory.map(message => ({...message}));
+  setChatSaveStatus(chatHistory.length ? '已恢复' : '', chatHistory.length ? 'ok' : '');
+  renderChatHistory();
 }
 
 function resetChat(options={}) {
@@ -4938,19 +4883,26 @@ function setSummaryMarkdown(text) {
 
 async function loadSavedSummary(show=false) {
   if (!currentArticle) return false;
-  if (!summaryText) {
+  const article = currentArticle;
+  let loadedSummary = summaryText;
+  if (!loadedSummary) {
     try {
-      const resp = await fetch(`articles/${currentArticle.id}/${currentArticle.id}_summary.md?ts=${Date.now()}`);
+      const resp = await fetch(`articles/${article.id}/${article.id}_summary.md?ts=${Date.now()}`);
       if (!resp.ok) return false;
-      summaryText = await resp.text();
+      loadedSummary = await resp.text();
     } catch(e) {
       return false;
     }
   }
-  if (!summaryText) return false;
+  if (!loadedSummary || currentArticle?.id !== article.id) return false;
+  summaryText = loadedSummary;
+  const activeTab = TabManager.tabs.find(tab => tab.id === TabManager.activeTabId);
+  if (activeTab?.type === 'article' && activeTab.data.article?.id === article.id) {
+    activeTab.data.summaryText = loadedSummary;
+  }
   setSummaryMarkdown(summaryText);
-  currentArticle.summarized = true;
-  const idx = articles.findIndex(a => a.id === currentArticle.id);
+  article.summarized = true;
+  const idx = articles.findIndex(a => a.id === article.id);
   if (idx >= 0) articles[idx].summarized = true;
   if (show) document.getElementById('summary-panel').classList.add('visible');
   return true;
@@ -8309,10 +8261,10 @@ async function checkGpuConflict() {
     const converting = (data.articles || []).some(a => a.converting);
 
     const warnEl = document.getElementById('pdf-gpu-warning');
-    const pdfEmbed = document.getElementById('pdf-embed');
+    const pdfEmbed = getActiveArticlePdf();
     const pdfPlaceholder = document.getElementById('pdf-placeholder');
 
-    if (converting && colVisible.pdf) {
+    if (converting && colVisible.pdf && pdfEmbed) {
       // Hide PDF, show warning
       if (warnEl.style.display !== 'flex') {
         warnEl.style.display = 'flex';
@@ -8325,8 +8277,7 @@ async function checkGpuConflict() {
       if (warnEl.style.display === 'flex' && currentArticle) {
         warnEl.style.display = 'none';
         pdfPlaceholder.style.display = 'none';
-        pdfEmbed.style.display = 'block';
-        pdfEmbed.src = currentArticle.pdf_available ? `articles/${currentArticle.id}/original.pdf` : '';
+        activateArticlePdf(currentArticle);
         stopGpuMonitor();
       }
     }

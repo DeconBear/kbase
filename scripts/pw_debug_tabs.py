@@ -43,7 +43,8 @@ def main() -> int:
                     tabBarTabs: [...document.querySelectorAll('.tab-item')].map(t => ({id: t.id, text: t.textContent.trim().slice(0, 40), active: t.classList.contains('active')})),
                     activeTabId: window.TabManager ? TabManager.activeTabId : 'no TabManager',
                     libraryView: $('#library-view'),
-                    chatPanel: $('#global-chat-panel'),
+                    globalChatPanel: $('#global-chat-panel'),
+                    chatPanel: $('#chat-column'),
                     settingsView: $('#iframe-settings'),
                     readerView: $('#reader-view'),
                 };
@@ -59,7 +60,7 @@ def main() -> int:
         time.sleep(0.5)
         snap2 = snapshot("after settings button click")
         lv_visible = page.evaluate("() => getComputedStyle(document.getElementById('library-view')).display !== 'none'")
-        chat_visible = page.evaluate("() => getComputedStyle(document.getElementById('global-chat-panel')).display !== 'none'")
+        chat_visible = page.evaluate("() => getComputedStyle(document.getElementById('chat-column')).display !== 'none'")
         print(f"\nRESULT on settings tab: library-view visible={lv_visible}, chat-panel visible={chat_visible}")
 
         print("\n=== 3. go back to home, open first article ===")
@@ -84,7 +85,7 @@ def main() -> int:
         snap3 = snapshot(f"article {article_id} (first open)")
 
         lv_visible = page.evaluate("() => getComputedStyle(document.getElementById('library-view')).display !== 'none'")
-        chat_visible = page.evaluate("() => getComputedStyle(document.getElementById('global-chat-panel')).display !== 'none'")
+        chat_visible = page.evaluate("() => getComputedStyle(document.getElementById('chat-column')).display !== 'none'")
         reader_visible = page.evaluate("() => getComputedStyle(document.getElementById('reader-view')).display !== 'none'")
         print(f"\nRESULT on article tab: library-view visible={lv_visible}, chat-panel visible={chat_visible}, reader-view visible={reader_visible}")
 
@@ -106,8 +107,8 @@ def main() -> int:
         snap4 = snapshot(f"second article {other_id}")
 
         print("\n=== 5. check window globals + tab data BEFORE switching back ===")
-        cur_now = page.evaluate("() => ({raw: (window.currentRawMd || '').length, trans: (window.translatedMd || '').length, sum: (window.summaryText || '').length})")
-        print(f"  window.currentRawMd len: {cur_now}")
+        cur_now = page.evaluate("() => ({raw: (currentRawMd || '').length, trans: (translatedMd || '').length, sum: (summaryText || '').length})")
+        print(f"  current reader state lengths: {cur_now}")
         tab1_data = page.evaluate(f"""() => {{
             const t = TabManager.tabs.find(t => t.id === 'article-{article_id}');
             return t ? {{

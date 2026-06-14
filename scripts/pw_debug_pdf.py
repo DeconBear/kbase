@@ -47,17 +47,20 @@ def main() -> int:
 
         def state(label):
             s = page.evaluate("""() => {
-                const pdf = document.getElementById('pdf-embed');
+                const pdf = document.querySelector('.article-pdf-embed.active');
                 return {
                     activeTabId: window.TabManager && window.TabManager.activeTabId,
                     pdfSrc: pdf ? pdf.src : null,
+                    pdfArticleId: pdf ? pdf.dataset.articleId : null,
+                    pdfFrameCount: document.querySelectorAll('.article-pdf-embed').length,
                     pdfDisplay: pdf ? getComputedStyle(pdf).display : null,
-                    chatDisplay: getComputedStyle(document.getElementById('global-chat-panel')).display,
+                    chatDisplay: getComputedStyle(document.getElementById('chat-column')).display,
                     libraryDisplay: getComputedStyle(document.getElementById('library-view')).display,
                     bodyClass: document.body.className,
                 };
             }""")
             print(f"  [{label}] active={s['activeTabId']!r} bodyClass={s['bodyClass']!r}")
+            print(f"    pdf.article= {s['pdfArticleId']}  frames={s['pdfFrameCount']}")
             print(f"    pdf.src    = {s['pdfSrc']}")
             print(f"    pdf.display= {s['pdfDisplay']}  chat.display= {s['chatDisplay']}  lib.display= {s['libraryDisplay']}")
 
