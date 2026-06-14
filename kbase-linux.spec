@@ -1,0 +1,80 @@
+# -*- mode: python ; coding: utf-8 -*-
+# kbase-linux.spec
+# PyInstaller spec for building KBase on Linux/macOS.
+# Drop-in alternative to the Windows-only kbase.spec — drops pythonnet/clr
+# and uses forward-slash paths.
+
+from PyInstaller.utils.hooks import collect_all
+
+datas = [
+    ('kb/index.html', 'kb'),
+    ('kb/assets', 'kb/assets'),
+    ('static/fonts/GoNotoCurrent-Regular.ttf', 'static/fonts'),
+]
+binaries = []
+hiddenimports = [
+    'kb.utils_yaml', 'kb.llm_config', 'kb.storage', 'kb.db_index',
+    'kb.document_info', 'kb.translate', 'kb.calibrate', 'kb.library_chat',
+    'kb.engines', 'kb.engines.marker', 'kb.engines.docmind',
+    'kb.engines.docparser', 'kb.engines.ocr', 'kb.engines.llm_vision',
+    'kb.engines.unisound', 'kb.serve',
+    'webview', 'fitz',
+]
+
+a = Analysis(
+    ['kb/desktop.py'],
+    pathex=[],
+    binaries=binaries,
+    datas=datas,
+    hiddenimports=hiddenimports,
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[
+        # Marker stack — optional, load on demand
+        'torch', 'transformers', 'numpy', 'scipy', 'PIL', 'pillow', 'cv2',
+        'pandas', 'matplotlib', 'surya_ocr', 'surya', 'tqdm', 'rapidfuzz',
+        'pdftext', 'markdownify', 'ftfy', 'filetype',
+        'google_genai', 'anthropic', 'marker', 'datasets', 'huggingface_hub',
+        # Desktop GUI stack (Windows-only)
+        'clr', 'clr_loader', 'pythonnet',
+        # Misc
+        'tkinter', '_tkinter', 'aiohttp', 'cryptography', 'openpyxl',
+        'lxml', 'sklearn', 'scikit-learn',
+        'fontTools', 'kiwisolver', 'contourpy', 'cycler', 'zstandard',
+        'brotlicffi', 'apscheduler', 'rich', 'pygments', 'jinja2',
+        'pytest', 'yarl', 'multidict', 'frozenlist', 'propcache',
+        'attr', 'attrs',
+    ],
+    noarchive=False,
+    optimize=0,
+)
+pyz = PYZ(a.pure)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name='KBase',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    console=False,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon=['kb/assets/kbase-logo.png'] if False else None,  # set to PNG path if you ship one
+)
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name='KBase',
+)
