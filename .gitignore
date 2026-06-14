@@ -51,6 +51,7 @@ MANIFEST
 *.manifest
 *.spec
 !kbase.spec
+!kbase-linux.spec
 
 # Installer logs
 pip-log.txt
@@ -225,3 +226,7 @@ RELEASE_v*.md
 release-*.md
 release_*.md
 CHANGELOG*.md
+
+# Linux/macOS launcher (Start-KBase.sh) writes server logs here
+/tmp/kbase-server.log
+/tmp/kbase.log

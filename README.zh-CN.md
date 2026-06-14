@@ -35,6 +35,30 @@ python kb/desktop.py
 
 Marker 本地 PDF 引擎（PyTorch + Surya 模型）为**可选组件**，首次使用时在应用内按需下载。云端引擎（DocParser、DocMind）配置 API key 即可使用，无需本地 GPU。
 
+### 🐧 Linux / macOS
+
+桌面入口 `kb/desktop.py` 依赖 **pywebview**。Linux 下需先安装 GTK + WebKit2GTK 系统包：
+
+```bash
+# Ubuntu / Debian
+sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-webkit2-4.0
+pip install pymupdf pywebview
+
+# 启动
+./Start-KBase.sh
+```
+
+如果不需要原生桌面窗口（例如远程服务器、headless 测试、或者 WebView2/WebKit2GTK 装不上），可用纯 headless 模式启动：
+
+```bash
+python3 scripts/serve-headless.py
+# 然后浏览器打开 http://localhost:8765
+```
+
+仓库自带的 `kbase.spec` 是 Windows 打包配置（依赖 `pythonnet`/`.ico`），Linux/macOS 可用 `kbase-linux.spec` 替代。
+
+macOS 用户直接 `pip install pymupdf pywebview && ./Start-KBase.sh` 即可，pywebview 会自动用 Cocoa/WebKit。
+
 ## 📦 打包与便携化使用
 
 KBase 支持使用 PyInstaller 打包为独立的 Windows 单文件可执行程序或目录：
