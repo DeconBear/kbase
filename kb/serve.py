@@ -1695,6 +1695,152 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             self._error(404, "File not found")
 
 
+    # ------------------------------------------------------------------
+    # Update & data-root endpoints
+    # ------------------------------------------------------------------
+
+    def handle_apply_update(self) -> None:
+        """POST /api/apply-update — download and launch the updater.
+
+        For installed (NSIS) builds: runs the new installer silently
+        with /S. For portable builds: expands the new portable zip
+        over the install dir. The current process is asked to exit
+        via the PowerShell bootstrap.
+        """
+        data = self._read_json()
+        asset_url = (data.get("assetUrl") or "").strip()
+        if not asset_url:
+            self._error(400, "assetUrl is required")
+            return
+        # Spawn the updater in a thread so we can return a response first.
+        result = {"ok": True, "message": "更新程序已启动，应用程序即将关闭…"}
+        self._json(result)
+        self.wfile.flush()
+
+        def _apply() -> None:
+            apply_update(asset_url)
+
+        t = threading.Thread(target=_apply, daemon=True)
+        t.start()
+
+    def handle_set_data_root(self) -> None:
+        """POST /api/data-root — persist a new data root path."""
+        data = self._read_json()
+        new_root = (data.get("dataRoot") or "").strip()
+        path_info = set_data_root(new_root)
+        self._json(path_info)
+
+
+
+
+# ---------------------------------------------------------------------------
+# Note helpers
+# ---------------------------------------------------------------------------
+
+
+def validate_note_id(note_id: str) -> str:
+    note_id = str(note_id or "").strip()
+    if not note_id:
+        raise ValueError("Note id is required")
+    path = Path(note_id)
+    if (
+        path.is_absolute()
+        or len(path.parts) != 1
+        or any(ch in INVALID_ARTICLE_CHARS or ord(ch) < 32 for ch in note_id)
+        or note_id in {".", ".."}
+    ):
+        raise ValueError("Invalid note id")
+    return note_id
+
+
+def note_file_for(note_id: str) -> Path:
+    note_id = validate_note_id(note_id)
+    NOTES_DIR.mkdir(parents=True, exist_ok=True)
+    return NOTES_DIR / f"{note_id}.md"
+
+
+# ---------------------------------------------------------------------------
+# Export helpers
+# ---------------------------------------------------------------------------
+
+
+def _clean_bib_value(value):
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def _escape_bib_value(value):
+    return _clean_bib_value(value).replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
+
+
+def _split_authors(value):
+    return [item.strip() for item in re.split(r"\s*(?:;|,|\band\b|和)\s*", _clean_bib_value(value), flags=re.I) if item.strip()]
+
+
+def _bib_key_part(value, fallback="kbase"):
+    value = re.sub(r"[^\w\s:-]+", "", _clean_bib_value(value), flags=re.UNICODE)
+    value = re.sub(r"\s+", "", value)
+    return (value or fallback)[:32]
+
+
+def _article_bib_key(article, used):
+    authors = article.get("authors") if isinstance(article.get("authors"), list) else []
+    if not authors:
+        authors = _split_authors(article.get("author", ""))
+    author_token = (authors[0] if authors else article.get("author") or "kbase").split()
+    author_part = _bib_key_part(author_token[-1] if author_token else "kbase", "kbase")
+    year_match = re.search(r"\d{4}", str(article.get("year") or article.get("date_added") or ""))
+    year_part = _bib_key_part(article.get("year") or (year_match.group(0) if year_match else "nd"), "nd")
+    title_part = _bib_key_part((_clean_bib_value(article.get("title")) or article.get("id") or "item").split()[0], article.get("id") or "item")
+    base = f"{author_part}{year_part}{title_part}"
+    key = base
+    suffix = 2
+    while key in used:
+        key = f"{base}{suffix}"
+        suffix += 1
+    used.add(key)
+    return key
+
+
+def _article_to_bibtex(article, used):
+    entry_type = "article" if (article.get("kind") or "paper") == "paper" else "misc"
+    authors = article.get("authors") if isinstance(article.get("authors"), list) else []
+    if not authors:
+        authors = _split_authors(article.get("author", ""))
+    fields = [
+        ("title", article.get("title") or article.get("source_filename") or article.get("id")),
+        ("author", " and ".join(_escape_bib_value(a) for a in authors if _clean_bib_value(a))),
+        ("year", article.get("year")),
+        ("journal" if entry_type == "article" else "howpublished", article.get("venue")),
+        ("doi", article.get("doi")),
+        ("keywords", ", ".join(article.get("tags") or []) if isinstance(article.get("tags"), list) else ""),
+        ("note", "; ".join(
+            item for item in [
+                f"Source file: {article.get('source_filename')}" if article.get("source_filename") else "",
+                f"KBase ID: {article.get('id')}" if article.get("id") else "",
+            ] if item
+        )),
+    ]
+    body = [f"  {key} = {{{_escape_bib_value(value)}}}" for key, value in fields if _clean_bib_value(value)]
+    return f"@{entry_type}{{{_article_bib_key(article, used)},\n" + ",\n".join(body) + "\n}"
+
+
+def _export_stem(article):
+    raw = article.get("title") or article.get("source_filename") or article.get("id") or "kbase_item"
+    return sanitize_article_id(raw)[:80] or str(article.get("id") or "kbase_item")
+
+
+def _unique_archive_name(name, used):
+    base = Path(name).stem
+    suffix = Path(name).suffix
+    candidate = name
+    index = 2
+    while candidate in used:
+        candidate = f"{base}_{index}{suffix}"
+        index += 1
+    used.add(candidate)
+    return candidate
+
+
 # ---------------------------------------------------------------------------
 # Note helpers
 # ---------------------------------------------------------------------------
@@ -1806,36 +1952,6 @@ def _unique_archive_name(name, used):
     # ------------------------------------------------------------------
     # Update & data-root endpoints
     # ------------------------------------------------------------------
-
-    def handle_apply_update(self) -> None:
-        """POST /api/apply-update — download and launch the NSIS installer."""
-        data = self._read_json()
-        asset_url = (data.get("assetUrl") or "").strip()
-        if not asset_url:
-            self._error(400, "assetUrl is required")
-            return
-        if not is_installed_build():
-            self._json({"ok": False, "message": "当前为绿色版，不支持自动更新。请手动下载新版本覆盖。"})
-            return
-        # Spawn the updater in a thread so we can return a response first
-        result = {"ok": True, "message": "更新程序已启动，应用程序即将关闭…"}
-        self._json(result)
-        self.wfile.flush()
-
-        def _apply() -> None:
-            apply_update(asset_url)
-
-        t = threading.Thread(target=_apply, daemon=True)
-        t.start()
-
-    def handle_set_data_root(self) -> None:
-        """POST /api/data-root — persist a new data root path."""
-        data = self._read_json()
-        new_root = (data.get("dataRoot") or "").strip()
-        path_info = set_data_root(new_root)
-        self._json(path_info)
-
-
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
