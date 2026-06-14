@@ -2455,6 +2455,18 @@ const ENV_KEY_TO_INPUT = {
   UNISOUND_MODEL: 'envUnisoundModel',
 };
 
+// Subset of the input ids above whose value is a secret and therefore
+// should be displayed as a password with an eye-reveal button. Everything
+// else in ENV_KEY_TO_INPUT (URLs, region, engine name, language, model)
+// is plain text — no masking.
+const SECRET_INPUT_IDS = new Set([
+  'envDocparserApiKey',
+  'envDocmindAkId',
+  'envDocmindAkSecret',
+  'envOcrApiKey',
+  'envUnisoundApiKey',
+]);
+
 function toggleEnvReveal(inputId, btn) {
   const input = document.getElementById(inputId);
   if (!input) return;
@@ -2483,18 +2495,26 @@ async function loadApiKeys() {
       if (!el) continue;
       const entry = data[key];
       const hasValue = !!(entry && entry.set && entry.value);
-      // Always use password type by default — the user can flip to text
-      // with the eye button. Real value is populated; placeholder is the
-      // empty-state hint.
-      el.type = 'password';
+      const isSecret = SECRET_INPUT_IDS.has(inputId);
+      if (isSecret) {
+        // Default to password type; user can flip to text with the eye
+        // button. Real value is populated; placeholder is the empty-state
+        // hint.
+        el.type = 'password';
+      }
+      // Non-secret inputs (URLs, region, provider, language, model) keep
+      // whatever type the HTML set — text or url — and never get masked.
       el.value = hasValue ? entry.value : '';
       el.dataset.savedValue = el.value;
-      // Eye button: only show when there is a saved key to reveal.
+      // Eye button only exists for secret fields; for non-secrets we just
+      // make sure it stays hidden even if some stale markup is around.
       const btn = document.querySelector(`button[data-eye-for="${inputId}"]`);
       if (btn) {
-        btn.style.display = hasValue ? '' : 'none';
-        btn.textContent = '👁';
-        btn.title = '显示 / 隐藏';
+        btn.style.display = (isSecret && hasValue) ? '' : 'none';
+        if (isSecret) {
+          btn.textContent = '👁';
+          btn.title = '显示 / 隐藏';
+        }
       }
     }
     status.textContent = '已加载';
