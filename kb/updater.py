@@ -162,8 +162,10 @@ def apply_update(asset_url: str) -> bool:
 
     if installed:
         pkg_path = tmp_dir / "KBase-Setup.exe"
+        # NSIS /D= must NOT be quoted, even with spaces.  We pass the
+        # argument as a single string so Start-Process doesn't split it.
         apply_block = f"""Write-Host '[3/4] Running silent installer...'
-$installArgs = @('/S', '/D=' + $targetDir)
+$installArgs = "/S /D=$targetDir"
 $p = Start-Process -FilePath $pkg -ArgumentList $installArgs -Wait -PassThru -NoNewWindow
 if ($p.ExitCode -ne 0) {{
     Write-Host "ERROR: Installer exited with code $($p.ExitCode)"
@@ -172,20 +174,30 @@ if ($p.ExitCode -ne 0) {{
 Write-Host '[4/4] Installer finished successfully.'"""
     else:
         pkg_path = tmp_dir / "KBase-portable.zip"
-        # For portable builds, extract to a staging dir then robocopy over
-        # the install dir so we don't hit locked-file errors on _internal/.
+        # For portable builds we must replace old application binaries
+        # WITHOUT deleting the user's data/ directory.  Strategy:
+        #   1. Extract new version to a staging dir.
+        #   2. Remove old _internal/ and KBase.exe (they may be locked,
+        #      but KBase has already exited by this point).
+        #   3. Copy new files over, skipping data/ to preserve user data.
         apply_block = f"""Write-Host '[3/4] Extracting portable update...'
 $stageDir = Join-Path $env:TEMP 'KBaseUpdateStage'
 Remove-Item $stageDir -Recurse -Force -ErrorAction SilentlyContinue
 Expand-Archive -Path $pkg -DestinationPath $stageDir -Force
-Write-Host '[4/4] Copying files over $targetDir...'
-# Use robocopy to mirror the staging dir over the install dir.
-# Retry on locked files (up to 3 attempts with 2 s delay).
+
+Write-Host '[4/4] Replacing application files (preserving data/)...'
+# Remove old app files that we are about to replace.
+Remove-Item (Join-Path $targetDir 'KBase.exe') -Force -ErrorAction SilentlyContinue
+Remove-Item (Join-Path $targetDir '_internal') -Recurse -Force -ErrorAction SilentlyContinue
+Start-Sleep 1
+
+# Copy new files; /E copies all subdirectories (including empty ones)
+# but does NOT delete extra files in the destination (protects data/).
 $maxRetry = 3
 $retry = 0
 $robocopyOk = $false
 while ($retry -lt $maxRetry) {{
-    $result = robocopy $stageDir $targetDir /MIR /R:2 /W:2 /NP /NDL /NFL
+    $result = robocopy $stageDir $targetDir /E /R:2 /W:2 /NP /NDL /NFL /XD data
     if ($LASTEXITCODE -lt 8) {{
         $robocopyOk = $true
         break
@@ -203,40 +215,52 @@ if (-not $robocopyOk) {{
 $pkg = '{pkg_path}'
 $targetDir = '{install_dir}'
 $exeName = '{exe_name}'
+$logFile = Join-Path $env:TEMP 'KBaseUpdate\\update.log'
 
-Write-Host '=== KBase Updater ==='
-Write-Host "  Package  : $pkg"
-Write-Host "  Target   : $targetDir"
-Write-Host "  Mode     : {'NSIS installer' if installed else 'Portable zip'}"
+# Write both to console (visible if debugging) and log file.
+$logDir = Split-Path $logFile -Parent
+if (-not (Test-Path $logDir)) {{ New-Item -ItemType Directory -Path $logDir -Force | Out-Null }}
+function Write-Log($msg) {{
+    $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $msg"
+    Write-Host $line
+    Add-Content -Path $logFile -Value $line -Encoding UTF8
+}}
+
+Write-Log '=== KBase Updater ==='
+Write-Log "  Package  : $pkg"
+Write-Log "  Target   : $targetDir"
+Write-Log "  ExeName  : $exeName"
+Write-Log "  Mode     : {'NSIS installer' if installed else 'Portable zip'}"
 
 # ---- 1. Download ----
-Write-Host '[1/4] Downloading update package...'
+Write-Log '[1/4] Downloading update package...'
 $ProgressPreference = 'SilentlyContinue'
 try {{
     Invoke-WebRequest -Uri '{asset_url}' -OutFile $pkg -UseBasicParsing -TimeoutSec 600
 }} catch {{
-    Write-Host "ERROR: Download failed: $($_.Exception.Message)"
+    Write-Log "ERROR: Download failed: $($_.Exception.Message)"
     exit 1
 }}
 $pkgSize = [math]::Round((Get-Item $pkg).Length / 1MB, 1)
-Write-Host "  Downloaded $pkgSize MB"
+Write-Log "  Downloaded $pkgSize MB"
 
-# ---- 2. Wait for KBase to exit ----
-Write-Host '[2/4] Waiting for KBase to exit...'
+# ---- 2. Wait for the app to exit ----
+$procName = [System.IO.Path]::GetFileNameWithoutExtension($exeName)
+Write-Log "[2/4] Waiting for $procName to exit..."
 $timeout = 60
 $elapsed = 0
 while ($elapsed -lt $timeout) {{
-    $proc = Get-Process -Name 'KBase' -ErrorAction SilentlyContinue
+    $proc = Get-Process -Name $procName -ErrorAction SilentlyContinue
     if (-not $proc) {{
-        Write-Host '  KBase has exited.'
+        Write-Log "  $procName has exited (waited $elapsed s)."
         break
     }}
     Start-Sleep 1
     $elapsed++
 }}
 if ($elapsed -ge $timeout) {{
-    Write-Host '  Timeout waiting for KBase to exit — forcing termination.'
-    Get-Process -Name 'KBase' -ErrorAction SilentlyContinue | Stop-Process -Force
+    Write-Log "  Timeout waiting for $procName to exit — forcing termination."
+    Get-Process -Name $procName -ErrorAction SilentlyContinue | Stop-Process -Force
     Start-Sleep 2
 }}
 
@@ -244,19 +268,22 @@ if ($elapsed -ge $timeout) {{
 {apply_block}
 
 # ---- 4. Restart ----
-Write-Host 'Restarting KBase...'
+Write-Log 'Restarting KBase...'
 $kbaseExe = Join-Path $targetDir 'KBase.exe'
 if (Test-Path $kbaseExe) {{
-    Start-Process -FilePath $kbaseExe
+    Write-Log "  Launching: $kbaseExe"
+    Start-Process -FilePath $kbaseExe -WindowStyle Normal
+    Write-Log "  Start-Process returned (process may be running)."
 }} else {{
-    Write-Host 'WARNING: KBase.exe not found at expected location.'
+    Write-Log "WARNING: KBase.exe not found at $kbaseExe"
 }}
 
 # ---- Cleanup ----
 Start-Sleep 2
 Remove-Item $pkg -Force -ErrorAction SilentlyContinue
+# Keep the log file for debugging; remove only the PS script.
 Remove-Item $PSCommandPath -Force -ErrorAction SilentlyContinue
-Write-Host 'Updater finished.'
+Write-Log 'Updater finished.'
 """
 
     updater_ps1 = tmp_dir / "update.ps1"
