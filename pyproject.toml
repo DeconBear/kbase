@@ -1,12 +1,12 @@
 [tool.poetry]
 name = "kbase"
 version = "0.3.1"
-description = "Local personal knowledge base desktop app for documents, notes, and AI workflows."
+description = "An AI-powered, local-first knowledge management app that parses academic PDFs, supports Markdown notes, and leverages LLMs to assist with your knowledge workflow."
 authors = ["DeconBear"]
 readme = "README.md"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/DeconBear/kbase"
-keywords = ["knowledge-base", "pdf", "markdown", "ocr", "notes"]
+keywords = ["knowledge-management", "pdf", "markdown", "ocr", "notes", "ai", "llm", "academic"]
 packages = [
     {include = "kb"},
     {include = "marker"}

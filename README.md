@@ -1,8 +1,8 @@
-# KBase — Personal Knowledge Base
+# KBase
 
 > [中文](README.zh-CN.md)
 
-A local personal knowledge base desktop app. Upload PDFs, documents, code, data files — parse, read, chat, translate, summarize with AI. All data stored locally.
+An AI-powered, local-first knowledge management app that parses academic PDFs, supports Markdown notes, and leverages LLMs to assist with your knowledge workflow.
 
 ## Features
 
@@ -204,7 +204,7 @@ This section is for Claude Code, GitHub Copilot, and similar AI coding assistant
 
 ### Project Overview
 
-- A **local personal knowledge base desktop app** — documents, papers, notes, code, data files
+- An **AI-powered, local-first knowledge management app** — parses academic PDFs, supports Markdown notes, and integrates LLMs across the workflow
 - `marker/` is vendored Marker source (from [VikParuchuri/marker](https://github.com/VikParuchuri/marker)), not a git submodule
 - `kb/` is the KB web app: `serve.py` backend, `index.html` SPA frontend, `desktop.py` pywebview launcher
 - `kb/engines/` contains pluggable conversion engines: `marker.py` (local), `docparser.py` (cloud), `docmind.py` (cloud)

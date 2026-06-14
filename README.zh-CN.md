@@ -1,8 +1,8 @@
-# KBase — 个人知识库
+# KBase
 
 > [English](README.md)
 
-本地个人知识库桌面应用。上传 PDF、文档、代码、数据文件 — 解析、阅读、AI 对话、翻译、总结。所有数据本地存储，安全可控。
+一款由 AI 驱动的、本地优先的知识管理应用，专注于解析学术 PDF，支持 Markdown 笔记，并借助大语言模型协助你的知识工作流。
 
 ## 功能
 
@@ -204,7 +204,7 @@ cd android
 
 ### 项目概览
 
-- 这是一个**本地个人知识库桌面应用** — 支持文档、论文、笔记、代码、数据文件等各类资料
+- 这是一个**由 AI 驱动的、本地优先的知识管理应用** — 解析学术 PDF，支持 Markdown 笔记，并将 LLM 融入整套工作流
 - `marker/` 目录是 Marker 源码（从 [VikParuchuri/marker](https://github.com/VikParuchuri/marker) 集成），不是 git submodule
 - `kb/` 目录是知识库应用：`serve.py` 后端、`index.html` SPA 前端、`desktop.py` pywebview 桌面入口
 - `kb/engines/` 是可插拔解析引擎：`marker.py`（本地）、`docparser.py`（云端）、`docmind.py`（云端）
