@@ -62,7 +62,9 @@ jobs:
           cache: 'pip'
 
       - name: Install NSIS
-        uses: nsis-dev/install-nsis@v1
+        uses: repolevedavaj/install-nsis@v1.2.1
+        with:
+          nsis-version: '3.09'
 
       - name: Build release artifacts
         shell: pwsh
