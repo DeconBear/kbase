@@ -5,10 +5,18 @@ submits a parser task, polls for completion, then downloads the
 returned Markdown and saves it next to the source article.
 
 Config (in data/local.env, written from the Settings page):
-  UNISOUND_API_KEY   — Bearer token. Token Plan key starts with "tp-".
-  UNISOUND_BASE_URL  — optional override. Defaults to
-                       https://maas-api.hivoice.cn
-  UNISOUND_MODEL     — optional model name. Defaults to "u1-ocr".
+  UNISOUND_API_KEY     — Bearer token. Token Plan key starts with "tp-".
+  UNISOUND_BASE_URL    — optional override. Defaults to
+                         https://maas-api.hivoice.cn
+  UNISOUND_MODEL       — optional model name. Defaults to "u1-ocr".
+  UNISOUND_TOKEN_PLAN  — "1" if your key is a Token Plan key; affects
+                         UI hints only (engine code is the same).
+
+Network: respects the standard ``HTTPS_PROXY`` / ``HTTP_PROXY`` env
+vars via ``urllib``. If your network can't reach ``maas-api.hivoice.cn``
+directly (e.g. corporate firewall / DPI silently dropping the TLS
+ClientHello), point HTTPS_PROXY at a working proxy before launching
+KBase.
 
 API contract (see C:/Users/qzx/Downloads/u1-ocr-parser-pro-1.0.3):
   POST {base}/v1/files/upload
@@ -26,6 +34,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import os
+import ssl
 import time
 import urllib.error
 import urllib.parse
@@ -78,7 +87,29 @@ def _http_json(url: str, method: str, headers: dict, body: bytes | None = None,
         detail = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"HTTP {exc.code} for {url}: {detail[:500]}") from exc
     except urllib.error.URLError as exc:
+        # SSL handshake timeouts and other low-level network failures show
+        # up as URLError. Translate the cryptic SSL message into something
+        # the user can act on: a firewall/DPI is silently dropping the
+        # TLS ClientHello, or a proxy is intercepting the connection.
+        reason = exc.reason
+        msg = str(reason)
+        if isinstance(reason, ssl.SSLError) and "handshake" in msg.lower():
+            host = urllib.parse.urlsplit(url).netloc
+            raise RuntimeError(
+                f"TLS handshake to {host} timed out ({msg}). "
+                f"The TCP port is reachable but the server isn't responding to "
+                f"TLS — usually a firewall, DPI, or sandbox is silently "
+                f"blocking the encrypted connection. Try a different network, "
+                f"set the HTTPS_PROXY env var to a working proxy, or switch "
+                f"to a different OCR engine (DocParser / DocMind)."
+            ) from exc
         raise RuntimeError(f"Request failed for {url}: {exc}") from exc
+    except TimeoutError as exc:
+        host = urllib.parse.urlsplit(url).netloc
+        raise RuntimeError(
+            f"Timeout reaching {host} after {timeout}s. The host may be down "
+            f"or unreachable from this network."
+        ) from exc
 
 
 def _http_text(url: str, timeout: int = 60) -> str:
@@ -90,7 +121,25 @@ def _http_text(url: str, timeout: int = 60) -> str:
         detail = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"HTTP {exc.code} for {url}: {detail[:500]}") from exc
     except urllib.error.URLError as exc:
+        reason = exc.reason
+        msg = str(reason)
+        if isinstance(reason, ssl.SSLError) and "handshake" in msg.lower():
+            host = urllib.parse.urlsplit(url).netloc
+            raise RuntimeError(
+                f"TLS handshake to {host} timed out ({msg}). "
+                f"The TCP port is reachable but the server isn't responding to "
+                f"TLS — usually a firewall, DPI, or sandbox is silently "
+                f"blocking the encrypted connection. Try a different network, "
+                f"set the HTTPS_PROXY env var to a working proxy, or switch "
+                f"to a different OCR engine (DocParser / DocMind)."
+            ) from exc
         raise RuntimeError(f"Request failed for {url}: {exc}") from exc
+    except TimeoutError as exc:
+        host = urllib.parse.urlsplit(url).netloc
+        raise RuntimeError(
+            f"Timeout reaching {host} after {timeout}s. The host may be down "
+            f"or unreachable from this network."
+        ) from exc
 
 
 def _build_multipart(file_path: Path, purpose: str) -> tuple[bytes, str]:

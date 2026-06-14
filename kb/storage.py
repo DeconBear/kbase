@@ -92,19 +92,33 @@ DOCPARSER_API_URL=https://your-cloud-parser.com
 DOCPARSER_API_KEY=
 DOCPARSER_ENGINE=struct
 
-# Cloud OCR PDF parsing (e.g. 云知声). The endpoint should accept
-# multipart/form-data with a `file` field (PNG) and return
-# {"text": "..."} or {"pages": [{"text": "..."}]}.
+# Cloud OCR PDF parsing.
+# OCR_PROVIDER_TYPE picks which cloud OCR to use:
+#   custom   — generic HTTP endpoint (set OCR_API_URL + OCR_API_KEY)
+#   unisound — 云知声 OCR; see the UNISOUND_* block below
+OCR_PROVIDER_TYPE=custom
 OCR_API_URL=
 OCR_API_KEY=
 OCR_PROVIDER=
+OCR_MODEL=
 OCR_LANG=zh-CN+en
 
 # Unisound U1 Doc Parser (Token Plan / 开放平台 统一接入).
 # 异步 PDF 解析：上传文件 -> 提交任务 -> 轮询 -> 下载 Markdown
+# Set UNISOUND_TOKEN_PLAN=1 if your key starts with "tp-" (Token Plan);
+# leave 0 / blank for general API access.
 UNISOUND_API_KEY=
 UNISOUND_BASE_URL=https://maas-api.hivoice.cn
 UNISOUND_MODEL=u1-ocr
+UNISOUND_TOKEN_PLAN=0
+
+# Per-task LLM routing (empty = use the global active provider/model
+# in the LLM 模型 pane). Format: provider id + model name as configured
+# in the LLM 模型 pane's provider/model lists.
+CHAT_PROVIDER=
+CHAT_MODEL=
+TRANSLATION_PROVIDER=
+TRANSLATION_MODEL=
 """
 
 

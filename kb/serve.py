@@ -572,13 +572,21 @@ KNOWN_ENV_KEYS = (
     "DOCPARSER_API_URL",
     "DOCPARSER_API_KEY",
     "DOCPARSER_ENGINE",
+    "OCR_PROVIDER_TYPE",
     "OCR_API_URL",
     "OCR_API_KEY",
     "OCR_PROVIDER",
+    "OCR_MODEL",
     "OCR_LANG",
     "UNISOUND_API_KEY",
     "UNISOUND_BASE_URL",
     "UNISOUND_MODEL",
+    "UNISOUND_TOKEN_PLAN",
+    # Per-task LLM routing (empty = use the global active provider/model).
+    "CHAT_PROVIDER",
+    "CHAT_MODEL",
+    "TRANSLATION_PROVIDER",
+    "TRANSLATION_MODEL",
 )
 
 SENSITIVE_KEYS = {

@@ -326,6 +326,13 @@ select option{background:var(--surface-2);color:var(--text)}
 .settings-content-pane.active{display:block}
 .settings-pane-title{font-size:14px;font-weight:700;color:var(--text-strong);margin:0 0 4px}
 .settings-pane-desc{font-size:11px;color:var(--text-3);margin:0 0 18px}
+.settings-pane-header{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:4px}
+.settings-pane-header .settings-pane-title{margin:0}
+.settings-pane-header .settings-pane-desc{margin:0}
+.settings-pane-status{font-size:11px;color:var(--text-3);white-space:nowrap;transition:opacity .4s}
+.settings-pane-status.ok{color:var(--emerald,#10b981);font-weight:600}
+.settings-pane-status.error{color:var(--rose,#f43f5e);font-weight:600}
+.settings-pane-status.fade-out{opacity:0}
 .settings-content .settings-section{border-top:0;padding-top:0;margin-top:0}
 .settings-content .settings-section + .settings-section{margin-top:18px;padding-top:18px;border-top:1px solid var(--border)}
 @media (max-width:760px){.settings-layout{grid-template-columns:1fr;height:auto}.settings-sidebar{border-right:0;border-bottom:1px solid var(--border);border-top-left-radius:var(--radius-lg);border-top-right-radius:var(--radius-lg);border-bottom-left-radius:0;max-height:240px}.settings-content{border-top-right-radius:0;border-bottom-left-radius:var(--radius-lg);border-bottom-right-radius:var(--radius-lg);padding:18px 18px 14px}}
@@ -1007,6 +1014,9 @@ body { display: flex !important; flex-direction: column !important; height: 100v
         <div class="settings-sidebar-item" data-pane="paneCredentials" data-keywords="文档解析 docparser docmind ocr unisound 云知声 凭证 引擎">
           <span class="icon">🔑</span><span>文档解析模型</span>
         </div>
+        <div class="settings-sidebar-item" data-pane="paneModelUsage" data-keywords="翻译 对话 用途 路由 chat translation model">
+          <span class="icon">🎯</span><span>模型用途</span>
+        </div>
       </nav>
     </aside>
 
@@ -1069,13 +1079,15 @@ body { display: flex !important; flex-direction: column !important; height: 100v
 
       <!-- Pane: LLM 模型 -->
       <section class="settings-content-pane" data-pane="paneLLM">
-        <h3 class="settings-pane-title">🧠 LLM 模型</h3>
+        <div class="settings-pane-header">
+          <h3 class="settings-pane-title">🧠 LLM 模型</h3>
+          <span id="llmConfigStatus" class="settings-pane-status"></span>
+        </div>
         <p class="settings-pane-desc">管理大语言模型 Provider、模型列表与 API 凭证。</p>
 
         <div class="settings-section" id="llmSettingsSection">
           <div class="settings-section-head">
             <h4>Provider / 模型</h4>
-            <span id="llmConfigStatus"></span>
           </div>
           <div class="settings-field">
             <label for="llmProviderSelect">Provider</label>
@@ -1189,8 +1201,23 @@ body { display: flex !important; flex-direction: column !important; height: 100v
           <div class="settings-section-head">
             <h4>云 OCR (逐页 PNG)</h4>
           </div>
+          <div class="settings-grid">
+            <div class="settings-field">
+              <label for="envOcrProviderType">OCR 提供方</label>
+              <select id="envOcrProviderType" onchange="onOcrProviderChange()">
+                <option value="custom">通用云端</option>
+                <option value="unisound">云知声</option>
+              </select>
+            </div>
+            <div class="settings-field" id="ocrTokenPlanWrap" style="display:none">
+              <label class="settings-checkbox-label" for="envUnisoundTokenPlan" style="font-weight:normal;cursor:pointer">
+                <input type="checkbox" id="envUnisoundTokenPlan" onchange="onOcrTokenPlanChange()" style="accent-color:var(--accent)">
+                <span>Token Plan (key 以 <code>tp-</code> 开头)</span>
+              </label>
+            </div>
+          </div>
           <div class="settings-field">
-            <label for="envOcrApiUrl">云 OCR API URL（云知声 等）</label>
+            <label for="envOcrApiUrl">API URL</label>
             <input type="url" id="envOcrApiUrl" placeholder="https://your-ocr-provider.com/v1/ocr">
           </div>
           <div class="settings-grid">
@@ -1201,9 +1228,13 @@ body { display: flex !important; flex-direction: column !important; height: 100v
                 <button class="env-eye-btn" type="button" data-eye-for="envOcrApiKey" onclick="toggleEnvReveal('envOcrApiKey', this)" style="display:none" title="点击显示">👁</button>
               </div>
             </div>
-            <div class="settings-field">
+            <div class="settings-field" id="ocrProviderWrap">
               <label for="envOcrProvider">厂商名（可选）</label>
               <input type="text" id="envOcrProvider" placeholder="yunzhisheng">
+            </div>
+            <div class="settings-field" id="ocrModelWrap" style="display:none">
+              <label for="envOcrModel">模型</label>
+              <input type="text" id="envOcrModel" placeholder="u1-ocr">
             </div>
           </div>
           <div class="settings-field">
@@ -1240,6 +1271,56 @@ body { display: flex !important; flex-direction: column !important; height: 100v
           <div class="llm-actions-right">
             <button class="btn-outline" onclick="loadApiKeys()">刷新</button>
             <button class="btn-emerald" onclick="saveApiKeys()">保存凭证</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Pane: 模型用途 -->
+      <section class="settings-content-pane" data-pane="paneModelUsage">
+        <h3 class="settings-pane-title">🎯 模型用途</h3>
+        <p class="settings-pane-desc">为不同任务指定使用的 LLM 配置和模型。先选一个已保存的 Provider（如 default / DeepSeek），再选该 Provider 下的具体模型。留空 = 使用「LLM 模型」里当前激活的 Provider + 模型。</p>
+        <div class="settings-section" id="modelUsageSection">
+          <div class="settings-section-head">
+            <h4>对话模型</h4>
+          </div>
+          <div class="settings-grid">
+            <div class="settings-field">
+              <label for="chatProvider">Provider</label>
+              <select id="chatProvider" onchange="onModelUsageProviderChange('chat')">
+                <option value="">— 跟随默认 —</option>
+              </select>
+            </div>
+            <div class="settings-field">
+              <label for="chatModel">模型</label>
+              <select id="chatModel" data-default-saved="">
+                <option value="">— 跟随默认 —</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="settings-section">
+          <div class="settings-section-head">
+            <h4>翻译模型</h4>
+          </div>
+          <div class="settings-grid">
+            <div class="settings-field">
+              <label for="translationProvider">Provider</label>
+              <select id="translationProvider" onchange="onModelUsageProviderChange('translation')">
+                <option value="">— 跟随默认 —</option>
+              </select>
+            </div>
+            <div class="settings-field">
+              <label for="translationModel">模型</label>
+              <select id="translationModel" data-default-saved="">
+                <option value="">— 跟随默认 —</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="llm-actions">
+          <div class="llm-actions-right">
+            <span id="modelUsageStatus" style="font-size:11px;color:var(--text-3);margin-right:8px"></span>
+            <button class="btn-emerald" onclick="saveModelUsage()">保存配置</button>
           </div>
         </div>
       </section>
@@ -2136,11 +2217,37 @@ async function ensureLLMConfigLoaded() {
   if (!llmConfig.providers || !llmConfig.providers.length) await loadLLMConfig();
 }
 
+let _llmStatusFadeTimer = null;
 function setLLMStatus(text, tone='muted') {
   const el = document.getElementById('llmConfigStatus');
   if (!el) return;
+  // Clear any pending auto-fade from a previous message.
+  if (_llmStatusFadeTimer) {
+    clearTimeout(_llmStatusFadeTimer);
+    _llmStatusFadeTimer = null;
+  }
   el.textContent = text || '';
-  el.style.color = tone === 'ok' ? 'var(--emerald)' : tone === 'error' ? 'var(--rose)' : 'var(--text-3)';
+  el.classList.remove('ok', 'error', 'fade-out');
+  if (tone === 'ok') {
+    el.textContent = '✓ ' + (text || '');
+    el.classList.add('ok');
+  } else if (tone === 'error') {
+    el.textContent = '✗ ' + (text || '');
+    el.classList.add('error');
+  }
+  // Auto-fade success messages after a short delay so the pane doesn't
+  // look "dirty" with stale status text. Errors stick until the next
+  // status change.
+  if (tone === 'ok') {
+    _llmStatusFadeTimer = setTimeout(() => {
+      el.classList.add('fade-out');
+      _llmStatusFadeTimer = setTimeout(() => {
+        el.textContent = '';
+        el.classList.remove('fade-out');
+        _llmStatusFadeTimer = null;
+      }, 400);
+    }, 2200);
+  }
 }
 
 function getModelListFromText() {
@@ -2333,12 +2440,162 @@ function onLLMProtocolChange() {
   updateLLMProviderFromForm();
 }
 
+// ---- Cloud OCR: provider / token-plan switching ---------------------
+
+const OCR_TOKEN_PLAN_PRESETS = {
+  base_url: 'https://maas-api.hivoice.cn',
+  model: 'u1-ocr',
+};
+
+function onOcrProviderChange() {
+  const sel = document.getElementById('envOcrProviderType');
+  const tpWrap = document.getElementById('ocrTokenPlanWrap');
+  const provWrap = document.getElementById('ocrProviderWrap');
+  const modelWrap = document.getElementById('ocrModelWrap');
+  if (!sel) return;
+  const isUnisound = sel.value === 'unisound';
+  if (tpWrap) tpWrap.style.display = isUnisound ? '' : 'none';
+  if (provWrap) provWrap.style.display = isUnisound ? 'none' : '';
+  if (modelWrap) modelWrap.style.display = isUnisound ? '' : 'none';
+}
+
+function onOcrTokenPlanChange() {
+  // Only pre-fill on the rising edge: 0 -> 1. Once the user has
+  // hand-edited the values, unchecking should not stomp on them.
+  const cb = document.getElementById('envUnisoundTokenPlan');
+  if (!cb || !cb.checked) return;
+  const urlEl = document.getElementById('envOcrApiUrl');
+  const modelEl = document.getElementById('envOcrModel');
+  if (urlEl && !urlEl.value) urlEl.value = OCR_TOKEN_PLAN_PRESETS.base_url;
+  if (modelEl && !modelEl.value) modelEl.value = OCR_TOKEN_PLAN_PRESETS.model;
+}
+
+// ---- Model-usage routing (chat / translation) ---------------------
+
+// Read-side values come from /api/local-env. We stash the saved provider
+// and model on the model-select element via data-saved-* so we can
+// restore them after the cascading refresh.
+const MODEL_USAGE_TASKS = ['chat', 'translation'];
+
+function _modelsForProvider(providerId) {
+  if (!llmConfig || !Array.isArray(llmConfig.providers)) return [];
+  const p = llmConfig.providers.find(x => x.id === providerId);
+  if (!p) return [];
+  // Models can be either legacy ["name", ...] or per-model dicts.
+  return (p.models || []).map(m => {
+    if (m && typeof m === 'object') return m.name;
+    return m;
+  }).filter(Boolean);
+}
+
+function populateModelUsageProviders() {
+  if (!llmConfig || !Array.isArray(llmConfig.providers)) return;
+  for (const task of MODEL_USAGE_TASKS) {
+    const provSel = document.getElementById(task + 'Provider');
+    if (!provSel) continue;
+    // Preserve current selection (or saved) so we can re-select after rebuild.
+    const current = provSel.value || provSel.dataset.saved || '';
+    provSel.innerHTML = '<option value="">— 跟随默认 —</option>'
+      + llmConfig.providers.map(p =>
+          `<option value="${esc(p.id)}">${esc(p.name || p.id)}</option>`
+        ).join('');
+    if (current && llmConfig.providers.some(p => p.id === current)) {
+      provSel.value = current;
+    }
+    provSel.dataset.saved = current;
+    onModelUsageProviderChange(task);
+  }
+}
+
+function onModelUsageProviderChange(task) {
+  const provSel = document.getElementById(task + 'Provider');
+  const modelSel = document.getElementById(task + 'Model');
+  if (!provSel || !modelSel) return;
+  const providerId = provSel.value;
+  const previous = modelSel.value || modelSel.dataset.saved || '';
+  if (!providerId) {
+    modelSel.innerHTML = '<option value="">— 跟随默认 —</option>';
+    modelSel.disabled = true;
+    modelSel.value = '';
+    modelSel.dataset.saved = '';
+    return;
+  }
+  const models = _modelsForProvider(providerId);
+  modelSel.disabled = false;
+  modelSel.innerHTML = '<option value="">— 跟随默认 —</option>'
+    + models.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('');
+  // Re-pick the saved value if it still exists in the new provider.
+  if (previous && models.includes(previous)) {
+    modelSel.value = previous;
+  } else {
+    modelSel.value = '';
+  }
+  modelSel.dataset.saved = modelSel.value;
+}
+
+async function saveModelUsage() {
+  const status = document.getElementById('modelUsageStatus');
+  status.textContent = '保存中…';
+  const payload = {};
+  for (const task of MODEL_USAGE_TASKS) {
+    const provSel = document.getElementById(task + 'Provider');
+    const modelSel = document.getElementById(task + 'Model');
+    if (!provSel || !modelSel) continue;
+    const provKey = (task === 'chat' ? 'CHAT_PROVIDER' : 'TRANSLATION_PROVIDER');
+    const modelKey = (task === 'chat' ? 'CHAT_MODEL' : 'TRANSLATION_MODEL');
+    // If provider cleared, also clear model; otherwise persist what
+    // the user has selected (which may be "" to mean "follow default").
+    payload[provKey] = provSel.value || '';
+    payload[modelKey] = provSel.value ? (modelSel.value || '') : '';
+    provSel.dataset.saved = provSel.value;
+    modelSel.dataset.saved = modelSel.value;
+  }
+  try {
+    const resp = await fetch('/api/local-env', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    status.textContent = '已保存';
+  } catch (e) {
+    status.textContent = '保存失败：' + e.message;
+  }
+}
+
+// Pull the saved values for chat/translation from /api/local-env, store
+// them on the corresponding <select> elements as data-saved, and let
+// populateModelUsageProviders reapply them.
+async function loadModelUsageFromEnv() {
+  try {
+    const resp = await fetch('/api/local-env?ts=' + Date.now());
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const mapping = [
+      ['chatProvider',       'CHAT_PROVIDER'],
+      ['chatModel',          'CHAT_MODEL'],
+      ['translationProvider','TRANSLATION_PROVIDER'],
+      ['translationModel',   'TRANSLATION_MODEL'],
+    ];
+    for (const [id, key] of mapping) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      const entry = data[key];
+      const val = (entry && entry.value) || '';
+      el.dataset.saved = val;
+    }
+  } catch (_) {
+    /* non-fatal */
+  }
+}
+
 function addLLMProvider() {
   updateLLMProviderFromForm();
   const id = `custom_${Date.now()}`;
   llmConfig.providers.push({id, name:'Custom Provider', api_url:'', api_key_set:false, models:['custom-model'], model:'custom-model'});
   llmConfig.active_provider = id;
   renderLLMSettings();
+  populateModelUsageProviders();
 }
 
 function deleteLLMProvider() {
@@ -2347,6 +2604,7 @@ function deleteLLMProvider() {
   llmConfig.providers = llmConfig.providers.filter(p => p.id !== id);
   llmConfig.active_provider = llmConfig.providers[0].id;
   renderLLMSettings();
+  populateModelUsageProviders();
 }
 
 async function saveLLMConfigFromForm() {
@@ -2434,6 +2692,8 @@ async function showSettings() {
   await ensureLLMConfigLoaded();
   renderLLMSettings();
   await loadApiKeys();
+  await loadModelUsageFromEnv();
+  populateModelUsageProviders();
   loadDataRoot();
   loadUpdateInfo();
   // Open the settings tab (or activate if it already exists).
@@ -2462,6 +2722,11 @@ function showSettingsTab(paneId) {
   document.querySelectorAll('.settings-sidebar-item').forEach(el => {
     el.classList.toggle('active', el.dataset.pane === paneId);
   });
+  // Refresh cascading dropdowns every time the pane becomes visible so
+  // provider/model additions in the LLM pane are reflected here.
+  if (paneId === 'paneModelUsage' && typeof populateModelUsageProviders === 'function') {
+    populateModelUsageProviders();
+  }
 }
 
 function filterSettingsNav(query) {
@@ -2498,14 +2763,22 @@ const ENV_KEY_TO_INPUT = {
   DOCMIND_ACCESS_KEY_SECRET: 'envDocmindAkSecret',
   DOCMIND_REGION: 'envDocmindRegion',
   // Cloud OCR engine (云知声 etc.)
+  OCR_PROVIDER_TYPE: 'envOcrProviderType',
   OCR_API_URL: 'envOcrApiUrl',
   OCR_API_KEY: 'envOcrApiKey',
   OCR_PROVIDER: 'envOcrProvider',
+  OCR_MODEL: 'envOcrModel',
   OCR_LANG: 'envOcrLang',
   // Unisound U1 Doc Parser (async PDF -> Markdown)
   UNISOUND_API_KEY: 'envUnisoundApiKey',
   UNISOUND_BASE_URL: 'envUnisoundBaseUrl',
   UNISOUND_MODEL: 'envUnisoundModel',
+  UNISOUND_TOKEN_PLAN: 'envUnisoundTokenPlan',
+  // Per-task LLM routing (selected in the 模型用途 pane).
+  CHAT_PROVIDER: 'chatProvider',
+  CHAT_MODEL: 'chatModel',
+  TRANSLATION_PROVIDER: 'translationProvider',
+  TRANSLATION_MODEL: 'translationModel',
 };
 
 // Subset of the input ids above whose value is a secret and therefore
@@ -2549,16 +2822,23 @@ async function loadApiKeys() {
       const entry = data[key];
       const hasValue = !!(entry && entry.set && entry.value);
       const isSecret = SECRET_INPUT_IDS.has(inputId);
+      const isCheckbox = el.type === 'checkbox';
       if (isSecret) {
         // Default to password type; user can flip to text with the eye
         // button. Real value is populated; placeholder is the empty-state
         // hint.
         el.type = 'password';
       }
-      // Non-secret inputs (URLs, region, provider, language, model) keep
-      // whatever type the HTML set — text or url — and never get masked.
-      el.value = hasValue ? entry.value : '';
-      el.dataset.savedValue = el.value;
+      if (isCheckbox) {
+        // Checkbox stores "1" / "0" in env, .checked in the DOM.
+        el.checked = hasValue && (entry.value === '1' || entry.value.toLowerCase() === 'true');
+        el.dataset.savedValue = el.checked ? '1' : '';
+      } else {
+        // Non-secret inputs (URLs, region, provider, language, model) keep
+        // whatever type the HTML set — text or url — and never get masked.
+        el.value = hasValue ? entry.value : '';
+        el.dataset.savedValue = el.value;
+      }
       // Eye button only exists for secret fields; for non-secrets we just
       // make sure it stays hidden even if some stale markup is around.
       const btn = document.querySelector(`button[data-eye-for="${inputId}"]`);
@@ -2570,6 +2850,9 @@ async function loadApiKeys() {
         }
       }
     }
+    // Sync the cloud-OCR provider visibility (show/hide 厂商名 vs 模型,
+    // and the Token Plan checkbox) to match the loaded provider_type.
+    if (typeof onOcrProviderChange === 'function') onOcrProviderChange();
     status.textContent = '已加载';
   } catch (e) {
     status.textContent = '加载失败：' + e.message;
@@ -2583,11 +2866,15 @@ async function saveApiKeys() {
   for (const [key, inputId] of Object.entries(ENV_KEY_TO_INPUT)) {
     const el = document.getElementById(inputId);
     if (!el) continue;
-    if (el.value === '' && (el.dataset.savedValue || '') !== '') {
-      // User cleared a previously-set secret: send empty to wipe.
+    // Checkbox inputs encode their state via .checked (no .value).
+    const isCheckbox = el.type === 'checkbox';
+    const current = isCheckbox ? (el.checked ? '1' : '') : el.value;
+    const saved = (el.dataset.savedValue || '');
+    if (current === '' && saved !== '') {
+      // User cleared a previously-set value: send empty to wipe.
       payload[key] = '';
-    } else if (el.value !== '') {
-      payload[key] = el.value;
+    } else if (current !== '') {
+      payload[key] = current;
     }
     // else: input empty and was empty before — don't include, server keeps existing.
   }
