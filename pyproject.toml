@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "kbase"
-version = "0.3.1"
+version = "0.3.2"
 description = "An AI-powered, local-first knowledge management app that parses academic PDFs, supports Markdown notes, and leverages LLMs to assist with your knowledge workflow."
 authors = ["DeconBear"]
 readme = "README.md"
