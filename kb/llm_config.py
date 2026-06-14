@@ -70,22 +70,63 @@ def _safe_provider_id(value: str, fallback: str) -> str:
     return value or fallback
 
 
-def _normalize_models(models, selected_model="") -> list[str]:
+def _normalize_model_entry(entry) -> dict:
+    """Normalize a single model entry to {name, context_length, max_output_tokens}."""
+    if isinstance(entry, dict):
+        name = str(entry.get("name") or "").strip()
+    else:
+        # Legacy: bare string in the models list.
+        name = str(entry or "").strip()
+    def _to_int(value, default):
+        try:
+            n = int(value)
+            return n if n >= 0 else default
+        except (TypeError, ValueError):
+            return default
+    max_output_tokens = _to_int(
+        entry.get("max_output_tokens") if isinstance(entry, dict) else None,
+        8,
+    )
+    context_length = (
+        str((entry.get("context_length") if isinstance(entry, dict) else "") or "128k")
+        .strip().lower()
+    )
+    if context_length not in ("128k", "256k", "1m"):
+        context_length = "128k"
+    return {
+        "name": name,
+        "context_length": context_length,
+        "max_output_tokens": max_output_tokens,
+    }
+
+
+def _normalize_models(models, selected_model="") -> list[dict]:
+    """Normalize the provider's models list to a list of model dicts.
+
+    Accepts either the new shape (list of {name, context_length,
+    max_output_tokens}) or the legacy shape (list of bare strings, with
+    long_context_models as a separate provider-level list).
+    """
     if isinstance(models, str):
         raw = re.split(r"[\n,]+", models)
     elif isinstance(models, list):
         raw = models
     else:
         raw = []
-    result = []
+    result: list[dict] = []
+    seen: set[str] = set()
     for item in raw:
-        item = str(item or "").strip()
-        if item and item not in result:
-            result.append(item)
+        entry = _normalize_model_entry(item)
+        if not entry["name"] or entry["name"] in seen:
+            continue
+        seen.add(entry["name"])
+        result.append(entry)
     selected_model = str(selected_model or "").strip()
-    if selected_model and selected_model not in result:
-        result.insert(0, selected_model)
-    return result or ["custom-model"]
+    if selected_model and selected_model not in seen:
+        result.insert(0, _normalize_model_entry(selected_model))
+    if not result:
+        result.append(_normalize_model_entry("custom-model"))
+    return result
 
 
 def _normalize_provider(provider, fallback_id="custom") -> dict:
@@ -95,21 +136,25 @@ def _normalize_provider(provider, fallback_id="custom") -> dict:
     api_url = str(provider.get("api_url") or "").strip()
     api_key = str(provider.get("api_key") or "").strip()
     model = str(provider.get("model") or "").strip()
+    # If the saved config predates the per-model schema, it may have
+    # `long_context_models` at the provider level; merge it into the
+    # corresponding model entry's context_length before normalization.
+    legacy_lc = provider.get("long_context_models")
+    if isinstance(legacy_lc, list) and isinstance(provider.get("models"), list):
+        lc_set = {str(m).strip() for m in legacy_lc if str(m).strip()}
+        merged: list = []
+        for item in provider["models"]:
+            if isinstance(item, str) and item in lc_set:
+                merged.append({"name": item, "context_length": "1m"})
+            else:
+                merged.append(item)
+        provider = {**provider, "models": merged}
     models = _normalize_models(provider.get("models"), model)
     if not model:
-        model = models[0]
+        model = models[0]["name"]
     protocol = str(provider.get("protocol") or "openai").strip().lower()
     if protocol not in ("openai", "anthropic"):
         protocol = "openai"
-    # long_context_models is a list of model names that should be sent
-    # with the 1M-context window hint (where the API supports it,
-    # e.g. moonshot v1, kimi-k2). Stored as a separate list rather than
-    # nesting into the model strings to keep the format simple.
-    raw_lc = provider.get("long_context_models")
-    if isinstance(raw_lc, list):
-        long_context_models = [str(m).strip() for m in raw_lc if str(m).strip()]
-    else:
-        long_context_models = []
     return {
         "id": provider_id,
         "name": name,
@@ -118,7 +163,6 @@ def _normalize_provider(provider, fallback_id="custom") -> dict:
         "models": models,
         "model": model,
         "protocol": protocol,
-        "long_context_models": long_context_models,
     }
 
 
@@ -225,7 +269,10 @@ def public_llm_config() -> dict:
         item["api_key_set"] = bool(provider.get("api_key"))
         item["api_key_hint"] = _mask_key(provider.get("api_key", ""))
         item["protocol"] = provider.get("protocol") or "openai"
-        item["long_context_models"] = list(provider.get("long_context_models") or [])
+        item["long_context_models"] = [
+            m["name"] for m in (provider.get("models") or [])
+            if isinstance(m, dict) and m.get("context_length") == "1m"
+        ]
         providers.append(item)
     return {"active_provider": cfg.get("active_provider"), "providers": providers}
 
@@ -280,7 +327,16 @@ def resolve_llm_settings(provider_id: str = "", model: str = "") -> dict:
 
     selected_model = str(model or provider.get("model") or "").strip()
     if not selected_model:
-        selected_model = (provider.get("models") or [""])[0]
+        first_model = (provider.get("models") or [{}])[0]
+        selected_model = first_model.get("name") if isinstance(first_model, dict) else str(first_model)
+    # Look up the active model entry to get its per-model caps.
+    active_entry = next(
+        (m for m in (provider.get("models") or [])
+         if isinstance(m, dict) and m.get("name") == selected_model),
+        None,
+    )
+    max_output_tokens_k = (active_entry or {}).get("max_output_tokens", 8)
+    context_length = (active_entry or {}).get("context_length", "128k")
 
     return {
         "provider_id": provider["id"],
@@ -289,7 +345,9 @@ def resolve_llm_settings(provider_id: str = "", model: str = "") -> dict:
         "api_key": provider.get("api_key", ""),
         "model": selected_model,
         "protocol": provider.get("protocol", "openai"),
-        "long_context": selected_model in (provider.get("long_context_models") or []),
+        "long_context": context_length == "1m",
+        "max_output_tokens": max_output_tokens_k,         # K tokens
+        "context_length": context_length,                # max input
     }
 
 
@@ -299,7 +357,7 @@ def call_chat_completion(
     provider_id: str = "",
     model: str = "",
     temperature: float = 0.3,
-    max_tokens: int = 4096,
+    max_tokens: int | None = None,
     timeout: int = 120,
     stream: bool | None = None,
 ) -> dict:
@@ -310,6 +368,14 @@ def call_chat_completion(
         raise ValueError(f"LLM provider {settings['provider_name']} has no API key")
 
     protocol = settings.get("protocol", "openai")
+    # Caller can pass an explicit max_tokens to override; otherwise we use
+    # the per-provider max_output_tokens from the settings UI. The
+    # provider's value is in K tokens (e.g. 8 means 8K = 8192), so we
+    # multiply by 1024 to get the raw token count the API expects.
+    if max_tokens is not None:
+        effective_max_tokens = max_tokens
+    else:
+        effective_max_tokens = (settings.get("max_output_tokens") or 8) * 1024
 
     if protocol == "anthropic":
         # Anthropic-compatible endpoint. We use the Messages-style body
@@ -324,7 +390,7 @@ def call_chat_completion(
         body = {
             "model": settings["model"],
             "messages": chat_messages,
-            "max_tokens": max_tokens,
+            "max_tokens": effective_max_tokens,
             "temperature": temperature,
         }
         if system_prompts:
@@ -342,7 +408,7 @@ def call_chat_completion(
             "model": settings["model"],
             "messages": messages,
             "temperature": temperature,
-            "max_tokens": max_tokens,
+            "max_tokens": effective_max_tokens,
         }
         if stream is not None:
             body["stream"] = stream

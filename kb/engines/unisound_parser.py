@@ -45,7 +45,13 @@ _MAX_UPLOAD_BYTES = 100 * 1024 * 1024  # 100 MB ceiling (skill doesn't state one
 
 
 def _base_url() -> str:
-    return os.environ.get("UNISOUND_BASE_URL", DEFAULT_BASE_URL).rstrip("/") or DEFAULT_BASE_URL
+    base = os.environ.get("UNISOUND_BASE_URL", DEFAULT_BASE_URL).rstrip("/") or DEFAULT_BASE_URL
+    # Tolerate a trailing /v1 in UNISOUND_BASE_URL — endpoint paths we
+    # build already start with /v1/, so without this guard a user-supplied
+    # base of "https://maas-api.hivoice.cn/v1" produces /v1/v1/files/upload.
+    if base.endswith("/v1"):
+        base = base[:-3]
+    return base
 
 
 def _api_key() -> str:

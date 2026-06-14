@@ -76,6 +76,7 @@ from storage import (
     upsert_workspace,
 )
 from llm_config import (
+    call_chat_completion,
     public_llm_config,
     resolve_llm_settings,
     save_llm_config_from_public,
@@ -877,6 +878,33 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_article_update()
             elif path == "/api/llm-config":
                 self._json(save_llm_config_from_public(self._read_json()))
+            elif path == "/api/chat":
+                payload = self._read_json()
+                messages = payload.get("messages") or []
+                if not isinstance(messages, list) or not messages:
+                    self._error(400, "messages must be a non-empty list")
+                    return
+                try:
+                    result = call_chat_completion(
+                        messages,
+                        provider_id=str(payload.get("provider_id", "") or ""),
+                        model=str(payload.get("model", "") or ""),
+                        temperature=float(payload.get("temperature", 0.3) or 0.3),
+                        max_tokens=(
+                            int(payload["max_tokens"])
+                            if payload.get("max_tokens") is not None
+                            else None
+                        ),
+                        timeout=int(payload.get("timeout", 120) or 120),
+                    )
+                except (ValueError, TypeError) as exc:
+                    self._error(400, str(exc))
+                except Exception as exc:  # noqa: BLE001
+                    # Surface upstream API errors verbatim so the UI can show
+                    # the model provider's message (e.g. 401, 404, 429).
+                    self._error(502, f"Upstream LLM error: {exc}")
+                else:
+                    self._json(result)
             elif path == "/api/library-chat/ask":
                 self.handle_library_chat_ask()
             elif path == "/api/library-chat/sessions":

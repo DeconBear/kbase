@@ -376,29 +376,55 @@ select option{background:var(--surface-2);color:var(--text)}
 .settings-field input[type="password"],
 .settings-field input[type="text"]{padding-right:36px}
 
-/* ===== Per-model rows in the LLM model list ===== */
+/* ===== Per-model rows in the LLM model list =====
+   Use a grid layout so the three input columns have predictable widths
+   regardless of content size. The model-name column is the only one
+   that grows. */
 .llm-model-list{display:flex;flex-direction:column;gap:6px;width:100%}
-.llm-model-row{display:flex;align-items:center;gap:6px}
+.llm-model-row{
+  display:grid;
+  grid-template-columns: minmax(0, 1fr) 80px 84px 32px;
+  gap:6px;align-items:center;
+}
 .llm-model-row .llm-model-name{
-  flex:1;background:var(--surface-2);color:var(--text);
+  background:var(--surface-2);color:var(--text);
   border:1px solid var(--border);border-radius:var(--radius-sm);
-  padding:6px 10px;font-size:12px;outline:none;
+  padding:6px 10px;font-size:12px;outline:none;min-width:0;
 }
 .llm-model-row .llm-model-name:focus{border-color:var(--accent)}
-.llm-model-row .llm-model-1m-label{
-  display:inline-flex;align-items:center;gap:4px;
-  padding:5px 8px;border:1px solid var(--border);
-  border-radius:var(--radius-sm);background:var(--surface-2);
-  font-size:11px;color:var(--text-3);cursor:pointer;user-select:none;
-  white-space:nowrap;
+.llm-model-row .llm-model-context{
+  background:var(--surface-2);color:var(--text);
+  border:1px solid var(--border);border-radius:var(--radius-sm);
+  padding:5px 22px 5px 8px;font-size:12px;outline:none;cursor:pointer;
+  appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 6px center;
+  font-family:inherit;width:100%;
 }
-.llm-model-row .llm-model-1m-label:hover{color:var(--text)}
-.llm-model-row .llm-model-1m-label input{accent-color:var(--accent);margin:0}
-.llm-model-row .llm-model-1m-label input:checked + span{color:var(--accent);font-weight:600}
+.llm-model-row .llm-model-context:focus{border-color:var(--accent)}
+.llm-model-row .llm-model-maxout-wrap{
+  display:flex;align-items:center;gap:0;
+  padding:0;border:1px solid var(--border);border-radius:var(--radius-sm);
+  background:var(--surface-2);font-size:11px;color:var(--text-3);
+  overflow:hidden;white-space:nowrap;width:100%;
+}
+.llm-model-row .llm-model-maxout-wrap:focus-within{border-color:var(--accent)}
+.llm-model-row .llm-model-maxout{
+  background:transparent;color:var(--text);
+  border:0;outline:none;flex:1;min-width:0;
+  padding:5px 0 5px 8px;font-size:12px;font-family:inherit;text-align:right;
+  -moz-appearance:textfield;appearance:textfield;
+}
+.llm-model-row .llm-model-maxout::-webkit-outer-spin-button,
+.llm-model-row .llm-model-maxout::-webkit-inner-spin-button{
+  -webkit-appearance:none;margin:0;
+}
+.llm-model-row .llm-model-maxout-suffix{
+  padding:5px 8px 5px 0;pointer-events:none;
+}
 .llm-model-row .llm-model-del{
   background:transparent;border:1px solid var(--border);
   color:var(--text-3);border-radius:var(--radius-sm);
-  width:28px;height:28px;cursor:pointer;font-size:12px;
+  width:32px;height:28px;cursor:pointer;font-size:12px;
+  padding:0;
 }
 .llm-model-row .llm-model-del:hover{color:var(--rose);border-color:var(--rose)}
 
@@ -1081,6 +1107,7 @@ body { display: flex !important; flex-direction: column !important; height: 100v
           </div>
           <div class="settings-field">
             <label>模型列表</label>
+            <p style="font-size:11px;color:var(--text-3);margin:0 0 6px">每个模型独立设置「上下文长度（=最大输入）」和「最大输出（K tokens）」。多个模型用同一 provider 时，caps 各自独立。</p>
             <div id="llmModelList" class="llm-model-list"></div>
             <button class="btn-outline" type="button" onclick="addLLMModelRow()" style="margin-top:6px;align-self:flex-start">+ 添加模型</button>
           </div>
@@ -2080,7 +2107,13 @@ function getActiveLLMProvider() {
 function applyLLMConfig() {
   const provider = getActiveLLMProvider();
   LLM_CFG.providerId = provider?.id || '';
-  LLM_CFG.model = provider?.model || provider?.models?.[0] || '';
+  // provider.models is a list of {name, context_length, max_output_tokens}
+  // objects; unwrap .name when picking the first one as the fallback.
+  const firstModel = provider?.models?.[0];
+  const firstModelName = firstModel && typeof firstModel === 'object'
+    ? firstModel.name
+    : firstModel;
+  LLM_CFG.model = provider?.model || firstModelName || '';
   const label = document.getElementById('chat-model-label');
   if (label) label.textContent = provider ? `${provider.name} · ${LLM_CFG.model}` : 'LLM 未配置';
   const globalLabel = document.getElementById('global-model-label');
@@ -2121,48 +2154,60 @@ function getModelListFromText() {
 }
 
 function getModelsFromRows() {
+  // Each row produces {name, context_length, max_output_tokens} (K).
+  // Rows are read in DOM order; the first non-empty name is treated as
+  // the active model by renderLLMModelSelect.
   const out = [];
   const seen = new Set();
   document.querySelectorAll('#llmModelList .llm-model-row').forEach(row => {
     const nameInput = row.querySelector('.llm-model-name');
+    const ctxSel = row.querySelector('.llm-model-context');
+    const maxOut = row.querySelector('.llm-model-maxout');
     const name = (nameInput && nameInput.value || '').trim();
-    if (name && !seen.has(name)) { out.push(name); seen.add(name); }
-  });
-  return out;
-}
-
-function getLongContextFromRows() {
-  const out = [];
-  document.querySelectorAll('#llmModelList .llm-model-row').forEach(row => {
-    const nameInput = row.querySelector('.llm-model-name');
-    const cb = row.querySelector('.llm-model-1m');
-    const name = (nameInput && nameInput.value || '').trim();
-    if (name && cb && cb.checked) out.push(name);
+    if (!name || seen.has(name)) return;
+    seen.add(name);
+    const ctx = ctxSel ? (ctxSel.value || '128k') : '128k';
+    const maxK = maxOut ? (parseInt(maxOut.value, 10) || 8) : 8;
+    out.push({name, context_length: ctx, max_output_tokens: maxK});
   });
   return out;
 }
 
 function renderLLMModelList(provider) {
   // Render the 模型列表 as a list of rows, each:
-  //   [name input] [✓ 1M 上下文] [× delete]
-  // Rows are read by getModelsFromRows / getLongContextFromRows.
+  //   [name input] [context dropdown 128K/256K/1M] [max output K] [× delete]
+  // Rows are read back by getModelsFromRows.
   const container = document.getElementById('llmModelList');
   if (!container) return;
-  const lcSet = new Set(provider.long_context_models || []);
-  const models = (provider.models && provider.models.length) ? provider.models.slice() : [''];
-  // Make sure the active model is present in the list (so the user can
-  // see the 1M toggle for it).
-  if (provider.model && !models.includes(provider.model)) models.unshift(provider.model);
-  container.innerHTML = models.map(m => llmModelRowHtml(m, lcSet.has(m))).join('');
+  // Normalize provider.models to dicts in case legacy strings slipped
+  // through (the server normalizes on save; this is for the in-memory
+  // render path so the UI doesn't show a broken state).
+  const modelsRaw = (provider.models && provider.models.length) ? provider.models.slice() : [''];
+  const models = modelsRaw.map(m => {
+    if (m && typeof m === 'object') return m;
+    return {name: String(m || ''), context_length: '128k', max_output_tokens: 8};
+  });
+  // Make sure the active model is present in the list.
+  if (provider.model && !models.some(m => m.name === provider.model)) {
+    models.unshift({name: provider.model, context_length: '128k', max_output_tokens: 8});
+  }
+  container.innerHTML = models.map(m => llmModelRowHtml(m.name, m.context_length, m.max_output_tokens)).join('');
 }
 
-function llmModelRowHtml(name, is1M) {
+function llmModelRowHtml(name, contextLength, maxOutputK) {
+  const ctx = ['128k','256k','1m'].includes(contextLength) ? contextLength : '128k';
+  const maxK = Number.isFinite(parseInt(maxOutputK, 10)) ? parseInt(maxOutputK, 10) : 8;
   return `
     <div class="llm-model-row">
       <input type="text" class="llm-model-name" placeholder="模型名" value="${esc(name || '')}" oninput="onLLMModelRowChange()">
-      <label class="llm-model-1m-label" title="该模型支持 1M 上下文（长上下文场景）">
-        <input type="checkbox" class="llm-model-1m" onchange="onLLMModelRowChange()"${is1M ? ' checked' : ''}>
-        <span>1M</span>
+      <select class="llm-model-context" title="上下文长度（=最大输入）" onchange="onLLMModelRowChange()">
+        <option value="128k"${ctx==='128k'?' selected':''}>128K</option>
+        <option value="256k"${ctx==='256k'?' selected':''}>256K</option>
+        <option value="1m"${ctx==='1m'?' selected':''}>1M</option>
+      </select>
+      <label class="llm-model-maxout-wrap" title="单次回复最大输出，单位 K tokens">
+        <input type="number" class="llm-model-maxout" min="0" step="1" placeholder="8" value="${maxK}" oninput="onLLMModelRowChange()">
+        <span class="llm-model-maxout-suffix">K</span>
       </label>
       <button class="llm-model-del" type="button" onclick="removeLLMModelRow(this)" title="删除该模型">✕</button>
     </div>`;
@@ -2171,9 +2216,9 @@ function llmModelRowHtml(name, is1M) {
 function addLLMModelRow() {
   const container = document.getElementById('llmModelList');
   if (!container) return;
-  // Append a new empty row.
+  // Append a new empty row with default caps.
   const wrap = document.createElement('div');
-  wrap.innerHTML = llmModelRowHtml('', false);
+  wrap.innerHTML = llmModelRowHtml('', '128k', 8);
   container.appendChild(wrap.firstElementChild);
   // Focus the new name input.
   const newRow = container.lastElementChild;
@@ -2187,14 +2232,14 @@ function removeLLMModelRow(btn) {
 }
 
 function onLLMModelRowChange() {
-  // Sync rows into provider.models / provider.long_context_models.
+  // Sync rows into provider.models (per-model objects).
   const provider = getActiveLLMProvider();
   if (!provider) return;
   provider.models = getModelsFromRows();
-  provider.long_context_models = getLongContextFromRows();
   // Active model may have changed if user cleared a row.
-  if (!provider.models.includes(provider.model)) {
-    provider.model = provider.models[0] || '';
+  const names = provider.models.map(m => m.name);
+  if (!names.includes(provider.model)) {
+    provider.model = names[0] || '';
   }
   renderLLMModelSelect(provider);
 }
@@ -2210,13 +2255,13 @@ function updateLLMProviderFromForm(providerId=llmEditingProviderId) {
   const key = document.getElementById('llmApiKey').value;  // do NOT trim; a key with trailing space would be intentional
   if (key && key.trim()) provider.api_key = key;
   provider.models = getModelsFromRows();
-  provider.long_context_models = getLongContextFromRows();
   // The active model is the first model in the list. If the previous
   // active model got deleted from the list, fall back to the first one.
-  if (provider.models.length && !provider.models.includes(provider.model)) {
-    provider.model = provider.models[0];
-  } else if (!provider.model && provider.models.length) {
-    provider.model = provider.models[0];
+  const names = provider.models.map(m => m.name);
+  if (names.length && !names.includes(provider.model)) {
+    provider.model = names[0];
+  } else if (!provider.model && names.length) {
+    provider.model = names[0];
   }
 }
 
@@ -2241,7 +2286,7 @@ function renderLLMSettings() {
   // Backfill any newly-added schema fields (so old saved configs still work).
   for (const p of llmConfig.providers) {
     if (!p.protocol) p.protocol = 'openai';
-    if (!Array.isArray(p.long_context_models)) p.long_context_models = [];
+    if (!Array.isArray(p.models)) p.models = [];
   }
   select.innerHTML = llmConfig.providers.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
   const provider = getActiveLLMProvider();
@@ -2260,7 +2305,7 @@ function renderLLMSettings() {
   keyInput.placeholder = hasKey ? '留空则保留已保存 key' : '输入 API key';
   const eyeBtn = document.querySelector('button[data-eye-for="llmApiKey"]');
   if (eyeBtn) eyeBtn.style.display = hasKey ? '' : 'none';
-  // Render the model list as rows.
+  // Render the model list as rows (each row has its own context + max_output).
   renderLLMModelList(provider);
   renderLLMModelSelect(provider);
   setLLMStatus(hasKey ? 'API key 已配置' : 'API key 未配置', hasKey ? 'ok' : 'muted');
@@ -2308,17 +2353,25 @@ async function saveLLMConfigFromForm() {
   updateLLMProviderFromForm();
   const payload = {
     active_provider: llmConfig.active_provider,
-    providers: llmConfig.providers.map(p => ({
-      id: p.id,
-      name: p.name,
-      api_url: p.api_url,
-      api_key: p.api_key || '',
-      keep_key: !p.api_key,
-      models: p.models || [],
-      model: p.model || (p.models || [])[0] || '',
-      protocol: p.protocol || 'openai',
-      long_context_models: p.long_context_models || [],
-    }))
+    providers: llmConfig.providers.map(p => {
+      // Unwrap .name from the per-model dicts when picking the fallback
+      // active model.
+      const firstModel = (p.models || [])[0];
+      const firstModelName = firstModel && typeof firstModel === 'object'
+        ? firstModel.name
+        : firstModel;
+      return {
+        id: p.id,
+        name: p.name,
+        api_url: p.api_url,
+        api_key: p.api_key || '',
+        keep_key: !p.api_key,
+        models: p.models || [],
+        model: p.model || firstModelName || '',
+        protocol: p.protocol || 'openai',
+        long_context_models: p.long_context_models || [],
+      };
+    })
   };
   const resp = await fetch('/api/llm-config', {
     method:'PUT',
