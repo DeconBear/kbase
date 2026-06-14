@@ -102,13 +102,29 @@ def check_for_update(force: bool = False) -> dict:
     result["releaseUrl"] = data.get("html_url", "")
     result["releaseNotes"] = data.get("body", "")[:4000]
 
-    # Find the installer asset (.exe that contains "Setup")
+    # Find assets. We return BOTH the NSIS installer URL (for installed
+    # builds) and the portable zip URL (for portable builds) so the
+    # frontend / apply_update can pick the right one for the current
+    # build.
+    installer_url = ""
+    portable_url = ""
     for asset in data.get("assets", []):
         name = asset.get("name", "")
+        url = asset.get("browser_download_url", "")
+        size = asset.get("size", 0)
         if name.endswith(".exe") and "Setup" in name:
-            result["assetUrl"] = asset.get("browser_download_url", "")
-            result["assetSize"] = asset.get("size", 0)
-            break
+            installer_url = url
+            result["installerSize"] = size
+        elif name.endswith(".zip") and "portable" in name.lower():
+            portable_url = url
+            result["portableSize"] = size
+    # assetUrl is whichever the current build wants.
+    if is_installed_build():
+        result["assetUrl"] = installer_url
+    else:
+        result["assetUrl"] = portable_url or installer_url
+    result["installerUrl"] = installer_url
+    result["portableUrl"] = portable_url
 
     result["hasUpdate"] = _version_greater(latest_version, VERSION) and bool(result["assetUrl"])
     _last_check = result
@@ -117,88 +133,107 @@ def check_for_update(force: bool = False) -> dict:
 
 
 def apply_update(asset_url: str, log_callback=None) -> bool:
-    """Download the installer and spawn the updater bootstrap.
+    """Download the update package and replace the running install.
 
-    Returns True if the updater was launched successfully (the current
-    process will exit shortly after).
+    Two flows are supported:
+      - Installed (NSIS) build: download the new installer and run
+        it silently with /S after the current process exits.
+      - Portable / source build: download the new portable zip and
+        extract over the current install dir after exit.
+
+    Returns True if the updater was launched successfully.
     """
 
     def log(msg: str) -> None:
         if log_callback:
             log_callback(msg)
 
-    if not is_installed_build():
-        log("当前是绿色版，不支持自动更新。请手动下载新版本压缩包覆盖。")
-        return False
-
     if not asset_url:
-        log("没有可用的更新包下载地址")
+        log("no update package URL available")
         return False
 
-    # Download installer to a temp location that survives our exit
+    installed = is_installed_build()
     tmp_dir = Path(tempfile.gettempdir()) / "KBaseUpdate"
     tmp_dir.mkdir(parents=True, exist_ok=True)
-    installer_path = tmp_dir / "KBase-Setup.exe"
+    install_dir = str(_exe_dir())
 
-    log(f"正在下载更新包… ({asset_url})")
+    if installed:
+        pkg_path = tmp_dir / "KBase-Setup.exe"
+    else:
+        pkg_path = tmp_dir / "KBase-portable.zip"
+
+    log(f"downloading update package... ({asset_url})")
     try:
         req = urllib.request.Request(asset_url, headers={"User-Agent": "KBase-Updater"})
         with urllib.request.urlopen(req, timeout=300) as resp:
-            with open(installer_path, "wb") as f:
+            with open(pkg_path, "wb") as f:
                 shutil.copyfileobj(resp, f, length=8192 * 1024)
     except Exception as e:
-        log(f"下载失败: {e}")
+        log(f"download failed: {e}")
         return False
 
-    installer_size_mb = installer_path.stat().st_size / (1024 * 1024)
-    log(f"下载完成 ({installer_size_mb:.1f} MB) → {installer_path}")
+    pkg_size_mb = pkg_path.stat().st_size / (1024 * 1024)
+    log(f"download done ({pkg_size_mb:.1f} MB) -> {pkg_path}")
 
-    # Write the updater bootstrap PowerShell script
     updater_ps1 = tmp_dir / "update.ps1"
-    install_dir = str(_exe_dir())
-    updater_ps1.write_text(f"""# KBase auto-update bootstrap — DO NOT RUN MANUALLY
-$ErrorActionPreference = 'Stop'
-$installer = '{installer_path}'
-$targetDir = '{install_dir}'
+    if installed:
+        updater_body = """$ErrorActionPreference = 'Stop'
+$installer = '""" + str(pkg_path) + """'
+$targetDir = '""" + install_dir + """'
 
-# Wait for KBase.exe to exit
 Write-Host "Waiting for KBase to exit..."
 Start-Sleep 2
 $proc = Get-Process -Name "KBase" -ErrorAction SilentlyContinue
-if ($proc) {{ $proc | Wait-Process -Timeout 30 }}
+if ($proc) { $proc | Wait-Process -Timeout 30 }
 
-# Run installer silently
 Write-Host "Running installer silently..."
 $args = @('/S', '/D=' + $targetDir)
 $p = Start-Process -FilePath $installer -ArgumentList $args -Wait -PassThru -NoNewWindow
-
-if ($p.ExitCode -eq 0) {{
+if ($p.ExitCode -eq 0) {
     Write-Host "Update successful, restarting KBase..."
     Start-Process (Join-Path $targetDir 'KBase.exe')
-}}
+}
 
-# Clean up
 Start-Sleep 2
 Remove-Item $installer -Force -ErrorAction SilentlyContinue
 Remove-Item $PSCommandPath -Force -ErrorAction SilentlyContinue
-""", encoding="utf-8")
+"""
+    else:
+        updater_body = """$ErrorActionPreference = 'Stop'
+$pkg = '""" + str(pkg_path) + """'
+$targetDir = '""" + install_dir + """'
 
-    # Launch updater (detached, survives this process exit)
+Write-Host "Waiting for KBase to exit..."
+Start-Sleep 2
+$proc = Get-Process -Name "KBase" -ErrorAction SilentlyContinue
+if ($proc) { $proc | Wait-Process -Timeout 30 }
+
+Write-Host "Extracting portable update over $targetDir..."
+Expand-Archive -Path $pkg -DestinationPath $targetDir -Force
+
+Write-Host "Update successful, restarting KBase..."
+Start-Process (Join-Path $targetDir 'KBase.exe')
+
+Start-Sleep 2
+Remove-Item $pkg -Force -ErrorAction SilentlyContinue
+Remove-Item $PSCommandPath -Force -ErrorAction SilentlyContinue
+"""
+    updater_ps1.write_text(updater_body, encoding="utf-8")
+
     try:
         subprocess.Popen(
             ["powershell.exe", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden",
              "-File", str(updater_ps1)],
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
-            if sys.platform == "win32" else 0,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | getattr(subprocess, "DETACHED_PROCESS", 0)
+             if sys.platform == "win32" else 0,
             close_fds=True,
         )
     except Exception as e:
-        log(f"启动更新进程失败: {e}")
+        log(f"failed to launch updater: {e}")
         return False
 
-    log("更新进程已启动，应用程序即将关闭…")
+    log("updater launched, application will exit shortly...")
     return True
-
 
 def _version_greater(a: str, b: str) -> bool:
     """Compare two semver-like version strings (e.g. '0.4.0' > '0.3.0')."""
