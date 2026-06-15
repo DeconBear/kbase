@@ -1903,7 +1903,10 @@ def start_server() -> ReusableThreadingTCPServer:
     notes = get_all_notes()
     print(f" Articles: {len(articles)}")
     print(f" Notes:    {len(notes)}")
-    print(f" Listening on http://localhost:{PORT}")
+    print(f" Listening on 0.0.0.0:{PORT}  (reachable as http://localhost:{PORT} from this machine,")
+    print(f"                  and as http://<lan-ip>:{PORT} from other devices on the same network)")
+    print(f" ⚠  No authentication — anyone on your local network can read & modify the library.")
+    print(f"    Restrict via your OS firewall, or use a reverse proxy with auth.")
 
     httpd = ReusableThreadingTCPServer(("", PORT), KBHandler)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
