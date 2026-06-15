@@ -235,3 +235,6 @@ CHANGELOG*.md
 
 # Local planning documents
 plan/
+
+# Skill files (local-only agent configurations)
+skills/
