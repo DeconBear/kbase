@@ -13,7 +13,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from tools._client import get_raw, get  # noqa: E402
+from tools._client import output_json, get_raw, get  # noqa: E402
 
 
 def main() -> None:
@@ -38,7 +38,7 @@ def main() -> None:
         "title": article.get("title", ""),
         "summary": summary.strip() if summary else "(no summary available)",
     }
-    json.dump(output, sys.stdout, ensure_ascii=False, indent=2)
+    output_json(output)
     print()
 
 

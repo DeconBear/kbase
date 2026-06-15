@@ -14,7 +14,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from tools._client import post, put  # noqa: E402
+from tools._client import output_json, post, put  # noqa: E402
 
 
 def main() -> None:
@@ -38,7 +38,7 @@ def main() -> None:
         put(f"/api/notes/{note_id}", {"content": args.content, "title": args.title})
 
         output = {"status": "ok", "id": note_id, "title": args.title}
-        json.dump(output, sys.stdout, ensure_ascii=False, indent=2)
+        output_json(output)
         print()
     except SystemExit:
         raise

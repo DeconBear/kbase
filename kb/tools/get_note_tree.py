@@ -13,7 +13,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from tools._client import get  # noqa: E402
+from tools._client import output_json, get  # noqa: E402
 
 
 def main() -> None:
@@ -55,7 +55,7 @@ def main() -> None:
     roots = [n for n in notes if not n.get("parent_id")]
     tree = [build_tree(r) for r in roots]
 
-    json.dump(tree, sys.stdout, ensure_ascii=False, indent=2)
+    output_json(tree)
     print()
 
 

@@ -13,7 +13,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from tools._client import delete  # noqa: E402
+from tools._client import output_json, delete  # noqa: E402
 
 
 def main() -> None:
@@ -24,7 +24,7 @@ def main() -> None:
     try:
         delete(f"/api/notes/{args.id}")
         output = {"status": "ok", "id": args.id}
-        json.dump(output, sys.stdout, ensure_ascii=False, indent=2)
+        output_json(output)
         print()
     except SystemExit:
         raise

@@ -13,7 +13,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from tools._client import get, get_raw  # noqa: E402
+from tools._client import output_json, get, get_raw  # noqa: E402
 
 
 def main() -> None:
@@ -58,7 +58,7 @@ def main() -> None:
         "pages": article.get("pages", 0),
         "content": content,
     }
-    json.dump(result, sys.stdout, ensure_ascii=False, indent=2)
+    output_json(result)
     print()
 
 

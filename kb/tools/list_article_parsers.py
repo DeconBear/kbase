@@ -45,7 +45,7 @@ def main() -> None:
     if os.environ.get("UNISOUND_API_KEY"):
         engines["unisound"]["status"] = "configured"
 
-    json.dump(list(engines.values()), sys.stdout, ensure_ascii=False, indent=2)
+    output_json(list(engines.values()))
     print()
 
 

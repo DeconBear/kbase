@@ -14,7 +14,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from tools._client import post  # noqa: E402
+from tools._client import output_json, post  # noqa: E402
 
 
 def main() -> None:
@@ -42,7 +42,7 @@ def main() -> None:
     reply = choices[0].get("message", {}).get("content") or ""
 
     output = {"reply": reply, "model": result.get("model", "")}
-    json.dump(output, sys.stdout, ensure_ascii=False, indent=2)
+    output_json(output)
     print()
 
 

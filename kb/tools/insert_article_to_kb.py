@@ -17,7 +17,7 @@ import urllib.request
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from tools._client import BASE, put, get  # noqa: E402
+from tools._client import output_json, BASE, put, get  # noqa: E402
 
 
 def main() -> None:
@@ -80,7 +80,7 @@ def main() -> None:
         "title": args.title,
         "tags": tags,
     }
-    json.dump(output, sys.stdout, ensure_ascii=False, indent=2)
+    output_json(output)
     print()
 
 

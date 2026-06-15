@@ -11,6 +11,12 @@ import sys
 import urllib.error
 import urllib.request
 
+
+def output_json(data) -> None:
+    """Write JSON to stdout safely (handles Windows GBK encoding)."""
+    text = json.dumps(data, ensure_ascii=False, indent=2)
+    sys.stdout.buffer.write(text.encode("utf-8") + b"\n")
+
 BASE = os.environ.get("KBASE_URL", "http://localhost:8765").rstrip("/")
 
 
@@ -29,9 +35,9 @@ def _request(method: str, path: str, body: dict | None = None) -> dict:
             return json.loads(raw) if raw else {}
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
-        raise SystemExit(f"HTTP {exc.code}: {detail[:500]}")
+        raise RuntimeError(f"HTTP {exc.code}: {detail[:500]}")
     except urllib.error.URLError as exc:
-        raise SystemExit(f"Connection failed: {exc.reason}")
+        raise RuntimeError(f"Connection failed: {exc.reason}")
 
 
 def get(path: str) -> dict:
@@ -63,6 +69,6 @@ def get_raw(path: str) -> str:
             return resp.read().decode("utf-8")
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
-        raise SystemExit(f"HTTP {exc.code}: {detail[:500]}")
+        raise RuntimeError(f"HTTP {exc.code}: {detail[:500]}")
     except urllib.error.URLError as exc:
-        raise SystemExit(f"Connection failed: {exc.reason}")
+        raise RuntimeError(f"Connection failed: {exc.reason}")

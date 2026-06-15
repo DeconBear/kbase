@@ -16,7 +16,7 @@ import uuid
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from tools._client import BASE  # noqa: E402
+from tools._client import output_json, BASE  # noqa: E402
 import urllib.request  # noqa: E402
 
 
@@ -71,7 +71,7 @@ def main() -> None:
         "title": article.get("title", ""),
         "pages": article.get("pages", 0),
     }
-    json.dump(output, sys.stdout, ensure_ascii=False, indent=2)
+    output_json(output)
     print()
 
 

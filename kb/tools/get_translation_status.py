@@ -13,7 +13,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from tools._client import get  # noqa: E402
+from tools._client import output_json, get  # noqa: E402
 
 
 def main() -> None:
@@ -29,7 +29,7 @@ def main() -> None:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    json.dump(result, sys.stdout, ensure_ascii=False, indent=2)
+    output_json(result)
     print()
 
 

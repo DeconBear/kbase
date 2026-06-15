@@ -16,7 +16,7 @@ import urllib.request
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from tools._client import BASE  # noqa: E402
+from tools._client import output_json, BASE  # noqa: E402
 
 
 def main() -> None:
@@ -44,7 +44,7 @@ def main() -> None:
         with open(args.output, "w", encoding="utf-8") as f:
             f.write(bib)
         output = {"status": "ok", "count": len(ids), "file": args.output}
-        json.dump(output, sys.stdout, ensure_ascii=False, indent=2)
+        output_json(output)
         print()
     else:
         print(bib)
