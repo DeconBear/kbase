@@ -1010,6 +1010,9 @@ body { display: flex !important; flex-direction: column !important; height: 100v
         <div class="settings-sidebar-item" data-pane="paneUpdate" data-keywords="更新 版本 upgrade update version">
           <span class="icon">🔄</span><span>软件更新</span>
         </div>
+        <div class="settings-sidebar-item" data-pane="paneSkills" data-keywords="skills 工具 安装 claude codex agent">
+          <span class="icon">⚙️</span><span>Skills 安装</span>
+        </div>
 
         <div class="settings-sidebar-group">模型与服务</div>
         <div class="settings-sidebar-item" data-pane="paneLLM" data-keywords="llm 大语言模型 chatgpt deepseek openai provider 模型">
@@ -1363,6 +1366,37 @@ body { display: flex !important; flex-direction: column !important; height: 100v
           <a id="updateManualLink" href="#" target="_blank" rel="noopener" style="display:none;font-size:12px;color:var(--accent)">手动下载</a></div>
           <div id="updateProgress" style="font-size:11px;color:var(--accent);margin-top:6px;display:none"></div>
           <div id="updateReleaseNotes" style="max-height:200px;overflow-y:auto;font-size:12px;color:var(--text-2);background:var(--surface-2);border-radius:var(--radius-sm);padding:10px;margin-top:8px;display:none;white-space:pre-wrap"></div>
+        </div>
+      </section>
+
+      <!-- Pane: Skills -->
+      <section class="settings-content-pane" data-pane="paneSkills">
+        <h3 class="settings-pane-title">⚙️ Skills 安装</h3>
+        <p class="settings-pane-desc">将 KBase 操控工具安装为 Claude Code / Codex 的 Skill，让 AI agent 直接操控知识库。</p>
+        <div class="settings-section">
+          <div class="adv-field">
+            <label>安装目标</label>
+            <select id="skillsTarget">
+              <option value="claude_global">Claude Code 全局 (~/.claude/skills/)</option>
+              <option value="claude_project">Claude Code 项目级 (.claude/skills/)</option>
+              <option value="codex_global">Codex 全局 (~/.codex/skills/)</option>
+              <option value="custom">自定义目录…</option>
+            </select>
+          </div>
+          <div class="adv-field" id="skillsCustomDirRow" style="display:none">
+            <label>自定义目录路径</label>
+            <input type="text" id="skillsCustomDir" placeholder="输入完整的目录路径">
+          </div>
+          <div class="adv-field">
+            <label>偏好与规则（可选）</label>
+            <textarea id="skillsPreferences" rows="4" placeholder="例: 笔记默认写入「Research」笔记本&#10;摘要使用中文，控制在 500 字以内&#10;文献引用格式: APA 7th"></textarea>
+          </div>
+          <div style="display:flex;gap:10px;margin-top:12px">
+            <button class="ctrl-btn" id="skillsPreviewBtn">👁 预览 Skill 文件</button>
+            <button class="btn-emerald" id="skillsInstallBtn">📥 安装 Skills</button>
+          </div>
+          <div id="skillsMsg" style="font-size:12px;margin-top:10px;display:none"></div>
+          <div id="skillsPreview" style="display:none;margin-top:10px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;font-family:monospace;font-size:12px;white-space:pre-wrap;max-height:300px;overflow-y:auto;color:var(--text-2)"></div>
         </div>
       </section>
 
@@ -2744,6 +2778,9 @@ function showSettingsTab(paneId) {
   if (paneId === 'paneModelUsage' && typeof populateModelUsageProviders === 'function') {
     populateModelUsageProviders();
   }
+  if (paneId === 'paneSkills' && typeof initSkillsPane === 'function') {
+    initSkillsPane();
+  }
 }
 
 function filterSettingsNav(query) {
@@ -3091,6 +3128,68 @@ async function applyUpdate() {
   } catch (e) {
     progress.textContent = '更新请求失败: ' + e.message;
     document.getElementById('updateBtn').disabled = false;
+  }
+}
+
+// ==================================================================
+// Skills install
+// ==================================================================
+
+function initSkillsPane() {
+  const sel = document.getElementById('skillsTarget');
+  const row = document.getElementById('skillsCustomDirRow');
+  if (sel && row) {
+    sel.onchange = () => { row.style.display = sel.value === 'custom' ? '' : 'none'; };
+  }
+  const previewBtn = document.getElementById('skillsPreviewBtn');
+  const installBtn = document.getElementById('skillsInstallBtn');
+  if (previewBtn) previewBtn.onclick = skillsPreview;
+  if (installBtn) installBtn.onclick = skillsInstall;
+}
+
+async function skillsPreview() {
+  const msg = document.getElementById('skillsMsg');
+  const box = document.getElementById('skillsPreview');
+  msg.style.display = 'block';
+  msg.style.color = 'var(--text-3)';
+  msg.textContent = '正在生成预览…';
+  try {
+    const r = await fetch('/api/skills/preview');
+    const d = await r.json();
+    msg.style.display = 'none';
+    box.textContent = d.content || '';
+    box.style.display = 'block';
+  } catch (e) {
+    msg.style.color = 'var(--rose)';
+    msg.textContent = '预览失败: ' + e.message;
+  }
+}
+
+async function skillsInstall() {
+  const target = document.getElementById('skillsTarget').value;
+  const directory = document.getElementById('skillsCustomDir').value.trim();
+  const preferences = document.getElementById('skillsPreferences').value.trim();
+  const msg = document.getElementById('skillsMsg');
+  msg.style.display = 'block';
+  msg.style.color = 'var(--text-3)';
+  msg.textContent = '正在安装…';
+  try {
+    const r = await fetch('/api/skills/install', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target, directory, preferences })
+    });
+    const d = await r.json();
+    if (d.status === 'ok') {
+      msg.style.color = 'var(--emerald)';
+      msg.textContent = d.message;
+    } else {
+      msg.style.color = 'var(--rose)';
+      msg.textContent = (d.error || d.message || '安装失败');
+    }
+  } catch (e) {
+    msg.style.color = 'var(--rose)';
+    msg.textContent = '安装失败: ' + e.message;
   }
 }
 

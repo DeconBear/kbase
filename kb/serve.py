@@ -947,6 +947,10 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_apply_update()
             elif path == "/api/data-root":
                 self.handle_set_data_root()
+            elif path == "/api/skills/install":
+                self.handle_skills_install()
+            elif path == "/api/skills/preview":
+                self.handle_skills_preview()
             elif path.startswith("/api/articles/") and path.endswith("/attachments"):
                 self.handle_upload_attachment()
             elif path.startswith("/api/articles/") and path.endswith("/history/delete"):
@@ -1774,6 +1778,108 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         new_root = (data.get("dataRoot") or "").strip()
         path_info = set_data_root(new_root)
         self._json(path_info)
+
+    def handle_skills_install(self) -> None:
+        """POST /api/skills/install — install tools + skill file to target directory."""
+        data = self._read_json()
+        target = str(data.get("target") or "").strip().lower()
+        directory = str(data.get("directory") or "").strip()
+        preferences = str(data.get("preferences") or "").strip()
+
+        # Resolve target directory
+        home = Path.home()
+        targets = {
+            "claude_global": home / ".claude" / "skills",
+            "claude_project": Path.cwd() / ".claude" / "skills",
+            "codex_global": home / ".codex" / "skills",
+            "custom": Path(directory) if directory else None,
+        }
+        install_dir = targets.get(target)
+        if not install_dir or (target == "custom" and not directory):
+            self._error(400, "Invalid target. Choices: claude_global, claude_project, codex_global, custom")
+            return
+        if target == "custom" and not directory:
+            self._error(400, "directory is required for custom target")
+            return
+
+        try:
+            install_dir = Path(install_dir)
+            install_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            self._error(500, f"Cannot create directory: {exc}")
+            return
+
+        # Build skill file content
+        tools_dir = PACKAGE_DIR / "tools"
+        tool_list: list[str] = []
+        if tools_dir.is_dir():
+            for f in sorted(tools_dir.iterdir()):
+                if f.suffix == ".py" and f.name != "__init__.py" and f.name != "_client.py":
+                    tool_list.append(f.name)
+
+        prefix = "# KBase Skill\n\n"
+        prefix += "KBase is a local-first knowledge management app running at http://localhost:8765.\n"
+        prefix += "Server must be running before using these tools.\n\n"
+        prefix += "## Available Tools\n\n"
+        for name in tool_list:
+            prefix += f"- `python kb/tools/{name}`\n"
+        prefix += "\nEach tool takes `--arg` parameters and returns JSON to stdout.\n\n"
+        prefix += "## Workflows\n\n"
+        prefix += "### Read a paper and take notes\n"
+        prefix += "1. `python kb/tools/search_articles.py --query \"topic\"`\n"
+        prefix += "2. `python kb/tools/get_article.py --id \"found_id\"`\n"
+        prefix += "3. `python kb/tools/create_note.py --title \"Summary\" --content \"...\"`\n\n"
+
+        if preferences:
+            prefix += "## User Preferences\n\n"
+            prefix += preferences.strip() + "\n"
+
+        # Write skill file
+        skill_path = install_dir / "kbase.md"
+        try:
+            skill_path.write_text(prefix, encoding="utf-8")
+        except OSError as exc:
+            self._error(500, f"Cannot write skill file: {exc}")
+            return
+
+        # Copy tools to a sub-directory
+        tools_target = install_dir / "kbase-tools"
+        tools_target.mkdir(parents=True, exist_ok=True)
+        try:
+            import shutil
+            for f in sorted(tools_dir.iterdir()):
+                if f.suffix == ".py":
+                    shutil.copy2(f, tools_target / f.name)
+        except OSError as exc:
+            self._error(500, f"Cannot copy tools: {exc}")
+            return
+
+        self._json({
+            "status": "ok",
+            "message": f"Skills installed to {install_dir}",
+            "directory": str(install_dir),
+            "files": len(tool_list) + 1,
+        })
+
+    def handle_skills_preview(self) -> None:
+        """GET /api/skills/preview — preview the skill file content."""
+        tools_dir = PACKAGE_DIR / "tools"
+        tool_list: list[str] = []
+        if tools_dir.is_dir():
+            for f in sorted(tools_dir.iterdir()):
+                if f.suffix == ".py" and f.name != "__init__.py" and f.name != "_client.py":
+                    tool_list.append(f.name)
+
+        prefix = "# KBase Skill\n\n"
+        prefix += "KBase is a local-first knowledge management app running at http://localhost:8765.\n\n"
+        prefix += "## Available Tools\n\n"
+        for name in tool_list:
+            prefix += f"- `python kb/tools/{name}`\n"
+
+        self._json({
+            "content": prefix,
+            "tool_count": len(tool_list),
+        })
 
 
 
