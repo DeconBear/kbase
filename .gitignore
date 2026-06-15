@@ -13,7 +13,6 @@ debug_data
 temp.md
 temp
 conversion_results
-CLAUDE.md
 uploads
 /cache
 
@@ -230,3 +229,6 @@ CHANGELOG*.md
 # Linux/macOS launcher (Start-KBase.sh) writes server logs here
 /tmp/kbase-server.log
 /tmp/kbase.log
+
+# Local planning documents
+plan/
