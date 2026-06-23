@@ -51,6 +51,28 @@ if _DATA_PATH_FILE.exists():
     except Exception:
         pass
 
+# When KBase is installed system-wide (e.g. via a Linux distro package that
+# drops the code under /opt/kbase or /usr/lib/kbase), the repo root is read-only
+# but the user still needs a writable data directory. Fall back to the
+# XDG-compliant per-user data dir in that case. Detection is intentionally
+# conservative: only triggers when the repo root itself is unwritable.
+if _DATA_ROOT_OVERRIDE is None and _REPO_ROOT != Path.cwd():
+    try:
+        # If we can write a probe file, the repo root is fine — keep default.
+        probe = _REPO_ROOT / ".kbase_write_probe"
+        probe.touch(exist_ok=True)
+        probe.unlink(missing_ok=True)
+    except (OSError, PermissionError):
+        _xdg = os.environ.get("XDG_DATA_HOME") or os.path.join(
+            os.path.expanduser("~"), ".local", "share"
+        )
+        _user_data = Path(_xdg) / "kbase" / "data"
+        try:
+            _user_data.mkdir(parents=True, exist_ok=True)
+            _DATA_ROOT_OVERRIDE = _user_data
+        except Exception:
+            pass
+
 DATA_ROOT: Path = _DATA_ROOT_OVERRIDE or (_REPO_ROOT / "data")
 ARTICLES_DIR: Path = DATA_ROOT / "articles"
 NOTES_DIR: Path = DATA_ROOT / "notes"
