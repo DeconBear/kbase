@@ -1,14 +1,5 @@
 name: build-release
 
-# Triggers
-#   * push a tag matching v*        — build + draft GitHub Release (unsigned)
-#   * workflow_dispatch             — manual run (build + optional draft release)
-#
-# To add code signing later, see the previous iteration of this workflow
-# (build-and-sign.yml in git history) for the SignPath.io integration
-# — it was removed to avoid a "SmartScreen — Windows protected your PC"
-# warning before an EV cert is in place.
-
 on:
   push:
     tags:
@@ -21,16 +12,14 @@ on:
         default: false
 
 permissions:
-  contents: write   # create the draft release
+  contents: write
 
 jobs:
   # ---------------------------------------------------------------------------
-  # 1. BUILD — produce unsigned PyInstaller onedir output and NSIS installer.
-  #    scripts/build_release.ps1 is the single source of truth — run it the
-  #    same way locally to reproduce a CI build before tagging.
+  # 1. BUILD WINDOWS — PyInstaller onedir + NSIS installer + portable zip
   # ---------------------------------------------------------------------------
-  build:
-    name: Build (PyInstaller + NSIS)
+  build-windows:
+    name: Build Windows
     runs-on: windows-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -39,7 +28,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
         with:
-          fetch-depth: 0   # need git describe for non-tag runs
+          fetch-depth: 0
 
       - name: Resolve version
         id: version
@@ -72,10 +61,10 @@ jobs:
           pwsh scripts/build_release.ps1 `
             -Version '${{ steps.version.outputs.version }}'
 
-      - name: Upload build artifacts
+      - name: Upload Windows artifacts
         uses: actions/upload-artifact@v5
         with:
-          name: release-artifacts
+          name: windows-artifacts
           path: |
             dist/KBase-v*-portable.zip
             dist/KBase-Setup-*.exe
@@ -83,32 +72,106 @@ jobs:
           retention-days: 30
 
   # ---------------------------------------------------------------------------
-  # 2. RELEASE — create a draft GitHub Release with the build artifacts.
+  # 2. BUILD LINUX — PyInstaller onedir + portable tar.gz
+  # ---------------------------------------------------------------------------
+  build-linux:
+    name: Build Linux
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            tag="${{ github.ref_name }}"
+          else
+            tag=$(git describe --tags --abbrev=0)
+          fi
+          version="${tag#v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Resolved tag=$tag version=$version"
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Install Python deps
+        run: |
+          pip install --upgrade pip
+          pip install pyinstaller pymupdf pywebview openai
+
+      - name: Build with PyInstaller
+        run: |
+          python -m PyInstaller --noconfirm --clean kbase-linux.spec
+          if [ ! -f "dist/KBase/KBase" ]; then
+            echo "ERROR: dist/KBase/KBase not found after PyInstaller"
+            exit 1
+          fi
+
+      - name: Package Linux portable
+        id: package
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TARNAME="KBase-v${VERSION}-linux-x64.tar.gz"
+          cd dist
+          tar -czf "$TARNAME" KBase/
+          echo "tarname=$TARNAME" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: linux-artifacts
+          path: dist/KBase-v*-linux-x64.tar.gz
+          if-no-files-found: error
+          retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # 3. RELEASE — create a draft GitHub Release with all artifacts
   # ---------------------------------------------------------------------------
   release:
     name: Create GitHub Release
-    needs: build
+    needs: [build-windows, build-linux]
     if: |
       github.event_name == 'push'
         || (github.event_name == 'workflow_dispatch' && inputs.release)
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Download release artifacts
+      - name: Download Windows artifacts
         uses: actions/download-artifact@v5
         with:
-          name: release-artifacts
+          name: windows-artifacts
+          path: dist
+
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: linux-artifacts
           path: dist
 
       - name: Create draft release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ needs.build.outputs.tag }}
-          name: 'KBase ${{ needs.build.outputs.tag }}'
+          tag_name: ${{ needs.build-windows.outputs.tag }}
+          name: 'KBase ${{ needs.build-windows.outputs.tag }}'
           draft: true
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
             dist/*.zip
             dist/*.exe
+            dist/*.tar.gz
