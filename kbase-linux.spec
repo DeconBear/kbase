@@ -9,7 +9,6 @@ from PyInstaller.utils.hooks import collect_all
 datas = [
     ('kb/index.html', 'kb'),
     ('kb/assets', 'kb/assets'),
-    ('static/fonts/GoNotoCurrent-Regular.ttf', 'static/fonts'),
 ]
 binaries = []
 hiddenimports = [
