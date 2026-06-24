@@ -9,6 +9,17 @@ import os
 import sys
 import traceback
 
+# When the executable is built as a windowed application (PyInstaller
+# console=False) or when running via pythonw.exe, there is no console
+# and sys.stdout / sys.stderr are None.  Any print() call before we
+# redirect them to the app log would crash with an AttributeError.
+# Stub them with a null device EARLY so module-level imports that
+# happen to print won't blow up.
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, "w")
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, "w")
+
 # ---------- crash log for frozen builds (console flashes too fast) ----------
 if getattr(sys, "frozen", False):
     _CRASH_LOG = os.path.join(os.path.dirname(sys.executable), "kbase_crash.log")

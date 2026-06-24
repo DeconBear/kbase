@@ -56,7 +56,7 @@ if _DATA_PATH_FILE.exists():
 # but the user still needs a writable data directory. Fall back to the
 # XDG-compliant per-user data dir in that case. Detection is intentionally
 # conservative: only triggers when the repo root itself is unwritable.
-if _DATA_ROOT_OVERRIDE is None and _REPO_ROOT != Path.cwd():
+if _DATA_ROOT_OVERRIDE is None:
     try:
         # If we can write a probe file, the repo root is fine — keep default.
         probe = _REPO_ROOT / ".kbase_write_probe"
