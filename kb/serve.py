@@ -47,6 +47,7 @@ from storage import (
     get_conn,
     get_note_blocks,
     get_note_backlinks,
+    get_note_mentions,
     get_notes_for_article,
     inject_block_anchors,
     sync_note_links,
@@ -65,6 +66,7 @@ from storage import (
     save_chat_index,
     save_chat_session_file,
     save_translation_state,
+    search_notes,
     set_data_root,
     sync_note_blocks,
     update_article_fields,
@@ -742,6 +744,10 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_get_article_notes()
             elif path == "/api/notes":
                 self._json({"notes": get_all_notes()})
+            elif path == "/api/notes/search":
+                self.handle_notes_search()
+            elif path.startswith("/api/notes/") and path.endswith("/mentions"):
+                self.handle_note_mentions()
             elif path.startswith("/api/notes/") and path.endswith("/backlinks"):
                 self.handle_note_backlinks()
             elif path.startswith("/api/notes/") and path.endswith("/blocks"):
@@ -1514,6 +1520,17 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             })
         self._json({"backlinks": out})
 
+    def handle_notes_search(self):
+        """GET /api/notes/search?q=... — full-text search across note bodies."""
+        qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        q = (qs.get("q", [""])[0] or "").strip()
+        self._json({"query": q, "results": search_notes(q)})
+
+    def handle_note_mentions(self):
+        """GET /api/notes/<id>/mentions — notes that mention this note's title."""
+        note_id = self._note_id_from_path()
+        self._json({"mentions": get_note_mentions(note_id)})
+
     def handle_create_note(self):
         body = self._read_json()
         title = str(body.get("title") or "Untitled").strip()[:200]
@@ -1551,7 +1568,13 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
     def handle_save_note(self):
         note_id = self._note_id_from_path()
         body = self._read_json()
-        content = str(body.get("content") or "")
+        # A save may carry content (a real edit) or be metadata-only
+        # (move to notebook/folder, nest under a parent, reorder). Only
+        # rebuild block anchors + the link index when content actually
+        # changed — otherwise an empty `content` would wipe the file
+        # and the note_blocks/note_links tables.
+        has_content = "content" in body
+        content = str(body.get("content") or "") if has_content else ""
         title = str(body.get("title") or "").strip()[:200]
         md_path = note_file_for(note_id)
         if not md_path.exists():
@@ -1568,6 +1591,11 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             existing["folder"] = str(body.get("folder") or "").strip()[:200]
         if "parent_id" in body:
             existing["parent_id"] = body.get("parent_id") or None
+        if "sort_order" in body:
+            try:
+                existing["sort_order"] = int(body.get("sort_order") or 0)
+            except (TypeError, ValueError):
+                pass
         if "doc_icon" in body:
             existing["doc_icon"] = str(body.get("doc_icon") or "").strip()[:16]
         if "article_id" in body:
@@ -1576,27 +1604,30 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             existing["notebook_id"] = str(body.get("notebook_id") or "").strip()[:64] or None
         existing.setdefault("created_at", now)
         upsert_note(existing)
-        try:
-            # Rebuild block anchors. We then rewrite the saved file
-            # with stable `<!--kb-block:anchor-->` markers so the
-            # frontend can map the rendered DOM back to anchors.
-            rows = sync_note_blocks(note_id, content)
-            annotated = inject_block_anchors(content, rows)
-            if annotated != content:
-                md_path.write_text(annotated, encoding="utf-8")
-            # Build the cross-note link index used by the backlinks
-            # panel.
-            sync_note_links(note_id, annotated)
-        except Exception as exc:  # noqa: BLE001
-            print(f"sync_note_blocks/links failed for {note_id}: {exc}")
-        # Return the annotated content so the client cache stays
-        # in sync with disk.
-        try:
-            with open(md_path, "r", encoding="utf-8") as f:
-                saved = f.read()
-        except OSError:
-            saved = content
-        self._json({"status": "ok", "content": saved})
+        if has_content:
+            try:
+                # Rebuild block anchors. We then rewrite the saved file
+                # with stable `<!--kb-block:anchor-->` markers so the
+                # frontend can map the rendered DOM back to anchors.
+                rows = sync_note_blocks(note_id, content)
+                annotated = inject_block_anchors(content, rows)
+                if annotated != content:
+                    md_path.write_text(annotated, encoding="utf-8")
+                # Build the cross-note link index used by the backlinks
+                # panel.
+                sync_note_links(note_id, annotated)
+            except Exception as exc:  # noqa: BLE001
+                print(f"sync_note_blocks/links failed for {note_id}: {exc}")
+            # Return the annotated content so the client cache stays
+            # in sync with disk.
+            try:
+                with open(md_path, "r", encoding="utf-8") as f:
+                    saved = f.read()
+            except OSError:
+                saved = content
+            self._json({"status": "ok", "content": saved})
+        else:
+            self._json({"status": "ok"})
 
     def handle_delete_note(self):
         note_id = self._note_id_from_path()

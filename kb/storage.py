@@ -1337,6 +1337,156 @@ def find_note_block(note_id: str, anchor: str) -> dict[str, Any] | None:
 
 
 # ---------------------------------------------------------------------------
+# Note search & mentions
+# ---------------------------------------------------------------------------
+
+
+def search_notes(query: str, limit: int = 50) -> list[dict[str, Any]]:
+    """Full-text search across every note body (on-disk .md files).
+
+    Returns matching notes with a short snippet around the first hit.
+    Note titles are matched too — the `# Title` heading lives in the
+    file, so a title search is a subset of this body search.
+    """
+    q = (query or "").strip().lower()
+    if not q:
+        return []
+    notes_dir = DATA_ROOT / "notes"
+    if not notes_dir.is_dir():
+        return []
+    matches: list[tuple[str, str]] = []
+    for md_path in notes_dir.glob("*.md"):
+        try:
+            text = md_path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        # Drop injected block-anchor markers so they never leak into
+        # the search snippet.
+        text = _BLOCK_MARKER.sub("", text)
+        pos = text.lower().find(q)
+        if pos < 0:
+            continue
+        start = max(0, pos - 30)
+        snippet = text[start: pos + len(q) + 60].replace("\n", " ").strip()
+        if start > 0:
+            snippet = "…" + snippet
+        matches.append((md_path.stem, snippet))
+        if len(matches) >= limit * 3:
+            break
+    if not matches:
+        return []
+    ids = [m[0] for m in matches]
+    placeholders = ", ".join("?" for _ in ids)
+    with get_conn() as conn:
+        rows = {
+            r["id"]: r
+            for r in conn.execute(
+                f"SELECT id, title, modified_at, notebook_id, parent_id "
+                f"FROM notes WHERE id IN ({placeholders})",
+                ids,
+            ).fetchall()
+        }
+    out: list[dict[str, Any]] = []
+    for nid, snippet in matches:
+        r = rows.get(nid)
+        if not r:
+            continue
+        out.append({
+            "id": nid,
+            "title": r["title"] or nid,
+            "modified_at": r["modified_at"],
+            "notebook_id": r["notebook_id"] or DEFAULT_NOTEBOOK_ID,
+            "parent_id": r["parent_id"],
+            "snippet": snippet,
+        })
+    out.sort(key=lambda n: n.get("modified_at") or "", reverse=True)
+    return out[:limit]
+
+
+def get_note_mentions(note_id: str) -> list[dict[str, Any]]:
+    """Notes that mention this note's title as plain text.
+
+    Unlike backlinks (explicit ``[[ ]]`` links, indexed in note_links),
+    mentions are prose occurrences of the title. We scan on-disk note
+    bodies so the result is complete regardless of which tabs the
+    client has opened this session.
+    """
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, title FROM notes WHERE id=?", (note_id,)
+        ).fetchone()
+    if not row:
+        return []
+    title = (row["title"] or "").strip()
+    # Too-short titles produce too much noise to be useful.
+    if len(title) < 2:
+        return []
+    notes_dir = DATA_ROOT / "notes"
+    if not notes_dir.is_dir():
+        return []
+    needle = title.lower()
+    matches: list[tuple[str, str]] = []
+    for md_path in notes_dir.glob("*.md"):
+        nid = md_path.stem
+        if nid == note_id:
+            continue
+        try:
+            text = md_path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        # Drop injected block-anchor markers so they never leak into the
+        # mention snippet.
+        text = _BLOCK_MARKER.sub("", text)
+        low = text.lower()
+        # Keep the first occurrence that is NOT inside a [[...]] link
+        # (those are backlinks, shown in their own panel).
+        start_search = 0
+        snippet: str | None = None
+        while True:
+            p = low.find(needle, start_search)
+            if p < 0:
+                break
+            lb = low.rfind("[[", 0, p)
+            rb = low.rfind("]]", 0, p) if lb >= 0 else -1
+            in_link = lb >= 0 and lb > rb
+            if not in_link:
+                s = max(0, p - 30)
+                snippet = text[s: p + len(needle) + 60].replace("\n", " ").strip()
+                if s > 0:
+                    snippet = "…" + snippet
+                break
+            start_search = p + len(needle)
+        if snippet is None:
+            continue
+        matches.append((nid, snippet))
+    if not matches:
+        return []
+    ids = [m[0] for m in matches]
+    placeholders = ", ".join("?" for _ in ids)
+    with get_conn() as conn:
+        rows = {
+            r["id"]: r
+            for r in conn.execute(
+                f"SELECT id, title, modified_at FROM notes WHERE id IN ({placeholders})",
+                ids,
+            ).fetchall()
+        }
+    out: list[dict[str, Any]] = []
+    for nid, snippet in matches:
+        r = rows.get(nid)
+        if not r:
+            continue
+        out.append({
+            "id": nid,
+            "title": r["title"] or nid,
+            "modified_at": r["modified_at"],
+            "snippet": snippet,
+        })
+    out.sort(key=lambda n: n.get("modified_at") or "", reverse=True)
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Workspaces
 # ---------------------------------------------------------------------------
 

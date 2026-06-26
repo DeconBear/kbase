@@ -996,6 +996,7 @@ body { display: flex !important; flex-direction: column !important; height: 100v
       <button onclick="exportContextSelection('markdown')">导出 Markdown</button>
       <div class="ctx-separator"></div>
       <button id="ctxCopyDoi" onclick="copyContextDoi()">复制 DOI</button>
+      <button id="ctxEditClass" onclick="editContextClassification()">🏷 编辑分类与标签</button>
       <div class="ctx-separator"></div>
       <button id="ctxBatchProcess" onclick="batchExtractAndSummarize()">一键抓取并总结</button>
       <div class="ctx-separator"></div>
@@ -3267,7 +3268,7 @@ async function loadArticles() {
 }
 
 // ===== LIBRARY =====
-function renderLibrary() { updateCategoryFilter(); filterArticles(); }
+function renderLibrary() { updateCategoryFilter(); updateTagFilter(); filterArticles(); }
 
 function kindLabel(kind) {
   const labels = {
@@ -3423,6 +3424,16 @@ function updateCategoryFilter() {
   document.getElementById('catFilter').innerHTML = '<option value="">全部分类</option>' + [...cats].sort().map(c => `<option>${esc(c)}</option>`).join('');
 }
 
+function updateTagFilter() {
+  const tags = new Set();
+  articles.forEach(a => (a.tags || []).forEach(t => tags.add(t)));
+  const sel = document.getElementById('tagFilter');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">全部标签</option>' + [...tags].sort().map(t => `<option>${esc(t)}</option>`).join('');
+  // Only show the tag dropdown once there are tags to filter by.
+  sel.style.display = tags.size ? '' : 'none';
+}
+
 async function deleteArticle(id) {
   if (!(await uiConfirm('确定删除这项资料？\n将同时删除原文件和解析结果。'))) return;
   try {
@@ -3513,10 +3524,12 @@ function showLibraryContextMenu(ev, id) {
   const label = document.getElementById('ctxSelectionLabel');
   const openFolder = document.getElementById('ctxOpenFolder');
   const uploadAtt = document.getElementById('ctxUploadAttachment');
+  const editClass = document.getElementById('ctxEditClass');
   if (!menu) return false;
   if (label) label.textContent = `${ids.length} 项`;
   if (openFolder) openFolder.style.display = ids.length === 1 ? '' : 'none';
   if (uploadAtt) uploadAtt.style.display = ids.length === 1 ? '' : 'none';
+  if (editClass) editClass.style.display = ids.length === 1 ? '' : 'none';
   menu.classList.add('visible');
   const rect = menu.getBoundingClientRect();
   const x = Math.min(ev.clientX, window.innerWidth - rect.width - 8);
@@ -3558,6 +3571,60 @@ async function copyContextDoi() {
   } else {
     uiAlert('该项没有 DOI 信息');
   }
+}
+
+function editContextClassification() {
+  const ids = contextArticleIds.length ? contextArticleIds : [...selectedArticleIds];
+  if (ids.length !== 1) return;
+  hideLibraryContextMenu();
+  editArticleClassification(ids[0]);
+}
+
+function editArticleClassification(id) {
+  const a = articles.find(x => x.id === id);
+  if (!a) return;
+  const cats = [...new Set(articles.map(x => x.category).filter(Boolean))].sort();
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:10000';
+  overlay.innerHTML = `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-xl);width:380px;max-width:90vw;padding:18px 20px;font-size:13px">
+      <h3 style="margin:0 0 14px;font-size:15px">🏷 编辑分类与标签</h3>
+      <label style="display:block;margin-bottom:4px;color:var(--text-2)">分类</label>
+      <input id="cls-cat" list="cls-cat-list" value="${esc(a.category||'')}" placeholder="输入或选择分类（留空=未分类）" style="width:100%;box-sizing:border-box;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;color:var(--text);outline:none;margin-bottom:12px">
+      <datalist id="cls-cat-list">${cats.map(c=>`<option value="${esc(c)}">`).join('')}</datalist>
+      <label style="display:block;margin-bottom:4px;color:var(--text-2)">标签（逗号分隔）</label>
+      <input id="cls-tags" value="${esc((a.tags||[]).join(', '))}" placeholder="如: NLP, transformer, 2025" style="width:100%;box-sizing:border-box;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;color:var(--text);outline:none;margin-bottom:16px">
+      <div style="display:flex;justify-content:flex-end;gap:8px">
+        <button class="ctrl-btn" id="cls-cancel">取消</button>
+        <button class="btn-emerald" id="cls-save">保存</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.querySelector('#cls-cancel').onclick = close;
+  overlay.onclick = (e) => { if (e.target === overlay) close(); };
+  const catInput = overlay.querySelector('#cls-cat');
+  const tagsInput = overlay.querySelector('#cls-tags');
+  const saveBtn = overlay.querySelector('#cls-save');
+  catInput.focus();
+  saveBtn.onclick = async () => {
+    const category = catInput.value.trim();
+    const tags = tagsInput.value.split(',').map(s => s.trim()).filter(Boolean);
+    try {
+      const resp = await fetch('/api/articles/update', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id, updates:{category, tags}})});
+      if (!resp.ok) throw new Error(await resp.text());
+      const art = articles.find(x => x.id === id);
+      if (art) { art.category = category; art.tags = tags; }
+      close();
+      renderLibrary();
+      toast('已更新分类与标签', 'success');
+    } catch(e) {
+      toast('更新失败：' + (e.message || e), 'error');
+    }
+  };
+  const onEnter = (e) => { if (e.key === 'Enter') saveBtn.click(); };
+  catInput.onkeydown = onEnter;
+  tagsInput.onkeydown = onEnter;
 }
 
 
@@ -3702,12 +3769,14 @@ async function uploadAttachmentsToArticle(articleId, files) {
 }
 
 function handleArticleDrop(ev, id) {
-  ev.preventDefault();
-  ev.stopPropagation();
   ev.currentTarget.classList.remove('drag-over');
   if (ev.dataTransfer.files && ev.dataTransfer.files.length > 0) {
+    ev.preventDefault();
+    ev.stopPropagation();
     uploadAttachmentsToArticle(id, ev.dataTransfer.files);
   }
+  // Otherwise it's a card-drag — let the event bubble to the board
+  // column so dropArticleOnColumn can recategorize it.
 }
 
 function handleReaderDrop(ev) {
@@ -3728,8 +3797,10 @@ window.addEventListener('resize', hideLibraryContextMenu);
 function filterArticles() {
   const search = document.getElementById('searchInput').value.toLowerCase();
   const cat = document.getElementById('catFilter').value;
+  const tag = document.getElementById('tagFilter').value;
   let filtered = articles.filter(a => {
     if (cat && a.category !== cat) return false;
+    if (tag && !(a.tags || []).includes(tag)) return false;
     if (search) {
       const hay = [
         a.title, a.author, (a.authors || []).join(' '), a.doi, a.year, a.venue,
@@ -3763,6 +3834,7 @@ function renderGridView(filtered) {
       <div class="card-title">${esc(a.title)}</div>
       <div class="card-author">👤 ${esc(articleAuthor(a))}</div>
       <div class="card-meta"><span>📦 ${kindLabel(a.kind)}</span><span>📅 ${a.date_added||''}</span>${a.pages?`<span>📖 ${a.pages}页</span>`:''}${a.year?`<span>${esc(a.year)}</span>`:''}${a.venue?`<span title="期刊/会议">📚 ${esc(a.venue)}</span>`:''}${a.category?`<span>📂 ${esc(a.category)}</span>`:''}</div>
+      ${(a.tags||[]).length?`<div class="card-tags" style="padding:2px 12px 0;display:flex;flex-wrap:wrap;gap:4px">${(a.tags||[]).slice(0,4).map(t=>`<span style="display:inline-block;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:0 8px;font-size:10px;color:var(--text-2)">🏷 ${esc(t)}</span>`).join('')}${a.tags.length>4?`<span style="font-size:10px;color:var(--text-3);align-self:center">+${a.tags.length-4}</span>`:''}</div>`:''}
       <div class="card-actions-row" onclick="event.stopPropagation()">
         <button class="card-btn" onclick="event.stopPropagation();openReader('${esc(a.id)}');setTimeout(()=>doSummarize(),1500)">🤖 总结</button>
       </div>
@@ -3773,13 +3845,69 @@ function renderBoardView(filtered) {
   const board = document.getElementById('board-view');
   const groups = {};
   filtered.forEach(a => { const cat = a.category || '未分类'; if (!groups[cat]) groups[cat] = []; groups[cat].push(a); });
-  board.innerHTML = Object.entries(groups).map(([cat, items]) => `
-    <div class="board-column">
-      <div class="board-col-header">📂 ${esc(cat)} <span class="count">${items.length}</span></div>
-      <div class="board-col-body">
-        ${items.map(a => `<div class="board-card" onclick="openReader('${esc(a.id)}')" oncontextmenu="showLibraryContextMenu(event,'${esc(a.id)}')" title="点击阅读，右键操作\n也可拖拽文件至此快速上传附件" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="handleArticleDrop(event, '${esc(a.id)}')"><div class="board-card-head"><input class="board-select" type="checkbox" ${selectedArticleIds.has(a.id)?'checked':''} onclick="event.stopPropagation()" onchange="toggleArticleSelection(event,'${esc(a.id)}')"><div><div class="bc-title">${esc(a.title)}</div><div class="bc-meta">${kindLabel(a.kind)} · ${esc(articleAuthor(a))} ${a.pages?`· ${a.pages}页`:''} ${a.venue?`· ${esc(a.venue)}`:''} ${a.translated?'🌐':''} ${a.summarized?'🤖':''}</div></div></div></div>`).join('')}
+  board.innerHTML = Object.entries(groups).map(([cat, items]) => {
+    // The "未分类" bucket groups articles with an empty category; its
+    // data-cat is '' so dropping a card on it clears the category.
+    const dataCat = cat === '未分类' ? '' : cat;
+    return `
+    <div class="board-column" data-cat="${esc(dataCat)}">
+      <div class="board-col-header" oncontextmenu="renameBoardCategory(event,'${esc(dataCat)}')" title="右键重命名分类">📂 ${esc(cat)} <span class="count">${items.length}</span></div>
+      <div class="board-col-body" ondragover="event.preventDefault()" ondrop="dropArticleOnColumn(event,'${esc(dataCat)}')">
+        ${items.map(a => `<div class="board-card" draggable="true" ondragstart="articleDragStart(event,'${esc(a.id)}')" onclick="openReader('${esc(a.id)}')" oncontextmenu="showLibraryContextMenu(event,'${esc(a.id)}')" title="点击阅读，右键操作\n拖拽到其他列可改分类，也可拖拽文件上传附件" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="handleArticleDrop(event, '${esc(a.id)}')"><div class="board-card-head"><input class="board-select" type="checkbox" ${selectedArticleIds.has(a.id)?'checked':''} onclick="event.stopPropagation()" onchange="toggleArticleSelection(event,'${esc(a.id)}')"><div><div class="bc-title">${esc(a.title)}</div><div class="bc-meta">${kindLabel(a.kind)} · ${esc(articleAuthor(a))} ${a.pages?`· ${a.pages}页`:''} ${a.venue?`· ${esc(a.venue)}`:''} ${a.translated?'🌐':''} ${a.summarized?'🤖':''}</div></div></div></div>`).join('')}
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
+}
+
+function articleDragStart(ev, id) {
+  ev.dataTransfer.setData('text/article-id', id);
+  ev.dataTransfer.effectAllowed = 'move';
+}
+
+function dropArticleOnColumn(ev, cat) {
+  ev.preventDefault();
+  ev.stopPropagation();
+  const id = ev.dataTransfer.getData('text/article-id');
+  if (!id) return;
+  const a = articles.find(x => x.id === id);
+  if (!a) return;
+  const target = cat || '';
+  if ((a.category || '') === target) return;
+  recategorizeArticle(id, target);
+}
+
+async function recategorizeArticle(id, category) {
+  try {
+    const resp = await fetch('/api/articles/update', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id, updates:{category}})});
+    if (!resp.ok) throw new Error(await resp.text());
+    const a = articles.find(x => x.id === id);
+    if (a) a.category = category;
+    renderLibrary();
+    toast(category ? `已移动到「${category}」` : '已移出分类', 'success');
+  } catch(e) {
+    toast('移动分类失败：' + (e.message || e), 'error');
+  }
+}
+
+async function renameBoardCategory(ev, oldCat) {
+  ev.preventDefault();
+  ev.stopPropagation();
+  const label = oldCat || '未分类';
+  const newName = await uiPrompt(`重命名分类「${label}」为：`, oldCat || '');
+  if (newName === null) return;
+  const target = newName.trim();
+  if (!target || target === oldCat) return;
+  const inCat = articles.filter(a => (a.category || '') === (oldCat || ''));
+  if (!inCat.length) return;
+  let ok = 0;
+  for (const a of inCat) {
+    try {
+      const resp = await fetch('/api/articles/update', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id: a.id, updates:{category: target}})});
+      if (resp.ok) { a.category = target; ok++; }
+    } catch(e) {}
+  }
+  renderLibrary();
+  toast(`已重命名 ${ok}/${inCat.length} 项到「${target}」`, 'success');
 }
 
 function setView(view) {
@@ -5764,7 +5892,10 @@ function renderNotebooksTree() {
   host.innerHTML = list.map((nb) => `
     <div class="notebook-row${nb.id === currentNotebookId ? ' active' : ''}" data-id="${esc(nb.id)}"
          onclick="selectNotebook('${esc(nb.id)}')"
-         oncontextmenu="showNotebookContextMenu(event,'${esc(nb.id)}')">
+         oncontextmenu="showNotebookContextMenu(event,'${esc(nb.id)}')"
+         ondragover="noteDragOverNotebook(event)"
+         ondrop="noteDropOnNotebook(event,'${esc(nb.id)}')"
+         title="点击切换；拖拽笔记到此可移动笔记本">
       <span class="notebook-icon">${esc(nb.icon || '📓')}</span>
       <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(nb.name)}</span>
       <span class="notebook-count">${counts.get(nb.id) || 0}</span>
@@ -5929,8 +6060,13 @@ function renderNoteTreeItem(n, hlQ, depthClass) {
   const depthCls = depthClass || '';
   // Right edge shows child count when the doc has sub-documents.
   return `<div class="note-tree-item ${depthCls}${isActive ? ' active' : ''}" data-id="${esc(n.id)}"
+       draggable="true"
+       ondragstart="noteDragStart(event,'${esc(n.id)}')"
+       ondragover="noteDragOverItem(event)"
+       ondrop="noteDropOnItem(event,'${esc(n.id)}')"
        onclick="openNoteInTab('${esc(n.id)}')"
-       oncontextmenu="showNoteContextMenu(event,'${esc(n.id)}')">
+       oncontextmenu="showNoteContextMenu(event,'${esc(n.id)}')"
+       title="拖拽到其他文档可嵌套为子文档">
     <span class="doc-icon">${esc(n.doc_icon || '📄')}</span>
     <span class="note-tree-title">${titleHtml}</span>
   </div>`;
@@ -6056,9 +6192,48 @@ async function openDailyNote() {
   }
 }
 
+let notesSearchTimer = null;
+let notesSearchGen = 0;
 function filterNotesTree(query) {
-  notesFilterQuery = query.trim();
+  notesFilterQuery = (query || '').trim();
+  // Bump the generation so any in-flight body search is dropped.
+  ++notesSearchGen;
+  // Snappy local title filter keeps the tree responsive while the
+  // backend body search catches up.
   renderNoteTree();
+  clearTimeout(notesSearchTimer);
+  if (!notesFilterQuery) return;
+  notesSearchTimer = setTimeout(runNotesBodySearch, 220);
+}
+
+async function runNotesBodySearch() {
+  const q = notesFilterQuery;
+  if (!q) return;
+  const gen = notesSearchGen;
+  try {
+    const resp = await fetch(`/api/notes/search?q=${encodeURIComponent(q)}`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (gen !== notesSearchGen) return;  // a newer keystroke superseded us
+    renderNotesSearchResults(data.results || [], q);
+  } catch(e) { /* ignore — the local title filter still shows */ }
+}
+
+function renderNotesSearchResults(results, q) {
+  const tree = document.getElementById('notes-tree');
+  const countEl = document.getElementById('notes-count');
+  if (!tree) return;
+  if (countEl) countEl.textContent = results.length + ' 结果';
+  if (!results.length) {
+    tree.innerHTML = `<div class="empty-state" style="padding:24px 16px"><p style="font-size:12px;color:var(--text-3)">未找到包含 "${esc(q)}" 的笔记</p></div>`;
+    return;
+  }
+  tree.innerHTML = results.map(r => `
+    <div class="note-tree-item search-result" onclick="openNoteInTab('${esc(r.id)}')" title="${esc(r.snippet)}">
+      <span class="doc-icon">📄</span>
+      <span class="note-tree-title">${esc(r.title)}</span>
+      <div style="margin-left:24px;font-size:11px;color:var(--text-3);white-space:normal;line-height:1.35;padding:2px 0 4px">${esc(r.snippet)}</div>
+    </div>`).join('');
 }
 
 function toggleNoteOutline() {
@@ -6300,6 +6475,7 @@ async function updateBacklinks() {
     panel.innerHTML = backlinks.map(n => `
       <div class="note-backlink-item" onclick="openNoteInTab('${esc(n.id)}')">
         <span style="opacity:.5;font-size:11px">📄</span> ${esc(n.title)}
+        ${n.anchor_heading ? `<span style="display:block;margin-left:20px;font-size:11px;color:var(--text-3)">› ${esc(n.anchor_heading)}</span>` : ''}
       </div>`).join('');
   } catch(e) {
     panel.innerHTML = '<div style="padding:12px 16px;font-size:12px;color:var(--text-3)">暂无反向链接</div>';
@@ -7212,27 +7388,26 @@ async function updateMentions() {
   if (!pane) return;
   if (!currentNoteId) { pane.innerHTML = '<div style="padding:14px 16px;font-size:12px;color:var(--text-3)">打开笔记查看提及</div>'; return; }
   const meta = notesStore.get(currentNoteId);
-  if (!meta) { pane.innerHTML = ''; return; }
-  const title = meta.title || '';
-  // Scan all notes (locally) for `[[title]]` mentions; group by source.
-  const sources = [];
-  for (const n of notesStore.snapshot()) {
-    if (n.id === currentNoteId) continue;
-    const md = (n.lastContent || ''); // may be empty for unvisited tabs
-    if (!md) continue;
-    if (md.includes(`[[${title}]]`) || md.includes(`[[${title}#`)) {
-      sources.push(n);
+  const title = meta ? (meta.title || '') : '';
+  // Server-indexed: scans every note body (not just opened tabs), and
+  // reports plain-text mentions — distinct from [[ ]] backlinks.
+  try {
+    const resp = await fetch(`/api/notes/${encodeURIComponent(currentNoteId)}/mentions`);
+    if (!resp.ok) throw new Error('Failed to fetch mentions');
+    const data = await resp.json();
+    const mentions = data.mentions || [];
+    if (!mentions.length) {
+      pane.innerHTML = '<div style="padding:14px 16px;font-size:12px;color:var(--text-3)">暂无笔记提及《' + esc(title) + '》</div>';
+      return;
     }
+    pane.innerHTML = mentions.map(n => `
+      <div class="note-backlink-item" onclick="openNoteInTab('${esc(n.id)}')">
+        <span style="font-weight:500">${esc(n.title || n.id)}</span>
+        ${n.snippet ? `<div style="margin-left:8px;font-size:11px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(n.snippet)}</div>` : ''}
+      </div>`).join('');
+  } catch(e) {
+    pane.innerHTML = '<div style="padding:14px 16px;font-size:12px;color:var(--text-3)">加载提及失败</div>';
   }
-  if (!sources.length) {
-    pane.innerHTML = '<div style="padding:14px 16px;font-size:12px;color:var(--text-3)">暂无笔记引用《' + esc(title) + '》</div>';
-    return;
-  }
-  pane.innerHTML = sources.map(n => `
-    <div class="note-backlink-item" onclick="switchToTab('${esc(n.id)}')">
-      <span style="font-weight:500">${esc(n.title || n.id)}</span>
-    </div>
-  `).join('');
 }
 
 async function autoSaveNote() {
@@ -7480,6 +7655,81 @@ async function moveNoteToNotebook(noteId, nbId) {
   } catch (e) {
     toast('移动失败：' + (e.message || e), 'error');
   }
+}
+
+// ===== NOTE DRAG & DROP =====
+// Drag a note onto another note to nest it as a sub-document, or onto a
+// notebook (left pane) to move it there. Both reuse the metadata-only
+// save path, which leaves the note body and its block/link index intact.
+function noteDragStart(ev, id) {
+  ev.dataTransfer.setData('text/note-id', id);
+  ev.dataTransfer.effectAllowed = 'move';
+}
+
+function noteDragOverItem(ev) {
+  if (!ev.dataTransfer.types.includes('text/note-id')) return;
+  ev.preventDefault();
+  ev.currentTarget.classList.add('drag-over-note');
+}
+
+function noteDropOnItem(ev, targetId) {
+  ev.preventDefault();
+  ev.stopPropagation();
+  ev.currentTarget.classList.remove('drag-over-note');
+  const id = ev.dataTransfer.getData('text/note-id');
+  if (!id || id === targetId) return;
+  // Reject dropping a note onto one of its own descendants — that
+  // would create a cycle in the parent_id chain.
+  if (_isNoteAncestorOf(id, targetId)) {
+    toast('不能移动到自身子文档下', 'error');
+    return;
+  }
+  moveNoteToParent(id, targetId);
+}
+
+function _isNoteAncestorOf(ancestorId, nodeId) {
+  // Is ancestorId an ancestor of nodeId? Walk up from nodeId.
+  let cur = notesStore.get(nodeId);
+  const seen = new Set();
+  while (cur && cur.parent_id && !seen.has(cur.id)) {
+    seen.add(cur.id);
+    if (cur.parent_id === ancestorId) return true;
+    cur = notesStore.get(cur.parent_id);
+  }
+  return false;
+}
+
+async function moveNoteToParent(id, parentId) {
+  try {
+    const resp = await fetch(`/api/notes/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({parent_id: parentId})
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    notesStore.upsert({id, parent_id: parentId});
+    // Expand the new parent so the dropped note is visible underneath.
+    expandedDocIds.add(parentId);
+    renderNoteTree();
+    toast('已移动为子文档', 'success');
+  } catch (e) {
+    toast('移动失败：' + (e.message || e), 'error');
+  }
+}
+
+function noteDragOverNotebook(ev) {
+  if (!ev.dataTransfer.types.includes('text/note-id')) return;
+  ev.preventDefault();
+  ev.currentTarget.classList.add('drag-over-notebook');
+}
+
+function noteDropOnNotebook(ev, nbId) {
+  ev.preventDefault();
+  ev.stopPropagation();
+  ev.currentTarget.classList.remove('drag-over-notebook');
+  const id = ev.dataTransfer.getData('text/note-id');
+  if (!id) return;
+  moveNoteToNotebook(id, nbId);
 }
 
 async function renameNotePrompt(id) {
