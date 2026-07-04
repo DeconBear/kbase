@@ -330,10 +330,13 @@ class UnisoundParserEngine:
                 log("ERROR: empty markdown returned")
                 return False
 
+            from workspace_paths import publish_engine_markdown
+
             article_dir = ARTICLES_DIR / article_id
             article_dir.mkdir(parents=True, exist_ok=True)
-            md_path = article_dir / f"{article_id}.md"
-            md_path.write_text(markdown, encoding="utf-8")
+            md_path = publish_engine_markdown(
+                article_dir, article_id, pdf_path, md_text=markdown,
+            )
             log(f"Saved: {md_path.name} ({len(markdown)} chars)")
 
             # meta

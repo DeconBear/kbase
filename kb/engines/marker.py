@@ -218,7 +218,12 @@ class MarkerEngine:
 
             shutil.rmtree(work_root)
             log(f"Merged result from {src_dir.name} into {dest}")
-            return (dest / f"{article_id}.md").exists()
+            from workspace_paths import publish_engine_markdown
+
+            md_file = dest / f"{article_id}.md"
+            if md_file.exists():
+                publish_engine_markdown(dest, article_id, pdf_path, from_path=md_file)
+            return md_file.exists()
 
         log(f"WARNING: No conversion result folder found at {src_dir}")
         shutil.rmtree(work_root, ignore_errors=True)

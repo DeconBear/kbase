@@ -185,8 +185,10 @@ class DocParserEngine:
         article_dir = ARTICLES_DIR / article_id
         article_dir.mkdir(parents=True, exist_ok=True)
 
+        from workspace_paths import publish_engine_markdown
+
+        publish_engine_markdown(article_dir, article_id, pdf_path, md_text=markdown)
         md_path = article_dir / f"{article_id}.md"
-        md_path.write_text(markdown, encoding="utf-8")
         log(f"Saved: {md_path.name} ({len(markdown)} chars)")
 
         if images:

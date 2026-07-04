@@ -2070,6 +2070,12 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             self._error(400, str(exc))
             return
         self._json({"ok": True, "workspace": ws.info()})
+        try:
+            from workspace_watch import start_workspace_watcher
+
+            start_workspace_watcher(ws)
+        except Exception:
+            pass
 
     def handle_workspace_info(self) -> None:
         """GET /api/workspace/info — active workspace metadata."""
@@ -2359,6 +2365,13 @@ def _bootstrap_workspace() -> None:
         ws = open_workspace(DATA_ROOT, scan=True)
         print(f" Workspace: {ws.root}")
         print(f" Documents: {len(ws.list_documents())}")
+        try:
+            from workspace_watch import start_workspace_watcher
+
+            mode = start_workspace_watcher(ws)
+            print(f" Workspace watcher: {mode}")
+        except Exception as exc:  # noqa: BLE001
+            print(f" Workspace watcher skipped: {exc}")
     except Exception as exc:  # noqa: BLE001
         print(f" Workspace bootstrap skipped: {exc}")
 

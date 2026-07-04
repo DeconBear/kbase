@@ -161,7 +161,9 @@ class DocMindEngine:
             except Exception as e:
                 log(f"Unexpected error downloading {url}: {e}")
 
+        from workspace_paths import publish_engine_markdown
+
+        publish_engine_markdown(article_dir, article_id, pdf_path, md_text=full_md)
         md_path = article_dir / f"{article_id}.md"
-        md_path.write_text(full_md, encoding="utf-8")
         log(f"Done: {len(md_parts)} layout blocks saved to {md_path}")
         return True

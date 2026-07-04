@@ -142,10 +142,12 @@ class CloudOcrEngine:
                     text = f"<!-- empty page {page_idx + 1} -->"
                 pages_md.append(text)
 
+            from workspace_paths import publish_engine_markdown
+
             final = "\n\n---\n\n".join(pages_md).strip() + "\n"
             article_dir = ARTICLES_DIR / article_id
             article_dir.mkdir(parents=True, exist_ok=True)
-            (article_dir / f"{article_id}.md").write_text(final, encoding="utf-8")
+            publish_engine_markdown(article_dir, article_id, pdf_path, md_text=final)
 
             meta_path = article_dir / f"{article_id}_meta.json"
             meta = {}

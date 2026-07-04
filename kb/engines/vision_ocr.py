@@ -140,12 +140,15 @@ class VisionOcrEngine:
                 markdown_pages.append(page_text.strip())
                 log(f"Page {page_num + 1} processed successfully.")
 
+            from workspace_paths import publish_engine_markdown
+
             final_markdown = "\n\n---\n\n".join(markdown_pages).strip() + "\n"
             article_dir = ARTICLES_DIR / article_id
             article_dir.mkdir(parents=True, exist_ok=True)
 
-            output_path = article_dir / f"{article_id}.md"
-            output_path.write_text(final_markdown, encoding="utf-8")
+            output_path = publish_engine_markdown(
+                article_dir, article_id, pdf_path, md_text=final_markdown,
+            )
 
             meta_path = article_dir / f"{article_id}_meta.json"
             meta = {}
