@@ -73,12 +73,37 @@ from storage import (
     upsert_note,
     upsert_notebook,
     upsert_workspace,
+    list_article_folders,
+    create_article_folder,
+    update_article_folder,
+    delete_article_folder,
+    move_article_to_folder,
+    move_articles_to_folder,
 )
 from llm_config import (
     call_chat_completion,
     public_llm_config,
     resolve_llm_settings,
     save_llm_config_from_public,
+)
+from database import (
+    add_column,
+    add_row,
+    add_view,
+    create_database,
+    delete_column,
+    delete_database,
+    delete_row,
+    delete_view,
+    list_databases,
+    load_database,
+    public_field_types,
+    render_database,
+    update_column,
+    update_database_meta,
+    update_row,
+    update_view,
+    validate_database_id,
 )
 from updater import check_for_update, apply_update, is_installed_build
 from version import VERSION
@@ -107,6 +132,16 @@ def _is_inside(path: Path, base: Path) -> bool:
             return os.path.commonpath([str(path), str(base)]) == str(base)
         except ValueError:
             return False
+
+
+def _database_path_parts(request_path: str) -> tuple[str, str | None, str | None]:
+    parts = urllib.parse.urlsplit(request_path).path.strip("/").split("/")
+    if len(parts) < 3 or parts[0] != "api" or parts[1] != "databases":
+        return "", None, None
+    db_id = urllib.parse.unquote(parts[2])
+    sub = parts[3] if len(parts) > 3 else None
+    sub_id = urllib.parse.unquote(parts[4]) if len(parts) > 4 else None
+    return db_id, sub, sub_id
 
 
 def sanitize_article_id(value: str) -> str:
@@ -191,6 +226,46 @@ def _read_json_file(path: Path) -> dict:
     except Exception:
         pass
     return {}
+
+
+def _is_note_ancestor(note_id: str, candidate_parent_id: str) -> bool:
+    """True if candidate_parent_id is note_id or a descendant of note_id."""
+    if not note_id or not candidate_parent_id:
+        return False
+    if candidate_parent_id == note_id:
+        return True
+    notes = {n["id"]: n for n in get_all_notes()}
+    cur = candidate_parent_id
+    seen: set[str] = set()
+    while cur:
+        if cur == note_id:
+            return True
+        if cur in seen:
+            break
+        seen.add(cur)
+        parent = notes.get(cur, {}).get("parent_id")
+        cur = parent or None
+    return False
+
+
+def _is_folder_ancestor(folder_id: str, candidate_parent_id: str) -> bool:
+    """True if candidate_parent_id is folder_id or a descendant of folder_id."""
+    if not folder_id or not candidate_parent_id:
+        return False
+    if candidate_parent_id == folder_id:
+        return True
+    folders = {f["id"]: f for f in list_article_folders()}
+    cur = candidate_parent_id
+    seen: set[str] = set()
+    while cur:
+        if cur == folder_id:
+            return True
+        if cur in seen:
+            break
+        seen.add(cur)
+        parent = folders.get(cur, {}).get("parent_id")
+        cur = parent or None
+    return False
 
 
 def _preferred_markdown_file(article_id: str) -> Path | None:
@@ -754,12 +829,18 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_library_chat_session_get()
             elif path == "/api/notebooks":
                 self._json({"notebooks": list_notebooks()})
+            elif path == "/api/article-folders":
+                self._json({"folders": list_article_folders()})
             elif path == "/api/workspaces":
                 self._json({"workspaces": list_workspaces()})
             elif path == "/api/check-update":
                 self._json(check_for_update())
             elif path == "/api/data-root":
                 self._json(get_data_root_info())
+            elif path == "/api/databases":
+                self._json({"databases": list_databases(), "fieldTypes": public_field_types()})
+            elif path.startswith("/api/databases/"):
+                self.handle_get_database()
             elif path == "/api/export":
                 qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
                 self.handle_export(
@@ -929,6 +1010,10 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_library_chat_session_clear()
             elif path == "/api/notebooks":
                 self.handle_create_notebook()
+            elif path == "/api/article-folders":
+                self.handle_create_article_folder()
+            elif path == "/api/article-folders/move-articles":
+                self.handle_move_articles_to_folder()
             elif path == "/api/notes":
                 self.handle_create_note()
             elif path.startswith("/api/convert/"):
@@ -955,6 +1040,10 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_upload_attachment()
             elif path.startswith("/api/articles/") and path.endswith("/history/delete"):
                 self.handle_history_delete()
+            elif path == "/api/databases":
+                self.handle_create_database()
+            elif path.startswith("/api/databases/"):
+                self.handle_database_post()
             else:
                 self._error(404, "Not found")
         except ValueError as exc:
@@ -975,10 +1064,14 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_article_update()
             elif path.startswith("/api/notebooks/"):
                 self.handle_update_notebook()
+            elif path.startswith("/api/article-folders/"):
+                self.handle_update_article_folder()
             elif path.startswith("/api/notes/") and path.endswith("/rename"):
                 self.handle_rename_note()
             elif path.startswith("/api/notes/"):
                 self.handle_save_note()
+            elif path.startswith("/api/databases/"):
+                self.handle_database_put()
             else:
                 self._error(404, "Not found")
         except ValueError as exc:
@@ -995,8 +1088,12 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_delete_note()
             elif path.startswith("/api/notebooks/"):
                 self.handle_delete_notebook()
+            elif path.startswith("/api/article-folders/"):
+                self.handle_delete_article_folder()
             elif path.startswith("/api/articles/") and "/attachments/" in path:
                 self.handle_delete_attachment()
+            elif path.startswith("/api/databases/"):
+                self.handle_database_delete()
             else:
                 self._error(404, "Not found")
         except ValueError as exc:
@@ -1463,6 +1560,107 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         blocks = get_note_blocks(note_id)
         self._json({"note_id": note_id, "blocks": blocks})
 
+    def handle_get_database(self):
+        db_id, sub, sub_id = _database_path_parts(self.path)
+        if not db_id:
+            self._error(404, "Not found")
+            return
+        validate_database_id(db_id)
+        if sub:
+            self._error(404, "Not found")
+            return
+        qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        if qs.get("render", [""])[0] in ("1", "true", "yes"):
+            view_id = qs.get("view", [""])[0] or None
+            self._json(render_database(db_id, view_id or None))
+            return
+        self._json(load_database(db_id))
+
+    def handle_create_database(self):
+        body = self._read_json()
+        name = str(body.get("name") or "Untitled").strip()[:120] or "Untitled"
+        self._json(create_database(name))
+
+    def handle_database_post(self):
+        db_id, sub, _sub_id = _database_path_parts(self.path)
+        if not db_id:
+            self._error(404, "Not found")
+            return
+        validate_database_id(db_id)
+        body = self._read_json()
+        if sub == "rows":
+            row = add_row(db_id, body.get("cells") if isinstance(body.get("cells"), dict) else None)
+            self._json(row)
+            return
+        if sub == "columns":
+            col = add_column(
+                db_id,
+                str(body.get("name") or "新列"),
+                str(body.get("type") or "text"),
+            )
+            self._json(col)
+            return
+        if sub == "views":
+            view = add_view(
+                db_id,
+                str(body.get("name") or "新视图"),
+                str(body.get("type") or "table"),
+                group_column=str(body.get("groupColumn") or ""),
+                cover_column=str(body.get("coverColumn") or ""),
+            )
+            self._json(view)
+            return
+        self._error(404, "Not found")
+
+    def handle_database_put(self):
+        db_id, sub, sub_id = _database_path_parts(self.path)
+        if not db_id:
+            self._error(404, "Not found")
+            return
+        validate_database_id(db_id)
+        body = self._read_json()
+        if sub == "rows" and sub_id:
+            cells = body.get("cells") if isinstance(body.get("cells"), dict) else body
+            if not isinstance(cells, dict):
+                self._error(400, "cells object required")
+                return
+            self._json(update_row(db_id, sub_id, cells))
+            return
+        if sub == "columns" and sub_id:
+            self._json(update_column(db_id, sub_id, body if isinstance(body, dict) else {}))
+            return
+        if sub == "views" and sub_id:
+            self._json(update_view(db_id, sub_id, body if isinstance(body, dict) else {}))
+            return
+        if not sub:
+            self._json(update_database_meta(db_id, body if isinstance(body, dict) else {}))
+            return
+        self._error(404, "Not found")
+
+    def handle_database_delete(self):
+        db_id, sub, sub_id = _database_path_parts(self.path)
+        if not db_id:
+            self._error(404, "Not found")
+            return
+        validate_database_id(db_id)
+        if sub == "rows" and sub_id:
+            delete_row(db_id, sub_id)
+            self._json({"status": "ok"})
+            return
+        if sub == "columns" and sub_id:
+            delete_column(db_id, sub_id)
+            self._json({"status": "ok"})
+            return
+        if sub == "views" and sub_id:
+            delete_view(db_id, sub_id)
+            self._json({"status": "ok"})
+            return
+        if not sub:
+            delete_database(db_id)
+            self._json({"status": "ok"})
+            return
+        self._error(404, "Not found")
+
     def handle_create_notebook(self):
         body = self._read_json()
         name = str(body.get("name") or "").strip()[:100]
@@ -1489,6 +1687,45 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         nb_id = urllib.parse.unquote(self.path.rstrip("/").rsplit("/", 1)[-1])
         delete_notebook(nb_id)
         self._json({"status": "ok", "notebooks": list_notebooks()})
+
+    def handle_create_article_folder(self):
+        body = self._read_json()
+        name = str(body.get("name") or "").strip()[:100]
+        if not name:
+            self._error(400, "Folder name is required")
+            return
+        folder = create_article_folder(
+            name=name,
+            parent_id=body.get("parent_id") or None,
+            icon=str(body.get("icon") or "")[:16],
+            sort_order=int(body.get("sort_order") or 0),
+        )
+        self._json({"status": "ok", "folder": folder, "folders": list_article_folders()})
+
+    def handle_update_article_folder(self):
+        fid = urllib.parse.unquote(self.path.rstrip("/").rsplit("/", 1)[-1])
+        body = self._read_json()
+        new_parent = body.get("parent_id")
+        if new_parent is not None and new_parent and _is_folder_ancestor(fid, new_parent):
+            self._error(400, "Cannot move folder under its descendant")
+            return
+        update_article_folder(fid, **body)
+        self._json({"status": "ok", "folders": list_article_folders()})
+
+    def handle_delete_article_folder(self):
+        fid = urllib.parse.unquote(self.path.rstrip("/").rsplit("/", 1)[-1])
+        delete_article_folder(fid)
+        self._json({"status": "ok", "folders": list_article_folders()})
+
+    def handle_move_articles_to_folder(self):
+        body = self._read_json()
+        article_ids = body.get("article_ids") or []
+        folder_id = body.get("folder_id") or None
+        if not isinstance(article_ids, list) or not article_ids:
+            self._error(400, "article_ids is required")
+            return
+        move_articles_to_folder(article_ids, folder_id)
+        self._json({"status": "ok"})
 
     def handle_note_backlinks(self):
         parts = urllib.parse.urlsplit(self.path).path.rstrip("/").split("/")
@@ -1542,6 +1779,7 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             "tags": [],
             "folder": folder,
             "notebook_id": str(body.get("notebook_id") or "").strip()[:64] or None,
+            "parent_id": body.get("parent_id") or None,
             "article_id": article_id,
             "links": [],
         }
@@ -1567,7 +1805,11 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         if "folder" in body:
             existing["folder"] = str(body.get("folder") or "").strip()[:200]
         if "parent_id" in body:
-            existing["parent_id"] = body.get("parent_id") or None
+            new_parent = body.get("parent_id") or None
+            if new_parent and _is_note_ancestor(note_id, new_parent):
+                self._error(400, "Cannot move note under its descendant")
+                return
+            existing["parent_id"] = new_parent
         if "doc_icon" in body:
             existing["doc_icon"] = str(body.get("doc_icon") or "").strip()[:16]
         if "article_id" in body:
@@ -1576,26 +1818,27 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             existing["notebook_id"] = str(body.get("notebook_id") or "").strip()[:64] or None
         existing.setdefault("created_at", now)
         upsert_note(existing)
-        try:
-            # Rebuild block anchors. We then rewrite the saved file
-            # with stable `<!--kb-block:anchor-->` markers so the
-            # frontend can map the rendered DOM back to anchors.
-            rows = sync_note_blocks(note_id, content)
-            annotated = inject_block_anchors(content, rows)
-            if annotated != content:
-                md_path.write_text(annotated, encoding="utf-8")
-            # Build the cross-note link index used by the backlinks
-            # panel.
-            sync_note_links(note_id, annotated)
-        except Exception as exc:  # noqa: BLE001
-            print(f"sync_note_blocks/links failed for {note_id}: {exc}")
+        if "content" in body:
+            try:
+                # Rebuild block anchors. We then rewrite the saved file
+                # with stable `<!--kb-block:anchor-->` markers so the
+                # frontend can map the rendered DOM back to anchors.
+                rows = sync_note_blocks(note_id, content)
+                annotated = inject_block_anchors(content, rows)
+                if annotated != content:
+                    md_path.write_text(annotated, encoding="utf-8")
+                # Build the cross-note link index used by the backlinks
+                # panel.
+                sync_note_links(note_id, annotated)
+            except Exception as exc:  # noqa: BLE001
+                print(f"sync_note_blocks/links failed for {note_id}: {exc}")
         # Return the annotated content so the client cache stays
         # in sync with disk.
         try:
             with open(md_path, "r", encoding="utf-8") as f:
                 saved = f.read()
         except OSError:
-            saved = content
+            saved = content if "content" in body else ""
         self._json({"status": "ok", "content": saved})
 
     def handle_delete_note(self):

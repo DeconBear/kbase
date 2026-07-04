@@ -471,6 +471,16 @@ CREATE TABLE IF NOT EXISTS workspace_items (
     FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS article_folders (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    parent_id TEXT,
+    icon TEXT,
+    sort_order INTEGER DEFAULT 0,
+    created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_article_folders_parent ON article_folders(parent_id);
+
 CREATE INDEX IF NOT EXISTS idx_articles_date_added ON articles(date_added);
 CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag);
 CREATE INDEX IF NOT EXISTS idx_translation_article ON translation_state(article_id);
@@ -529,6 +539,13 @@ def init_db() -> None:
                 if col not in existing_cols:
                     conn.execute(f"ALTER TABLE notes ADD COLUMN {col} {decl}")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_notes_article ON notes(article_id)")
+            art_cols = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(articles)").fetchall()
+            }
+            if "folder_id" not in art_cols:
+                conn.execute("ALTER TABLE articles ADD COLUMN folder_id TEXT")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_articles_folder ON articles(folder_id)")
         finally:
             conn.close()
 
@@ -676,6 +693,7 @@ def update_article_fields(article_id: str, updates: dict[str, Any]) -> None:
             "parser",
             "preparse_error",
             "has_old_translation",
+            "folder_id",
         }
     }
     if column_updates:
@@ -1456,3 +1474,82 @@ def delete_chat_session_file(sid: str) -> None:
     path = _session_path(sid)
     if path.exists():
         path.unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# Article folders
+# ---------------------------------------------------------------------------
+
+
+def list_article_folders() -> list[dict[str, Any]]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM article_folders ORDER BY sort_order, name"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def create_article_folder(name: str, parent_id: str | None = None,
+                          icon: str = "", sort_order: int = 0) -> dict[str, Any]:
+    fid = f"af_{int(time.time() * 1000)}_{os.urandom(2).hex()}"
+    ts = time.strftime("%Y-%m-%d %H:%M:%S")
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO article_folders (id, name, parent_id, icon, sort_order, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (fid, name, parent_id, icon, sort_order, ts),
+        )
+    return {"id": fid, "name": name, "parent_id": parent_id,
+            "icon": icon, "sort_order": sort_order, "created_at": ts}
+
+
+def update_article_folder(fid: str, **fields: Any) -> None:
+    allowed = {"name", "parent_id", "icon", "sort_order"}
+    updates = {k: v for k, v in fields.items() if k in allowed}
+    if not updates:
+        return
+    sets = ", ".join(f"{k}=?" for k in updates)
+    with get_conn() as conn:
+        conn.execute(
+            f"UPDATE article_folders SET {sets} WHERE id=?",
+            [*updates.values(), fid],
+        )
+
+
+def delete_article_folder(fid: str) -> None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT parent_id FROM article_folders WHERE id=?", (fid,)
+        ).fetchone()
+        parent_id = row["parent_id"] if row else None
+        conn.execute(
+            "UPDATE articles SET folder_id=NULL WHERE folder_id=?", (fid,)
+        )
+        children = conn.execute(
+            "SELECT id FROM article_folders WHERE parent_id=?", (fid,)
+        ).fetchall()
+        for child in children:
+            conn.execute(
+                "UPDATE article_folders SET parent_id=? WHERE id=?",
+                (parent_id, child["id"]),
+            )
+        conn.execute("DELETE FROM article_folders WHERE id=?", (fid,))
+
+
+def move_article_to_folder(article_id: str, folder_id: str | None) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE articles SET folder_id=? WHERE id=?",
+            (folder_id, article_id),
+        )
+
+
+def move_articles_to_folder(article_ids: list[str], folder_id: str | None) -> None:
+    if not article_ids:
+        return
+    with get_conn() as conn:
+        for aid in article_ids:
+            conn.execute(
+                "UPDATE articles SET folder_id=? WHERE id=?",
+                (folder_id, aid),
+            )
