@@ -1272,7 +1272,11 @@ body { display: flex !important; flex-direction: column !important; height: 100v
         </div>
         <div id="folder-tree-pane">
         <div id="folder-tree-header">
-          <input type="text" id="searchInput" placeholder="🔍 搜索文献..." oninput="filterArticles()" style="flex:1;min-width:0">
+          <input type="text" id="searchInput" placeholder="🔍 搜索文献..." oninput="onLibrarySearchInput()" style="flex:1;min-width:0">
+        </div>
+        <div id="library-source-tabs" style="display:flex;gap:4px;padding:0 8px 6px">
+          <button type="button" class="sidebar-nav-btn active" id="libSrcArticles" onclick="setLibrarySource('articles')">📚 文献</button>
+          <button type="button" class="sidebar-nav-btn" id="libSrcWorkspace" onclick="setLibrarySource('workspace')">🗂️ 工作空间</button>
         </div>
         <div id="folder-tree-actions">
           <button class="sidebar-action-btn" onclick="createFolderPrompt()" title="在根目录新建文件夹">
@@ -1283,6 +1287,7 @@ body { display: flex !important; flex-direction: column !important; height: 100v
           </button>
         </div>
         <div id="folder-tree-body"></div>
+        <div id="workspace-doc-tree" style="display:none;flex:1;overflow-y:auto;padding:4px 6px 10px"></div>
         </div>
       </div>
     </aside>
@@ -1668,9 +1673,12 @@ body { display: flex !important; flex-direction: column !important; height: 100v
             <span id="workspaceStatus" style="font-size:11px;color:var(--text-3)"></span>
           </div>
           <div id="workspaceInfo" style="font-size:12px;color:var(--text-2);line-height:1.6"></div>
-          <div style="display:flex;gap:6px;margin-top:8px">
+          <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+            <input type="text" id="workspacePathInput" placeholder="工作空间绝对路径，如 D:\research" style="flex:1;min-width:200px;font-size:12px">
+            <button class="btn-emerald" onclick="openWorkspacePath()">打开</button>
             <button class="btn-outline" onclick="rescanWorkspace()">重新扫描</button>
           </div>
+          <div id="workspaceRecentList" style="margin-top:10px;font-size:12px;color:var(--text-2)"></div>
         </div>
       </section>
 
@@ -3408,13 +3416,15 @@ function showDataRootMsg(msg, colorClass) {
 async function loadWorkspaceInfo() {
   const statusEl = document.getElementById('workspaceStatus');
   const infoEl = document.getElementById('workspaceInfo');
+  const pathInput = document.getElementById('workspacePathInput');
   if (!statusEl || !infoEl) return;
   try {
     const r = await fetch('/api/workspace/info');
     const d = await r.json();
     if (!d.active || !d.workspace) {
       statusEl.textContent = '（未激活）';
-      infoEl.textContent = '启动后将自动以数据目录作为默认工作空间。';
+      infoEl.textContent = '启动后将自动以数据目录作为默认工作空间，也可手动输入路径打开。';
+      if (pathInput && d.legacyDataRoot) pathInput.placeholder = d.legacyDataRoot;
       return;
     }
     const ws = d.workspace;
@@ -3423,9 +3433,145 @@ async function loadWorkspaceInfo() {
     if (ws.lastScanAt) lines.push('上次扫描：' + ws.lastScanAt);
     infoEl.textContent = lines.join('\n');
     infoEl.style.whiteSpace = 'pre-wrap';
+    if (pathInput) pathInput.value = ws.root || '';
+    await loadRecentWorkspaces();
+    if (librarySource === 'workspace') await loadWorkspaceDocuments();
   } catch (e) {
     statusEl.textContent = '（获取失败）';
     infoEl.textContent = '';
+  }
+}
+
+async function loadRecentWorkspaces() {
+  const el = document.getElementById('workspaceRecentList');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/workspace/recent');
+    const d = await r.json();
+    const items = (d.workspaces || []).slice(0, 5);
+    if (!items.length) { el.textContent = ''; return; }
+    el.innerHTML = '<div style="font-size:11px;color:var(--text-3);margin-bottom:4px">最近打开</div>' +
+      items.map(w => `<button type="button" class="btn-outline ws-recent-btn" data-ws-path="${esc(w.path)}" style="display:block;width:100%;text-align:left;margin-bottom:4px;font-size:11px">${esc(w.name || w.path)}</button>`).join('');
+    el.querySelectorAll('.ws-recent-btn').forEach(btn => {
+      btn.addEventListener('click', () => openWorkspacePath(btn.dataset.wsPath));
+    });
+  } catch (_) {
+    el.textContent = '';
+  }
+}
+
+async function openWorkspacePath(pathOverride) {
+  const input = document.getElementById('workspacePathInput');
+  const path = (pathOverride || input?.value || '').trim();
+  if (!path) { showDataRootMsg('请输入工作空间路径', 'rose'); return; }
+  try {
+    const r = await fetch('/api/workspace/open', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({path, scan: true}),
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.message || '打开失败');
+    showDataRootMsg('工作空间已打开', 'emerald');
+    await loadWorkspaceInfo();
+    await loadWorkspaceDocuments();
+    setLibrarySource('workspace');
+  } catch (e) {
+    showDataRootMsg('打开工作空间失败: ' + e.message, 'rose');
+  }
+}
+
+let librarySource = 'articles';
+let workspaceDocuments = [];
+let workspaceDocFilter = 'all';
+
+function setLibrarySource(source) {
+  librarySource = source;
+  document.getElementById('libSrcArticles')?.classList.toggle('active', source === 'articles');
+  document.getElementById('libSrcWorkspace')?.classList.toggle('active', source === 'workspace');
+  const folderBody = document.getElementById('folder-tree-body');
+  const wsTree = document.getElementById('workspace-doc-tree');
+  const folderActions = document.getElementById('folder-tree-actions');
+  if (folderBody) folderBody.style.display = source === 'articles' ? '' : 'none';
+  if (wsTree) wsTree.style.display = source === 'workspace' ? 'block' : 'none';
+  if (folderActions) folderActions.style.display = source === 'articles' ? '' : 'none';
+  const search = document.getElementById('searchInput');
+  if (search) search.placeholder = source === 'workspace' ? '🔍 搜索工作空间文档...' : '🔍 搜索文献...';
+  if (source === 'workspace') loadWorkspaceDocuments();
+  else filterArticles();
+}
+
+function onLibrarySearchInput() {
+  if (librarySource === 'workspace') renderWorkspaceDocTree();
+  else filterArticles();
+}
+
+async function loadWorkspaceDocuments() {
+  try {
+    const r = await fetch('/api/workspace/documents');
+    const d = await r.json();
+    workspaceDocuments = d.documents || [];
+    renderWorkspaceDocTree();
+  } catch (e) {
+    const el = document.getElementById('workspace-doc-tree');
+    if (el) el.innerHTML = '<div style="padding:12px;color:var(--text-3);font-size:12px">无法加载工作空间文档</div>';
+  }
+}
+
+function renderWorkspaceDocTree() {
+  const el = document.getElementById('workspace-doc-tree');
+  if (!el) return;
+  const q = (document.getElementById('searchInput')?.value || '').trim().toLowerCase();
+  let docs = workspaceDocuments.filter(d => d.status !== 'missing');
+  if (q) {
+    docs = docs.filter(d => {
+      const hay = [d.title, d.path, d.id, d.kind].join(' ').toLowerCase();
+      return hay.includes(q);
+    });
+  }
+  const kindOrder = {pdf:0, markdown:1, word:2, html:3, image:4};
+  docs.sort((a, b) => {
+    const ka = kindOrder[a.kind] ?? 9;
+    const kb = kindOrder[b.kind] ?? 9;
+    if (ka !== kb) return ka - kb;
+    return String(a.path || a.title || '').localeCompare(String(b.path || b.title || ''));
+  });
+  if (!docs.length) {
+    el.innerHTML = '<div style="padding:12px;color:var(--text-3);font-size:12px">无文档。请在设置中打开工作空间或点击「重新扫描」。</div>';
+    return;
+  }
+  const kindIcon = {pdf:'📕', markdown:'📄', word:'📝', html:'🌐', image:'🖼️'};
+  el.innerHTML = docs.map(d => {
+    const icon = (d.ui && d.ui.icon) || kindIcon[d.kind] || '📄';
+    const label = d.title || d.path || d.id;
+    const sub = d.path ? `<div style="font-size:10px;color:var(--text-3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.path)}</div>` : '';
+    return `<div class="folder-item" style="cursor:pointer;padding:6px 8px;border-radius:var(--radius-sm)" onclick="openWorkspaceDocument('${esc(d.id)}')">
+      <span>${icon}</span> <span>${esc(label)}</span>${sub}
+    </div>`;
+  }).join('');
+}
+
+function openWorkspaceDocument(docId) {
+  const doc = workspaceDocuments.find(d => d.id === docId);
+  if (!doc) return;
+  const path = String(doc.path || '');
+  const articleMatch = path.match(/^articles\/([^/]+)\//);
+  if (doc.kind === 'pdf' && articleMatch) {
+    openArticle(articleMatch[1]);
+    return;
+  }
+  const noteMatch = path.match(/^notes\/(.+)\.md$/);
+  if (doc.kind === 'markdown' && noteMatch) {
+    const noteId = noteMatch[1];
+    switchToNotesView();
+    const note = [...notesStore.values()].find(n => n.id === noteId || (n.title + '.md') === noteMatch[1] + '.md');
+    if (note) openNoteInTab(note.id);
+    return;
+  }
+  if (path && (doc.kind === 'markdown' || doc.kind === 'html')) {
+    fetch('/' + path).then(r => r.ok ? r.text() : Promise.reject()).then(md => {
+      TabManager.openTab('ws-' + docId, 'article', doc.title || path, {article: {id: docId, title: doc.title || path, md_available: true, pdf_available: false}}, false);
+    }).catch(() => showDataRootMsg('无法打开: ' + path, 'rose'));
   }
 }
 
@@ -3439,6 +3585,7 @@ async function rescanWorkspace() {
     const d = await r.json();
     if (!d.ok) throw new Error(d.message || '扫描失败');
     await loadWorkspaceInfo();
+    await loadWorkspaceDocuments();
     showDataRootMsg(`扫描完成：${d.stats?.total ?? 0} 个文档`, 'emerald');
   } catch (e) {
     showDataRootMsg('工作空间扫描失败: ' + e.message, 'rose');
@@ -3642,6 +3789,7 @@ async function init() {
   // article-scoped note can list every notebook note (and
   // every article) without first visiting the notes view.
   await loadNotebooksAndNotes();
+  loadWorkspaceDocuments().catch(() => {});
   TabManager.init();
   // Expose for debugging from devtools / Playwright.
   window.TabManager = TabManager;
