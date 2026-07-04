@@ -1274,9 +1274,10 @@ body { display: flex !important; flex-direction: column !important; height: 100v
         <div id="folder-tree-header">
           <input type="text" id="searchInput" placeholder="🔍 搜索文献..." oninput="onLibrarySearchInput()" style="flex:1;min-width:0">
         </div>
-        <div id="library-source-tabs" style="display:flex;gap:4px;padding:0 8px 6px">
+        <div id="library-source-tabs" style="display:flex;gap:4px;padding:0 8px 6px;flex-wrap:wrap">
           <button type="button" class="sidebar-nav-btn active" id="libSrcArticles" onclick="setLibrarySource('articles')">📚 文献</button>
           <button type="button" class="sidebar-nav-btn" id="libSrcWorkspace" onclick="setLibrarySource('workspace')">🗂️ 工作空间</button>
+          <button type="button" class="sidebar-nav-btn" id="libSrcBookmarks" onclick="setLibrarySource('bookmarks')">🔗 书签</button>
         </div>
         <div id="folder-tree-actions">
           <button class="sidebar-action-btn" onclick="createFolderPrompt()" title="在根目录新建文件夹">
@@ -1288,6 +1289,7 @@ body { display: flex !important; flex-direction: column !important; height: 100v
         </div>
         <div id="folder-tree-body"></div>
         <div id="workspace-doc-tree" style="display:none;flex:1;overflow-y:auto;padding:4px 6px 10px"></div>
+        <div id="workspace-bookmark-tree" style="display:none;flex:1;overflow-y:auto;padding:4px 6px 10px"></div>
         </div>
       </div>
     </aside>
@@ -3483,27 +3485,91 @@ async function openWorkspacePath(pathOverride) {
 
 let librarySource = 'articles';
 let workspaceDocuments = [];
+let workspaceBookmarks = [];
 let workspaceDocFilter = 'all';
 
 function setLibrarySource(source) {
   librarySource = source;
-  document.getElementById('libSrcArticles')?.classList.toggle('active', source === 'articles');
-  document.getElementById('libSrcWorkspace')?.classList.toggle('active', source === 'workspace');
+  ['libSrcArticles', 'libSrcWorkspace', 'libSrcBookmarks'].forEach(id => {
+    document.getElementById(id)?.classList.toggle('active', id === 'libSrcArticles' && source === 'articles' || id === 'libSrcWorkspace' && source === 'workspace' || id === 'libSrcBookmarks' && source === 'bookmarks');
+  });
   const folderBody = document.getElementById('folder-tree-body');
   const wsTree = document.getElementById('workspace-doc-tree');
+  const bmTree = document.getElementById('workspace-bookmark-tree');
   const folderActions = document.getElementById('folder-tree-actions');
   if (folderBody) folderBody.style.display = source === 'articles' ? '' : 'none';
   if (wsTree) wsTree.style.display = source === 'workspace' ? 'block' : 'none';
+  if (bmTree) bmTree.style.display = source === 'bookmarks' ? 'block' : 'none';
   if (folderActions) folderActions.style.display = source === 'articles' ? '' : 'none';
   const search = document.getElementById('searchInput');
-  if (search) search.placeholder = source === 'workspace' ? '🔍 搜索工作空间文档...' : '🔍 搜索文献...';
+  if (search) {
+    const placeholders = {articles: '🔍 搜索文献...', workspace: '🔍 搜索工作空间文档...', bookmarks: '🔍 搜索书签...'};
+    search.placeholder = placeholders[source] || placeholders.articles;
+  }
   if (source === 'workspace') loadWorkspaceDocuments();
+  else if (source === 'bookmarks') loadWorkspaceBookmarks();
   else filterArticles();
 }
 
 function onLibrarySearchInput() {
   if (librarySource === 'workspace') renderWorkspaceDocTree();
+  else if (librarySource === 'bookmarks') renderWorkspaceBookmarkTree();
   else filterArticles();
+}
+
+async function loadWorkspaceBookmarks() {
+  try {
+    const r = await fetch('/api/workspace/bookmarks');
+    const d = await r.json();
+    workspaceBookmarks = d.bookmarks || [];
+    renderWorkspaceBookmarkTree();
+  } catch (e) {
+    const el = document.getElementById('workspace-bookmark-tree');
+    if (el) el.innerHTML = '<div style="padding:12px;color:var(--text-3);font-size:12px">无法加载书签</div>';
+  }
+}
+
+function renderWorkspaceBookmarkTree() {
+  const el = document.getElementById('workspace-bookmark-tree');
+  if (!el) return;
+  const q = (document.getElementById('searchInput')?.value || '').trim().toLowerCase();
+  let items = workspaceBookmarks.slice();
+  if (q) items = items.filter(b => [b.title, b.url, b.id].join(' ').toLowerCase().includes(q));
+  const addBtn = `<button type="button" class="btn-emerald" style="width:100%;margin-bottom:8px;font-size:12px" onclick="promptAddBookmark()">＋ 添加 URL 书签</button>`;
+  if (!items.length) {
+    el.innerHTML = addBtn + '<div style="padding:8px;color:var(--text-3);font-size:12px">暂无书签</div>';
+    return;
+  }
+  el.innerHTML = addBtn + items.map(b => `<div class="folder-item bm-item" data-url="${esc(b.url)}" style="cursor:pointer;padding:6px 8px;border-radius:var(--radius-sm)">
+    <div>🔗 ${esc(b.title || b.url)}</div>
+    <div style="font-size:10px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(b.url)}</div>
+  </div>`).join('');
+  el.querySelectorAll('.bm-item').forEach(node => {
+    node.addEventListener('click', () => openBookmarkUrl(node.dataset.url));
+  });
+}
+
+function openBookmarkUrl(url) {
+  if (url) window.open(url, '_blank', 'noopener');
+}
+
+async function promptAddBookmark() {
+  const url = prompt('输入 URL（https://...）');
+  if (!url || !url.trim()) return;
+  const title = prompt('标题（可选）', '') || '';
+  try {
+    const r = await fetch('/api/workspace/bookmarks', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({url: url.trim(), title: title.trim()}),
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.message || '保存失败');
+    await loadWorkspaceBookmarks();
+    showDataRootMsg('书签已保存', 'emerald');
+  } catch (e) {
+    showDataRootMsg('添加书签失败: ' + e.message, 'rose');
+  }
 }
 
 async function loadWorkspaceDocuments() {

@@ -795,7 +795,9 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         path = urllib.parse.urlsplit(self.path).path
         try:
             if path == "/api/articles":
-                self._json({"articles": scan_articles()})
+                from legacy_bridge import enrich_articles
+
+                self._json({"articles": enrich_articles(scan_articles())})
             elif path == "/api/settings":
                 self._json(self._collect_settings())
             elif path == "/api/llm-config":
@@ -829,7 +831,9 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             elif path.startswith("/api/articles/") and path.endswith("/notes"):
                 self.handle_get_article_notes()
             elif path == "/api/notes":
-                self._json({"notes": get_all_notes()})
+                from legacy_bridge import enrich_notes
+
+                self._json({"notes": enrich_notes(get_all_notes())})
             elif path.startswith("/api/notes/") and path.endswith("/backlinks"):
                 self.handle_note_backlinks()
             elif path.startswith("/api/notes/") and path.endswith("/blocks"):
@@ -863,6 +867,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_workspace_documents_get()
             elif path == "/api/workspace/search":
                 self.handle_workspace_search()
+            elif path == "/api/workspace/bookmarks":
+                self.handle_workspace_bookmarks_get()
             elif path.startswith("/api/workspace/documents/"):
                 doc_id = path.split("/api/workspace/documents/", 1)[1].strip("/")
                 self.handle_workspace_document_get(doc_id)
@@ -1068,6 +1074,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             elif path.startswith("/api/workspace/documents/") and path.endswith("/preparse"):
                 doc_id = path.split("/api/workspace/documents/", 1)[1].rsplit("/preparse", 1)[0].strip("/")
                 self.handle_workspace_preparse(doc_id)
+            elif path == "/api/workspace/bookmarks":
+                self.handle_workspace_bookmarks_create()
             elif path == "/api/skills/install":
                 self.handle_skills_install()
             elif path == "/api/skills/preview":
@@ -1130,6 +1138,9 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_delete_attachment()
             elif path.startswith("/api/databases/"):
                 self.handle_database_delete()
+            elif path.startswith("/api/workspace/bookmarks/"):
+                doc_id = path.split("/api/workspace/bookmarks/", 1)[1].strip("/")
+                self.handle_workspace_bookmark_delete(doc_id)
             else:
                 self._error(404, "Not found")
         except ValueError as exc:
@@ -2148,6 +2159,50 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             self._error(400, "无法预处理该文档（需为工作空间内的 Word 文件）")
             return
         self._json({"ok": True, "result": result})
+
+    def handle_workspace_bookmarks_get(self) -> None:
+        """GET /api/workspace/bookmarks — list URL bookmarks."""
+        try:
+            ws = require_active_workspace()
+        except RuntimeError as exc:
+            self._error(400, str(exc))
+            return
+        from bookmarks import list_bookmarks
+
+        self._json({"bookmarks": list_bookmarks(ws)})
+
+    def handle_workspace_bookmarks_create(self) -> None:
+        """POST /api/workspace/bookmarks — save a URL bookmark."""
+        try:
+            ws = require_active_workspace()
+        except RuntimeError as exc:
+            self._error(400, str(exc))
+            return
+        from bookmarks import create_bookmark
+
+        data = self._read_json()
+        url = (data.get("url") or "").strip()
+        title = (data.get("title") or "").strip()
+        try:
+            record = create_bookmark(ws, url, title=title)
+        except ValueError as exc:
+            self._error(400, str(exc))
+            return
+        self._json({"ok": True, "bookmark": record})
+
+    def handle_workspace_bookmark_delete(self, doc_id: str) -> None:
+        """DELETE /api/workspace/bookmarks/<doc_id>."""
+        try:
+            ws = require_active_workspace()
+        except RuntimeError as exc:
+            self._error(400, str(exc))
+            return
+        from bookmarks import delete_bookmark
+
+        if not delete_bookmark(ws, doc_id):
+            self._error(404, "bookmark not found")
+            return
+        self._json({"ok": True})
 
     def handle_workspace_document_get(self, doc_id: str) -> None:
         """GET /api/workspace/documents/<doc_id> — single document sidecar."""
