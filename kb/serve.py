@@ -861,6 +861,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_workspace_article_derivations(aid)
             elif path == "/api/workspace/documents":
                 self.handle_workspace_documents_get()
+            elif path == "/api/workspace/search":
+                self.handle_workspace_search()
             elif path.startswith("/api/workspace/documents/"):
                 doc_id = path.split("/api/workspace/documents/", 1)[1].strip("/")
                 self.handle_workspace_document_get(doc_id)
@@ -1063,6 +1065,9 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_workspace_open()
             elif path == "/api/workspace/scan":
                 self.handle_workspace_scan()
+            elif path.startswith("/api/workspace/documents/") and path.endswith("/preparse"):
+                doc_id = path.split("/api/workspace/documents/", 1)[1].rsplit("/preparse", 1)[0].strip("/")
+                self.handle_workspace_preparse(doc_id)
             elif path == "/api/skills/install":
                 self.handle_skills_install()
             elif path == "/api/skills/preview":
@@ -2109,6 +2114,40 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         query = (qs.get("q", [""])[0] or "").strip() or None
         docs = ws.list_documents(kind=kind, query=query)
         self._json({"documents": docs})
+
+    def handle_workspace_search(self) -> None:
+        """GET /api/workspace/search?q= — full-text search in workspace."""
+        try:
+            ws = require_active_workspace()
+        except RuntimeError as exc:
+            self._error(400, str(exc))
+            return
+        from workspace_search import search_workspace_documents
+
+        qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        query = (qs.get("q", [""])[0] or "").strip()
+        if not query:
+            self._error(400, "q is required")
+            return
+        limit = int(qs.get("limit", ["20"])[0] or 20)
+        kind = (qs.get("kind", [""])[0] or "").strip() or None
+        hits = search_workspace_documents(ws, query, limit=limit, kind=kind)
+        self._json({"query": query, "hits": hits, "count": len(hits)})
+
+    def handle_workspace_preparse(self, doc_id: str) -> None:
+        """POST /api/workspace/documents/<doc_id>/preparse — Word → .parsed.md."""
+        try:
+            ws = require_active_workspace()
+        except RuntimeError as exc:
+            self._error(400, str(exc))
+            return
+        from derivations import preparse_word_document
+
+        result = preparse_word_document(ws, doc_id)
+        if not result:
+            self._error(400, "无法预处理该文档（需为工作空间内的 Word 文件）")
+            return
+        self._json({"ok": True, "result": result})
 
     def handle_workspace_document_get(self, doc_id: str) -> None:
         """GET /api/workspace/documents/<doc_id> — single document sidecar."""

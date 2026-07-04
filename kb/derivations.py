@@ -276,6 +276,32 @@ def sync_legacy_parse(article_id: str, parsed_md: Path, engine: str) -> dict[str
         return None
 
 
+def preparse_word_document(ws: Workspace, doc_id: str) -> dict[str, Any] | None:
+    doc = ws.load_document(doc_id)
+    if not doc or doc.get("kind") != "word":
+        return None
+    rel = str(doc.get("path") or "")
+    if not rel:
+        return None
+    source_abs = ws.resolve(rel)
+    if not source_abs.is_file():
+        return None
+    parsed_rel = ws.parsed_md_path(rel)
+    parsed_abs = ws.resolve(parsed_rel)
+    if not parsed_abs.exists():
+        from word_extract import docx_to_markdown
+
+        parsed_abs.parent.mkdir(parents=True, exist_ok=True)
+        parsed_abs.write_text(
+            docx_to_markdown(source_abs, title=str(doc.get("title") or source_abs.stem)),
+            encoding="utf-8",
+        )
+    try:
+        return publish_parsed_derivation(ws, source_abs, parsed_abs, engine="docx")
+    except Exception:
+        return None
+
+
 def sync_legacy_translation(
     article_id: str,
     translated_md: Path,

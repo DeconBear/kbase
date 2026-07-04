@@ -126,6 +126,15 @@ def cmd_status(_args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_search(args: argparse.Namespace) -> int:
+    from workspace_search import search_workspace_documents
+
+    ws = _resolve_workspace(args.workspace)
+    hits = search_workspace_documents(ws, args.query, limit=args.limit)
+    _emit(hits, as_json=args.json)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="kbase", description="KBase workspace CLI")
     parser.add_argument(
@@ -171,6 +180,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_show = doc_sub.add_parser("show", help="查看文档 sidecar")
     p_show.add_argument("target", help="doc_id 或相对路径")
     p_show.set_defaults(func=cmd_doc_show)
+
+    p_search = sub.add_parser("search", help="工作空间全文搜索")
+    p_search.add_argument("query", help="搜索词")
+    p_search.add_argument("--limit", type=int, default=20)
+    p_search.set_defaults(func=cmd_search)
 
     return parser
 

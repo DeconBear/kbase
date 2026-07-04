@@ -3568,6 +3568,25 @@ function openWorkspaceDocument(docId) {
     if (note) openNoteInTab(note.id);
     return;
   }
+  if (doc.kind === 'word' && path) {
+    fetch('/api/workspace/documents/' + encodeURIComponent(docId) + '/preparse', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: '{}',
+    })
+      .then(r => r.json())
+      .then(d => {
+        const rel = d.result && d.result.path;
+        if (!rel) throw new Error('预处理失败');
+        return fetch('/' + rel + '?t=' + Date.now()).then(r => r.ok ? r.text() : Promise.reject());
+      })
+      .then(() => {
+        showDataRootMsg('Word 已解析，请在工作空间树中打开对应 .parsed.md', 'emerald');
+        loadWorkspaceDocuments();
+      })
+      .catch(e => showDataRootMsg('Word 打开失败: ' + e.message, 'rose'));
+    return;
+  }
   if (path && (doc.kind === 'markdown' || doc.kind === 'html')) {
     fetch('/' + path).then(r => r.ok ? r.text() : Promise.reject()).then(md => {
       TabManager.openTab('ws-' + docId, 'article', doc.title || path, {article: {id: docId, title: doc.title || path, md_available: true, pdf_available: false}}, false);

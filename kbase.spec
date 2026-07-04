@@ -3,7 +3,7 @@ from PyInstaller.utils.hooks import collect_all
 
 datas = [('kb/index.html', 'kb'), ('kb/assets', 'kb/assets')]
 binaries = []
-hiddenimports = ['kb.utils_yaml', 'kb.storage', 'kb.database', 'kb.app_config', 'kb.workspace', 'kb.derivations', 'kb.workspace_paths', 'kb.workspace_watch', 'kb.cli', 'kb.engines._paths', 'kb.llm_config', 'kb.document_info', 'kb.translate', 'kb.calibrate', 'kb.library_chat', 'kb.engines', 'kb.engines.marker', 'kb.engines.docmind', 'kb.engines.docparser', 'kb.engines.vision_ocr', 'kb.engines.ocr', 'kb.engines.llm_vision', 'kb.engines.unisound_parser', 'kb.serve', 'kb.version', 'kb.updater', 'webview', 'fitz', 'clr']
+hiddenimports = ['kb.utils_yaml', 'kb.storage', 'kb.database', 'kb.app_config', 'kb.workspace', 'kb.derivations', 'kb.workspace_paths', 'kb.workspace_watch', 'kb.workspace_search', 'kb.word_extract', 'kb.cli', 'kb.engines._paths', 'kb.llm_config', 'kb.document_info', 'kb.translate', 'kb.calibrate', 'kb.library_chat', 'kb.engines', 'kb.engines.marker', 'kb.engines.docmind', 'kb.engines.docparser', 'kb.engines.vision_ocr', 'kb.engines.ocr', 'kb.engines.llm_vision', 'kb.engines.unisound_parser', 'kb.serve', 'kb.version', 'kb.updater', 'webview', 'fitz', 'clr']
 tmp_ret = collect_all('pythonnet')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('clr_loader')

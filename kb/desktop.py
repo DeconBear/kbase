@@ -55,7 +55,8 @@ if getattr(sys, "frozen", False):
         ("kb.workspace", "workspace"),
         ("kb.derivations", "derivations"),
         ("kb.workspace_paths", "workspace_paths"),
-        ("kb.workspace_watch", "workspace_watch"),
+        ("kb.workspace_search", "workspace_search"),
+        ("kb.word_extract", "word_extract"),
         ("kb.cli", "cli"),
     ]
     for _fq_name, _alias in _aliases:

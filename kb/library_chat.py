@@ -393,6 +393,24 @@ def search_library(query, limit=MAX_SOURCES, context_chars=MAX_CONTEXT_CHARS, wo
     results = []
     source_no = 1
 
+    # Workspace-native search (active workspace documents)
+    if not workspace_id:
+        try:
+            from workspace import get_active_workspace
+            from workspace_search import search_workspace_documents
+
+            ws = get_active_workspace()
+            if ws is not None:
+                for hit in search_workspace_documents(
+                    ws, query, limit=limit, context_chars=context_chars,
+                ):
+                    hit = dict(hit)
+                    hit["source_id"] = f"S{source_no}"
+                    results.append(hit)
+                    source_no += 1
+        except Exception:
+            pass
+
     # Search articles
     for article in articles:
         article_id = str(article.get("id") or "")
