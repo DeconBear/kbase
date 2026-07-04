@@ -53,6 +53,7 @@ if getattr(sys, "frozen", False):
         ("kb.serve", "serve"),
         ("kb.app_config", "app_config"),
         ("kb.workspace", "workspace"),
+        ("kb.derivations", "derivations"),
         ("kb.cli", "cli"),
     ]
     for _fq_name, _alias in _aliases:

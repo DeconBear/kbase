@@ -231,6 +231,13 @@ def translate_article(
     translated_md = "\n\n".join(translated_chunks).strip() + "\n"
     out_path = art_dir / f"{article_id}_translated.md"
     out_path.write_text(translated_md, encoding="utf-8")
+    try:
+        from derivations import sync_legacy_translation
+        result = sync_legacy_translation(article_id, out_path, target_language)
+        if result:
+            log(f"Workspace: translation → {result.get('path')}")
+    except Exception as exc:  # noqa: BLE001
+        log(f"Workspace translation sync skipped: {exc}")
     write_state(
         article_id,
         status="done",

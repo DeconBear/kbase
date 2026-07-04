@@ -1662,6 +1662,16 @@ body { display: flex !important; flex-direction: column !important; height: 100v
           </div>
           <div id="dataRootMsg" style="font-size:11px;color:var(--emerald);margin-top:6px;display:none"></div>
         </div>
+        <div class="settings-section" style="margin-top:18px">
+          <div class="settings-section-head">
+            <h4>工作空间（v1）</h4>
+            <span id="workspaceStatus" style="font-size:11px;color:var(--text-3)"></span>
+          </div>
+          <div id="workspaceInfo" style="font-size:12px;color:var(--text-2);line-height:1.6"></div>
+          <div style="display:flex;gap:6px;margin-top:8px">
+            <button class="btn-outline" onclick="rescanWorkspace()">重新扫描</button>
+          </div>
+        </div>
       </section>
 
       <!-- Pane: 更新 -->
@@ -3108,6 +3118,7 @@ async function showSettings() {
   await loadModelUsageFromEnv();
   populateModelUsageProviders();
   loadDataRoot();
+  loadWorkspaceInfo();
   loadUpdateInfo();
   // Open the settings tab (or activate if it already exists).
   if (typeof TabManager !== 'undefined') {
@@ -3391,6 +3402,46 @@ function showDataRootMsg(msg, colorClass) {
   el.style.color = colorClass === 'rose' ? 'var(--rose)' : 'var(--emerald)';
   el.style.display = 'block';
   setTimeout(() => el.style.display = 'none', 5000);
+}
+
+async function loadWorkspaceInfo() {
+  const statusEl = document.getElementById('workspaceStatus');
+  const infoEl = document.getElementById('workspaceInfo');
+  if (!statusEl || !infoEl) return;
+  try {
+    const r = await fetch('/api/workspace/info');
+    const d = await r.json();
+    if (!d.active || !d.workspace) {
+      statusEl.textContent = '（未激活）';
+      infoEl.textContent = '启动后将自动以数据目录作为默认工作空间。';
+      return;
+    }
+    const ws = d.workspace;
+    statusEl.textContent = `（${ws.documentCount || 0} 个文档）`;
+    const lines = [ws.name || '工作空间', ws.root || ''];
+    if (ws.lastScanAt) lines.push('上次扫描：' + ws.lastScanAt);
+    infoEl.textContent = lines.join('\n');
+    infoEl.style.whiteSpace = 'pre-wrap';
+  } catch (e) {
+    statusEl.textContent = '（获取失败）';
+    infoEl.textContent = '';
+  }
+}
+
+async function rescanWorkspace() {
+  try {
+    const r = await fetch('/api/workspace/scan', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({full: true}),
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.message || '扫描失败');
+    await loadWorkspaceInfo();
+    showDataRootMsg(`扫描完成：${d.stats?.total ?? 0} 个文档`, 'emerald');
+  } catch (e) {
+    showDataRootMsg('工作空间扫描失败: ' + e.message, 'rose');
+  }
 }
 
 // ==================================================================

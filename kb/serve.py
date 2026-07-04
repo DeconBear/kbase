@@ -518,6 +518,13 @@ def run_conversion(pdf_path: str, article_id: str, engine_name: str = "marker", 
             "md_available": md_file.exists(),
             "parser": engine_name,
         })
+        try:
+            from derivations import sync_legacy_parse
+            result = sync_legacy_parse(article_id, md_file, engine_name)
+            if result:
+                log(f"Workspace: parsed → {result.get('path')}")
+        except Exception as exc:  # noqa: BLE001
+            log(f"Workspace derivation skipped: {exc}")
         scan_articles()
         _start_extract_info(article_id, reason=f"parsed:{engine_name}", allow_parallel=True)
     except Exception as exc:  # noqa: BLE001

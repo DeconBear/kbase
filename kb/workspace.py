@@ -115,6 +115,13 @@ def content_hash(path: Path, *, chunk_bytes: int = 1_048_576) -> str:
     return f"sha256:{digest.hexdigest()}"
 
 
+def _derivation_basename(source_rel: str) -> str:
+    path = Path(source_rel.replace("\\", "/"))
+    if path.stem.lower() == "original" and path.parent.name:
+        return path.parent.name
+    return path.stem
+
+
 class Workspace:
     """A user-chosen directory with an initialized ``.kbase/`` metadata tree."""
 
@@ -458,12 +465,27 @@ class Workspace:
             "total": len(self.list_documents()),
         }
 
+    def find_document_by_path(self, rel_path: str) -> dict[str, Any] | None:
+        rel = rel_path.replace("\\", "/")
+        for doc in self.list_documents():
+            if str(doc.get("path") or "").replace("\\", "/") == rel:
+                return doc
+        return None
+
     def parsed_md_path(self, source_rel: str) -> str:
         manifest = self.load_manifest()
         naming = manifest.get("derivationNaming") or {}
         template = naming.get("parsedMd") or "{basename}.parsed.md"
-        basename = Path(source_rel).stem
+        basename = _derivation_basename(source_rel)
         name = template.replace("{basename}", basename)
+        return str(Path(source_rel).with_name(name)).replace("\\", "/")
+
+    def translated_md_path(self, source_rel: str, lang: str = "zh") -> str:
+        manifest = self.load_manifest()
+        naming = manifest.get("derivationNaming") or {}
+        template = naming.get("translatedMd") or "{basename}.{lang}.md"
+        basename = _derivation_basename(source_rel)
+        name = template.replace("{basename}", basename).replace("{lang}", lang)
         return str(Path(source_rel).with_name(name)).replace("\\", "/")
 
     def info(self) -> dict[str, Any]:
