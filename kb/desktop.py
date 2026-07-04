@@ -51,6 +51,9 @@ if getattr(sys, "frozen", False):
         ("kb.version", "version"),
         ("kb.updater", "updater"),
         ("kb.serve", "serve"),
+        ("kb.app_config", "app_config"),
+        ("kb.workspace", "workspace"),
+        ("kb.cli", "cli"),
     ]
     for _fq_name, _alias in _aliases:
         try:

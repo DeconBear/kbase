@@ -19,6 +19,12 @@ import zipfile
 from pathlib import Path
 
 import storage
+from app_config import load_recent_workspaces
+from workspace import (
+    get_active_workspace,
+    open_workspace,
+    require_active_workspace,
+)
 from storage import (
     ARTICLES_DIR,
     DATA_ROOT,
@@ -834,9 +840,20 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             elif path == "/api/workspaces":
                 self._json({"workspaces": list_workspaces()})
             elif path == "/api/check-update":
-                self._json(check_for_update())
+                qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                force = qs.get("force", [""])[0].lower() in ("1", "true", "yes")
+                self._json(check_for_update(force=force))
             elif path == "/api/data-root":
                 self._json(get_data_root_info())
+            elif path == "/api/workspace/info":
+                self.handle_workspace_info()
+            elif path == "/api/workspace/recent":
+                self._json({"workspaces": load_recent_workspaces()})
+            elif path == "/api/workspace/documents":
+                self.handle_workspace_documents_get()
+            elif path.startswith("/api/workspace/documents/"):
+                doc_id = path.split("/api/workspace/documents/", 1)[1].strip("/")
+                self.handle_workspace_document_get(doc_id)
             elif path == "/api/databases":
                 self._json({"databases": list_databases(), "fieldTypes": public_field_types()})
             elif path.startswith("/api/databases/"):
@@ -1032,6 +1049,10 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_apply_update()
             elif path == "/api/data-root":
                 self.handle_set_data_root()
+            elif path == "/api/workspace/open":
+                self.handle_workspace_open()
+            elif path == "/api/workspace/scan":
+                self.handle_workspace_scan()
             elif path == "/api/skills/install":
                 self.handle_skills_install()
             elif path == "/api/skills/preview":
@@ -1998,6 +2019,9 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         The frontend should call pywebview.api.quit_app() after receiving
         the "ok" response so the updater can proceed.
         """
+        if not getattr(sys, "frozen", False):
+            self._error(400, "一键更新仅支持打包版 KBase.exe")
+            return
         data = self._read_json()
         asset_url = (data.get("assetUrl") or "").strip()
         if not asset_url:
@@ -2021,6 +2045,67 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         new_root = (data.get("dataRoot") or "").strip()
         path_info = set_data_root(new_root)
         self._json(path_info)
+
+    def handle_workspace_open(self) -> None:
+        """POST /api/workspace/open — open a workspace directory."""
+        data = self._read_json()
+        ws_path = (data.get("path") or "").strip()
+        if not ws_path:
+            self._error(400, "path is required")
+            return
+        scan = bool(data.get("scan", True))
+        try:
+            ws = open_workspace(ws_path, scan=scan)
+        except (OSError, ValueError) as exc:
+            self._error(400, str(exc))
+            return
+        self._json({"ok": True, "workspace": ws.info()})
+
+    def handle_workspace_info(self) -> None:
+        """GET /api/workspace/info — active workspace metadata."""
+        ws = get_active_workspace()
+        if ws is None:
+            self._json({"active": False, "workspace": None, "legacyDataRoot": str(DATA_ROOT)})
+            return
+        self._json({"active": True, "workspace": ws.info(), "legacyDataRoot": str(DATA_ROOT)})
+
+    def handle_workspace_scan(self) -> None:
+        """POST /api/workspace/scan — reconcile sidecars with disk."""
+        data = self._read_json() if self.headers.get("Content-Length") else {}
+        full = bool((data or {}).get("full", True))
+        try:
+            ws = require_active_workspace()
+        except RuntimeError as exc:
+            self._error(400, str(exc))
+            return
+        stats = ws.scan(full=full)
+        self._json({"ok": True, "stats": stats, "workspace": ws.info()})
+
+    def handle_workspace_documents_get(self) -> None:
+        """GET /api/workspace/documents — list workspace documents."""
+        try:
+            ws = require_active_workspace()
+        except RuntimeError as exc:
+            self._error(400, str(exc))
+            return
+        qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        kind = (qs.get("kind", [""])[0] or "").strip() or None
+        query = (qs.get("q", [""])[0] or "").strip() or None
+        docs = ws.list_documents(kind=kind, query=query)
+        self._json({"documents": docs})
+
+    def handle_workspace_document_get(self, doc_id: str) -> None:
+        """GET /api/workspace/documents/<doc_id> — single document sidecar."""
+        try:
+            ws = require_active_workspace()
+        except RuntimeError as exc:
+            self._error(400, str(exc))
+            return
+        doc = ws.load_document(doc_id)
+        if not doc:
+            self._error(404, "document not found")
+            return
+        self._json({"document": doc})
 
     def handle_skills_install(self) -> None:
         """POST /api/skills/install — install tools + skill file to target directory."""
@@ -2242,16 +2327,27 @@ def _unique_archive_name(name, used):
 PACKAGE_DIR = Path(__file__).resolve().parent
 
 
+def _bootstrap_workspace() -> None:
+    """Open the legacy data root as the default workspace when possible."""
+    try:
+        ws = open_workspace(DATA_ROOT, scan=True)
+        print(f" Workspace: {ws.root}")
+        print(f" Documents: {len(ws.list_documents())}")
+    except Exception as exc:  # noqa: BLE001
+        print(f" Workspace bootstrap skipped: {exc}")
+
+
 def start_server() -> ReusableThreadingTCPServer:
     ensure_directories()
     load_local_env()
     print(" Knowledge Base Server")
     print(f" Data root: {DATA_ROOT}")
     print(f" Database:  {DB_PATH}")
+    _bootstrap_workspace()
     articles = scan_articles()
     notes = get_all_notes()
-    print(f" Articles: {len(articles)}")
-    print(f" Notes:    {len(notes)}")
+    print(f" Articles: {len(articles)} (legacy)")
+    print(f" Notes:    {len(notes)} (legacy)")
     print(f" Listening on 0.0.0.0:{PORT}  (reachable as http://localhost:{PORT} from this machine,")
     print(f"                  and as http://<lan-ip>:{PORT} from other devices on the same network)")
     print(f" [!] No authentication — anyone on your local network can read & modify the library.")
