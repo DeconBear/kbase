@@ -90,6 +90,15 @@ def cmd_workspace_migrate(args: argparse.Namespace) -> int:
     return 0 if report.get("ok") else 1
 
 
+def cmd_workspace_reindex(args: argparse.Namespace) -> int:
+    from workspace_index import rebuild_index
+
+    ws = _resolve_workspace(args.workspace)
+    stats = rebuild_index(ws)
+    _emit(stats, as_json=args.json)
+    return 0
+
+
 def cmd_doc_list(args: argparse.Namespace) -> int:
     ws = _resolve_workspace(args.workspace)
     docs = ws.list_documents(kind=args.kind or None, query=args.query or None)
@@ -168,6 +177,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_migrate.add_argument("--dry-run", action="store_true")
     p_migrate.add_argument("--reindex-only", action="store_true")
     p_migrate.set_defaults(func=cmd_workspace_migrate)
+
+    p_reindex = ws_sub.add_parser("reindex", help="重建 FTS 索引")
+    p_reindex.set_defaults(func=cmd_workspace_reindex)
 
     doc = sub.add_parser("doc", help="文档操作")
     doc_sub = doc.add_subparsers(dest="doc_cmd", required=True)

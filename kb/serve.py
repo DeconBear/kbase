@@ -869,6 +869,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_workspace_search()
             elif path == "/api/workspace/bookmarks":
                 self.handle_workspace_bookmarks_get()
+            elif path == "/api/workspace/reindex":
+                self.handle_workspace_reindex()
             elif path.startswith("/api/workspace/documents/"):
                 doc_id = path.split("/api/workspace/documents/", 1)[1].strip("/")
                 self.handle_workspace_document_get(doc_id)
@@ -1076,6 +1078,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_workspace_preparse(doc_id)
             elif path == "/api/workspace/bookmarks":
                 self.handle_workspace_bookmarks_create()
+            elif path == "/api/workspace/reindex":
+                self.handle_workspace_reindex()
             elif path == "/api/skills/install":
                 self.handle_skills_install()
             elif path == "/api/skills/preview":
@@ -2171,6 +2175,18 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
 
         self._json({"bookmarks": list_bookmarks(ws)})
 
+    def handle_workspace_reindex(self) -> None:
+        """GET/POST /api/workspace/reindex — rebuild FTS index.db."""
+        try:
+            ws = require_active_workspace()
+        except RuntimeError as exc:
+            self._error(400, str(exc))
+            return
+        from workspace_index import rebuild_index
+
+        stats = rebuild_index(ws)
+        self._json({"ok": True, "stats": stats})
+
     def handle_workspace_bookmarks_create(self) -> None:
         """POST /api/workspace/bookmarks — save a URL bookmark."""
         try:
@@ -2459,6 +2475,13 @@ def _bootstrap_workspace() -> None:
         ws = open_workspace(DATA_ROOT, scan=True)
         print(f" Workspace: {ws.root}")
         print(f" Documents: {len(ws.list_documents())}")
+        try:
+            from workspace_index import rebuild_index
+
+            idx = rebuild_index(ws)
+            print(f" FTS index: {idx.get('indexed', 0)} files")
+        except Exception as exc:  # noqa: BLE001
+            print(f" FTS index skipped: {exc}")
         try:
             from workspace_watch import start_workspace_watcher
 

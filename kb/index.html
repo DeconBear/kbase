@@ -3490,6 +3490,7 @@ let workspaceDocFilter = 'all';
 
 function setLibrarySource(source) {
   librarySource = source;
+  try { localStorage.setItem('kbaseLibrarySource', source); } catch (_) {}
   ['libSrcArticles', 'libSrcWorkspace', 'libSrcBookmarks'].forEach(id => {
     document.getElementById(id)?.classList.toggle('active', id === 'libSrcArticles' && source === 'articles' || id === 'libSrcWorkspace' && source === 'workspace' || id === 'libSrcBookmarks' && source === 'bookmarks');
   });
@@ -3875,6 +3876,10 @@ async function init() {
   // every article) without first visiting the notes view.
   await loadNotebooksAndNotes();
   loadWorkspaceDocuments().catch(() => {});
+  const savedSource = localStorage.getItem('kbaseLibrarySource');
+  if (savedSource === 'workspace' || savedSource === 'bookmarks' || !savedSource) {
+    setLibrarySource(savedSource || 'workspace');
+  }
   TabManager.init();
   // Expose for debugging from devtools / Playwright.
   window.TabManager = TabManager;

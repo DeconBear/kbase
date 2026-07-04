@@ -59,6 +59,31 @@ def search_workspace_documents(
     context_chars: int = 8000,
     kind: str | None = None,
 ) -> list[dict[str, Any]]:
+    try:
+        from workspace_index import search_fts
+
+        fts_hits = search_fts(ws, query, limit=limit)
+        if fts_hits:
+            return [
+                {
+                    "source_id": f"F{i + 1}",
+                    "doc_id": h["doc_id"],
+                    "article_id": h["doc_id"],
+                    "title": h.get("title") or h.get("path"),
+                    "author": "",
+                    "heading": "",
+                    "variant": "fts",
+                    "path": h.get("path"),
+                    "kind": None,
+                    "score": limit - i,
+                    "text": "",
+                    "snippet": h.get("snippet") or "",
+                }
+                for i, h in enumerate(fts_hits)
+            ]
+    except Exception:
+        pass
+
     terms = _query_terms(query)
     results: list[dict[str, Any]] = []
     source_no = 1

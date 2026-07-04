@@ -57,7 +57,7 @@ if getattr(sys, "frozen", False):
         ("kb.workspace_paths", "workspace_paths"),
         ("kb.workspace_search", "workspace_search"),
         ("kb.legacy_bridge", "legacy_bridge"),
-        ("kb.bookmarks", "bookmarks"),
+        ("kb.workspace_index", "workspace_index"),
         ("kb.cli", "cli"),
     ]
     for _fq_name, _alias in _aliases:
