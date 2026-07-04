@@ -1819,6 +1819,7 @@ body { display: flex !important; flex-direction: column !important; height: 100v
     <button class="ctrl-btn" id="rbEdit" onclick="toggleEdit()">✏️ 编辑</button>
     <button class="btn-rose" id="rbTranslate" onclick="openTranslateModal()">🌐 翻译</button>
     <button class="ctrl-btn" id="rbShowOrig" onclick="showOriginal()" style="display:none">📄 原文</button>
+    <button class="ctrl-btn" id="rbShowParsed" onclick="showParsed()" style="display:none">📑 解析</button>
     <button class="ctrl-btn active" id="rbShowTrans" onclick="showTranslation()" style="display:none">🌐 译文</button>
     <button class="btn-emerald" id="rbSummarize" onclick="doSummarize()">🤖 总结</button>
     <button class="btn-outline" id="rbReconvert" onclick="showReconvert()" style="display:none">🔄 解析</button>
@@ -2346,7 +2347,7 @@ const TabManager = {
 
 let articles = [];
 let currentArticle = null;
-let currentRawMd = '', translatedMd = '', summaryText = '';
+let currentRawMd = '', translatedMd = '', parsedMd = '', summaryText = '';
 let currentView = 'original';
 let isEditing = false, isTranslating = false, isSummarizing = false;
 let markdownEditor = null, notesTimer = null;
@@ -4986,6 +4987,7 @@ async function initArticleTab(tabId, tabData) {
   if (tabData.currentRawMd && (!article.translated || tabData.translationChecked)) {
     currentRawMd = tabData.currentRawMd;
     translatedMd = tabData.translatedMd || '';
+    parsedMd = tabData.parsedMd || '';
     summaryText = tabData.summaryText || '';
     currentView = tabData.currentView || 'original';
     document.getElementById('readerTitle').textContent = article.title;
@@ -5011,12 +5013,19 @@ async function initArticleTab(tabId, tabData) {
       fixPreviewImages(mdContent, article.id);
     } else if (translatedMd && currentView === 'translated' && article.translated) {
       document.getElementById('rbShowOrig').style.display = '';
+      document.getElementById('rbShowParsed').style.display = parsedMd ? '' : 'none';
       document.getElementById('rbShowTrans').style.display = '';
-      document.getElementById('rbShowOrig').classList.remove('active');
-      document.getElementById('rbShowTrans').classList.add('active');
+      _setReaderViewButtons('rbShowTrans');
       renderReaderMarkdown(translatedMd, currentArticle, false);
+    } else if (parsedMd && currentView === 'parsed') {
+      document.getElementById('rbShowParsed').style.display = '';
+      document.getElementById('rbShowOrig').style.display = '';
+      document.getElementById('rbShowTrans').style.display = translatedMd ? '' : 'none';
+      _setReaderViewButtons('rbShowParsed');
+      renderReaderMarkdown(parsedMd, currentArticle, false);
     } else {
       document.getElementById('rbShowOrig').style.display = 'none';
+      document.getElementById('rbShowParsed').style.display = parsedMd ? '' : 'none';
       document.getElementById('rbShowTrans').style.display = 'none';
       renderReaderMarkdown(currentRawMd, currentArticle, true);
     }
@@ -5028,7 +5037,7 @@ async function initArticleTab(tabId, tabData) {
   }
 
   // Reset
-  currentRawMd = ''; translatedMd = ''; summaryText = '';
+  currentRawMd = ''; translatedMd = ''; parsedMd = ''; summaryText = '';
   currentView = 'original'; isEditing = false;
   if (markdownEditor) { markdownEditor.destroy(); markdownEditor = null; }
   document.getElementById('md-content').style.display = 'none';
@@ -5037,6 +5046,7 @@ async function initArticleTab(tabId, tabData) {
   document.getElementById('md-loading').style.display = 'block';
   document.getElementById('md-error').style.display = 'none';
   document.getElementById('rbShowOrig').style.display = 'none';
+  document.getElementById('rbShowParsed').style.display = 'none';
   document.getElementById('rbShowTrans').style.display = 'none';
   document.getElementById('rbReconvert').style.display = 'none';
   document.getElementById('rbCalibrate').style.display = 'none';
@@ -5122,6 +5132,40 @@ async function initArticleTab(tabId, tabData) {
     }
   } else {
     tabData.translationChecked = true;
+  }
+
+  // Workspace derivations: adjacent .parsed.md / .zh.md
+  const wsDeriv = await fetchArticleDerivations(article.id);
+  if (!isCurrentTab()) return;
+  const parsedMeta = wsDeriv?.derivations?.parsed_md;
+  const transMeta = wsDeriv?.derivations?.translated_md;
+  const loadedParsed = await loadDerivationMarkdown(article, parsedMeta, `${article.id}.parsed.md`);
+  if (loadedParsed) {
+    tabData.parsedMd = loadedParsed;
+    parsedMd = loadedParsed;
+    document.getElementById('rbShowParsed').style.display = '';
+  }
+  if (!translatedMd && transMeta) {
+    const loadedWsTrans = await loadDerivationMarkdown(article, transMeta, `${article.id}.zh.md`);
+    if (loadedWsTrans) {
+      tabData.translatedMd = loadedWsTrans;
+      translatedMd = loadedWsTrans;
+      article.translated = true;
+      document.getElementById('rbShowOrig').style.display = '';
+      document.getElementById('rbShowTrans').style.display = '';
+    }
+  }
+  if (!isCurrentTab()) return;
+  if (parsedMd && !translatedMd) {
+    currentView = 'parsed';
+    _setReaderViewButtons('rbShowParsed');
+    renderReaderMarkdown(parsedMd, currentArticle, false);
+  } else if (translatedMd) {
+    currentView = 'translated';
+    _setReaderViewButtons('rbShowTrans');
+    renderReaderMarkdown(translatedMd, currentArticle, false);
+  } else if (currentRawMd) {
+    _setReaderViewButtons('rbShowOrig');
   }
 
   if (!isCurrentTab()) return;
@@ -6119,19 +6163,57 @@ async function submitTranslation() {
     updateTranslationUi(articleId, {status:'error', message:e.message});
   }
 }
+function _setReaderViewButtons(active) {
+  ['rbShowOrig', 'rbShowParsed', 'rbShowTrans'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.toggle('active', id === active);
+  });
+}
+
+async function fetchArticleDerivations(articleId) {
+  try {
+    const r = await fetch(`/api/workspace/articles/${encodeURIComponent(articleId)}/derivations`);
+    if (!r.ok) return null;
+    return await r.json();
+  } catch (_) {
+    return null;
+  }
+}
+
+async function loadDerivationMarkdown(article, derivMeta, fallbackName) {
+  const urls = [];
+  if (derivMeta && derivMeta.url) urls.push(derivMeta.url + '?t=' + Date.now());
+  if (fallbackName) urls.push(`articles/${article.id}/${fallbackName}?t=${Date.now()}`);
+  for (const url of urls) {
+    try {
+      const resp = await fetch(url);
+      if (resp.ok) return await resp.text();
+    } catch (_) { /* try next */ }
+  }
+  return '';
+}
+
 function showOriginal() {
   if (!currentArticle) return;
-  currentView='original';
-  document.getElementById('rbShowOrig').classList.add('active');
-  document.getElementById('rbShowTrans').classList.remove('active');
+  currentView = 'original';
+  _setReaderViewButtons('rbShowOrig');
   if (markdownEditor) markdownEditor.setValue(currentRawMd);
   else renderReaderMarkdown(currentRawMd, currentArticle, false);
 }
+
+function showParsed() {
+  if (!currentArticle || !parsedMd) return;
+  currentView = 'parsed';
+  _setReaderViewButtons('rbShowParsed');
+  if (markdownEditor) markdownEditor.setValue(parsedMd);
+  else renderReaderMarkdown(parsedMd, currentArticle, false);
+}
+
 function showTranslation() {
-  if (!currentArticle||!translatedMd) return;
-  currentView='translated';
-  document.getElementById('rbShowTrans').classList.add('active');
-  document.getElementById('rbShowOrig').classList.remove('active');
+  if (!currentArticle || !translatedMd) return;
+  currentView = 'translated';
+  _setReaderViewButtons('rbShowTrans');
   if (markdownEditor) markdownEditor.setValue(translatedMd);
   else renderReaderMarkdown(translatedMd, currentArticle, false);
 }

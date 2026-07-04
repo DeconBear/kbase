@@ -235,6 +235,34 @@ def publish_translation_derivation(
     return {"sourceDocId": source_doc["id"], "translatedDocId": deriv_doc["id"], "path": target_rel}
 
 
+def lookup_article_derivations(ws: Workspace, article_id: str) -> dict[str, Any] | None:
+    prefix = f"articles/{article_id}/"
+    pdf_doc: dict[str, Any] | None = None
+    for doc in ws.list_documents(kind="pdf"):
+        path = str(doc.get("path") or "").replace("\\", "/")
+        if path.startswith(prefix):
+            pdf_doc = doc
+            break
+    if pdf_doc is None:
+        return None
+    derivations = pdf_doc.get("derivations") or {}
+    out: dict[str, Any] = {}
+    for key, meta in derivations.items():
+        if not isinstance(meta, dict):
+            continue
+        rel = str(meta.get("path") or "").replace("\\", "/")
+        out[key] = {
+            **meta,
+            "url": f"/{rel}" if rel else None,
+        }
+    return {
+        "articleId": article_id,
+        "docId": pdf_doc.get("id"),
+        "sourcePath": pdf_doc.get("path"),
+        "derivations": out,
+    }
+
+
 def sync_legacy_parse(article_id: str, parsed_md: Path, engine: str) -> dict[str, Any] | None:
     ws = get_active_workspace()
     if ws is None:

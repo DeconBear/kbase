@@ -75,6 +75,21 @@ def cmd_workspace_recent(_args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_workspace_migrate(args: argparse.Namespace) -> int:
+    from migrate_workspace import run_migration
+
+    from_root = Path(args.from_root or DATA_ROOT)
+    to_root = Path(args.to_root or from_root)
+    report = run_migration(
+        from_root,
+        to_root,
+        dry_run=args.dry_run,
+        reindex_only=args.reindex_only,
+    )
+    _emit(report, as_json=args.json)
+    return 0 if report.get("ok") else 1
+
+
 def cmd_doc_list(args: argparse.Namespace) -> int:
     ws = _resolve_workspace(args.workspace)
     docs = ws.list_documents(kind=args.kind or None, query=args.query or None)
@@ -137,6 +152,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_recent = ws_sub.add_parser("recent", help="最近打开的工作空间")
     p_recent.set_defaults(func=cmd_workspace_recent)
+
+    p_migrate = ws_sub.add_parser("migrate", help="从 legacy data/ 迁移 sidecar")
+    p_migrate.add_argument("--from", dest="from_root", default=None)
+    p_migrate.add_argument("--to", dest="to_root", default=None)
+    p_migrate.add_argument("--dry-run", action="store_true")
+    p_migrate.add_argument("--reindex-only", action="store_true")
+    p_migrate.set_defaults(func=cmd_workspace_migrate)
 
     doc = sub.add_parser("doc", help="文档操作")
     doc_sub = doc.add_subparsers(dest="doc_cmd", required=True)

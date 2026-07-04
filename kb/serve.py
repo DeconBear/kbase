@@ -856,6 +856,9 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_workspace_info()
             elif path == "/api/workspace/recent":
                 self._json({"workspaces": load_recent_workspaces()})
+            elif path.startswith("/api/workspace/articles/") and path.endswith("/derivations"):
+                aid = path.split("/api/workspace/articles/", 1)[1].rsplit("/derivations", 1)[0].strip("/")
+                self.handle_workspace_article_derivations(aid)
             elif path == "/api/workspace/documents":
                 self.handle_workspace_documents_get()
             elif path.startswith("/api/workspace/documents/"):
@@ -2113,6 +2116,22 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             self._error(404, "document not found")
             return
         self._json({"document": doc})
+
+    def handle_workspace_article_derivations(self, article_id: str) -> None:
+        """GET /api/workspace/articles/<id>/derivations — legacy article bridge."""
+        try:
+            ws = require_active_workspace()
+            aid = validate_article_id(article_id)
+        except (RuntimeError, ValueError) as exc:
+            self._error(400, str(exc))
+            return
+        from derivations import lookup_article_derivations
+
+        result = lookup_article_derivations(ws, aid)
+        if not result:
+            self._json({"articleId": aid, "derivations": {}, "docId": None})
+            return
+        self._json(result)
 
     def handle_skills_install(self) -> None:
         """POST /api/skills/install — install tools + skill file to target directory."""
