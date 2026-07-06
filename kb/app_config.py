@@ -48,10 +48,17 @@ def save_recent_workspaces(items: list[dict[str, Any]]) -> None:
     _atomic_write_json(RECENT_WORKSPACES_FILE, {"workspaces": items})
 
 
+def _workspace_path_key(path: str | Path) -> str:
+    import os
+
+    return os.path.normcase(str(Path(path).resolve()))
+
+
 def touch_recent_workspace(path: str | Path, *, name: str | None = None) -> None:
     root = str(Path(path).resolve())
+    key = _workspace_path_key(root)
     items = load_recent_workspaces()
-    items = [x for x in items if x.get("path") != root]
+    items = [x for x in items if _workspace_path_key(x.get("path") or "") != key]
     entry: dict[str, Any] = {
         "path": root,
         "name": name or Path(root).name,
@@ -59,6 +66,26 @@ def touch_recent_workspace(path: str | Path, *, name: str | None = None) -> None
     }
     items.insert(0, entry)
     save_recent_workspaces(items[:20])
+
+
+def remove_recent_workspace(path: str | Path) -> bool:
+    """Remove a workspace from the recent list. Returns True if it was present."""
+    key = _workspace_path_key(path)
+    items = load_recent_workspaces()
+    filtered = [x for x in items if _workspace_path_key(x.get("path") or "") != key]
+    if len(filtered) == len(items):
+        return False
+    save_recent_workspaces(filtered)
+    return True
+
+
+def clear_last_workspace_if(path: str | Path) -> None:
+    """Clear lastWorkspace when it points at *path*."""
+    key = _workspace_path_key(path)
+    state = load_app_state()
+    if _workspace_path_key(state.get("lastWorkspace") or "") == key:
+        state.pop("lastWorkspace", None)
+        save_app_state(state)
 
 
 def load_app_state() -> dict[str, Any]:

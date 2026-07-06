@@ -172,8 +172,20 @@ def translate_article(
         if log_callback:
             log_callback(message)
 
+    from derivations import resolve_legacy_pdf
+    from workspace_paths import (
+        adjacent_parsed_md_path,
+        adjacent_zh_md_path,
+        legacy_translated_path,
+        publish_translation_markdown,
+    )
+
     art_dir = storage.ARTICLES_DIR / article_id
+    pdf_path = resolve_legacy_pdf(article_id) or art_dir / "original.pdf"
+
     md_path = art_dir / f"{article_id}_calibrated.md"
+    if not md_path.exists():
+        md_path = adjacent_parsed_md_path(art_dir, pdf_path, article_id)
     if not md_path.exists():
         md_path = art_dir / f"{article_id}.md"
     if not md_path.exists():
@@ -184,12 +196,13 @@ def translate_article(
 
     old_md_text = ""
     if mode == "update":
-        current_trans_path = art_dir / f"{article_id}_translated.md"
+        zh_path = adjacent_zh_md_path(art_dir, pdf_path, article_id)
+        current_trans_path = legacy_translated_path(art_dir, article_id)
         old_trans_path = art_dir / f"{article_id}_translated_old.md"
-        if current_trans_path.exists():
-            old_md_text = current_trans_path.read_text(encoding="utf-8")
-        elif old_trans_path.exists():
-            old_md_text = old_trans_path.read_text(encoding="utf-8")
+        for candidate in (zh_path, current_trans_path, old_trans_path):
+            if candidate.exists():
+                old_md_text = candidate.read_text(encoding="utf-8")
+                break
 
     chunks = chunk_markdown(md_text)
     total = len(chunks)
@@ -229,10 +242,12 @@ def translate_article(
         ))
 
     translated_md = "\n\n".join(translated_chunks).strip() + "\n"
-    out_path = art_dir / f"{article_id}_translated.md"
-    out_path.write_text(translated_md, encoding="utf-8")
+    out_path = publish_translation_markdown(
+        art_dir, article_id, pdf_path, translated_md, lang="zh"
+    )
     try:
         from derivations import sync_legacy_translation
+
         result = sync_legacy_translation(article_id, out_path, target_language)
         if result:
             log(f"Workspace: translation → {result.get('path')}")

@@ -22,11 +22,23 @@ def _article_dir(article_id: str) -> Path:
 
 
 def _preferred_markdown(article_id: str) -> Path | None:
+    from workspace_paths import adjacent_parsed_md_path
+
     art_dir = _article_dir(article_id)
-    for suffix in ("_calibrated.md", ".md", "_translated.md"):
-        path = art_dir / f"{article_id}{suffix}"
-        if path.exists():
-            return path
+    calibrated = art_dir / f"{article_id}_calibrated.md"
+    if calibrated.exists():
+        return calibrated
+    pdf_candidates = [p for p in art_dir.iterdir() if p.is_file() and p.suffix.lower() == ".pdf"]
+    pdf_path = pdf_candidates[0] if pdf_candidates else art_dir / "original.pdf"
+    adjacent = adjacent_parsed_md_path(art_dir, pdf_path, article_id)
+    if adjacent.exists():
+        return adjacent
+    legacy = art_dir / f"{article_id}.md"
+    if legacy.exists():
+        return legacy
+    translated = art_dir / f"{article_id}_translated.md"
+    if translated.exists():
+        return translated
     return None
 
 

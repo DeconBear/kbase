@@ -58,6 +58,9 @@ if getattr(sys, "frozen", False):
         ("kb.workspace_search", "workspace_search"),
         ("kb.legacy_bridge", "legacy_bridge"),
         ("kb.workspace_index", "workspace_index"),
+        ("kb.literature_classify", "literature_classify"),
+        ("kb.workspace_ingest", "workspace_ingest"),
+        ("kb.literature_organize", "literature_organize"),
         ("kb.cli", "cli"),
     ]
     for _fq_name, _alias in _aliases:
@@ -143,6 +146,20 @@ def main() -> None:
                 webview.windows[0].destroy()
             except Exception:
                 pass
+
+        def pick_folder(self, initial_dir: str = ""):
+            """Open a native folder picker (Windows/macOS/Linux)."""
+            try:
+                directory = initial_dir if initial_dir and os.path.isdir(initial_dir) else ""
+                result = webview.windows[0].create_file_dialog(
+                    webview.FOLDER_DIALOG,
+                    directory=directory,
+                )
+                if result:
+                    return result[0]
+            except Exception as exc:  # noqa: BLE001
+                return {"error": str(exc)}
+            return None
 
     window = webview.create_window(
         js_api=Api(),

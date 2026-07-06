@@ -224,11 +224,40 @@ select option{background:var(--surface-2);color:var(--text)}
 #library-view{display:flex;height:100vh;background:var(--bg);overflow:hidden}
 #library-view.hidden{display:none}
 #home-shell{display:flex;width:100%;height:100%;overflow:hidden}
-#global-chat-panel{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--panel-bg);transition:flex .22s ease}
-#global-chat-panel.chat-collapsed{flex:0 0 0;min-width:0;overflow:hidden;border-left:1px solid var(--border)}
-#global-chat-panel.chat-collapsed #global-chat-messages,
-#global-chat-panel.chat-collapsed #global-chat-sources,
-#global-chat-panel.chat-collapsed #global-chat-input-area{display:none}
+#library-side{position:relative;width:320px;max-width:36vw;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);display:flex;transition:width .22s ease,max-width .22s ease}
+#library-side.collapsed{width:42px;max-width:42px}
+#library-main{flex:1;min-width:480px;display:flex;flex-direction:column;overflow:hidden;background:var(--panel-bg)}
+#library-biblio-toolbar{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0;flex-wrap:wrap}
+#library-biblio-toolbar h2{font-size:14px;font-weight:700;color:var(--text-strong);margin-right:auto}
+.biblio-view-toggle{display:flex;gap:2px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:2px}
+.biblio-view-toggle button{border:0;background:transparent;color:var(--text-3);padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px}
+.biblio-view-toggle button.active{background:var(--accent-subtle);color:var(--accent-soft)}
+#library-biblio-panel{flex:1;overflow:auto;min-height:0}
+#biblio-table-wrap{overflow:auto;height:100%}
+.biblio-table{width:100%;border-collapse:collapse;font-size:12px}
+.biblio-table thead th{position:sticky;top:0;background:var(--surface-2);border-bottom:1px solid var(--border);padding:8px 10px;text-align:left;font-weight:600;color:var(--text-2);cursor:pointer;white-space:nowrap;z-index:1}
+.biblio-table tbody tr{cursor:pointer;border-bottom:1px solid var(--border)}
+.biblio-table tbody tr:hover{background:var(--surface-2)}
+.biblio-table tbody tr.selected{background:var(--accent-subtle)}
+.biblio-table td{padding:8px 10px;vertical-align:top;color:var(--text)}
+.biblio-status{display:inline-flex;gap:4px;font-size:10px;color:var(--text-3)}
+#biblio-cards-wrap{padding:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;align-content:start}
+.biblio-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);padding:14px;cursor:pointer;transition:var(--transition)}
+.biblio-card:hover{border-color:var(--accent);box-shadow:var(--shadow-sm)}
+.biblio-card.selected{border-color:var(--accent);background:var(--accent-subtle)}
+.biblio-card-title{font-size:13px;font-weight:600;color:var(--text-strong);margin-bottom:6px;line-height:1.4}
+.biblio-card-author{font-size:11px;color:var(--text-2);margin-bottom:4px}
+.biblio-card-meta{font-size:10px;color:var(--text-3);display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+.biblio-card-abstract{font-size:11px;color:var(--text-2);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+#biblio-preview-bar{flex-shrink:0;border-top:1px solid var(--border);padding:10px 14px;background:var(--surface-2);font-size:12px;color:var(--text-2);max-height:120px;overflow-y:auto;display:none}
+#biblio-preview-bar.visible{display:block}
+#library-ai-panel{width:360px;max-width:40vw;flex-shrink:0;display:flex;border-left:1px solid var(--border);background:var(--panel-bg);transition:width .22s ease,max-width .22s ease}
+#library-ai-panel.collapsed{width:42px;max-width:42px;min-width:42px}
+#library-ai-expand{width:42px;flex-shrink:0;border:0;border-right:1px solid var(--border);background:var(--surface-2);color:var(--text-2);cursor:pointer;font-size:16px}
+#library-ai-panel.collapsed #library-ai-expand{border-right:0}
+#library-ai-panel.collapsed #global-chat-panel{display:none}
+#global-chat-panel{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--panel-bg)}
+#global-chat-panel.chat-collapsed{flex:0 0 0;min-width:0;overflow:hidden}
 #home-topbar{height:54px;flex-shrink:0;padding:0 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;background:var(--topbar-bg);backdrop-filter:blur(12px)}
 .home-title{display:flex;align-items:center;gap:10px;margin-right:auto;min-width:0}
 .app-logo{width:32px;height:32px;border-radius:9px;box-shadow:var(--shadow-sm);flex-shrink:0}
@@ -258,9 +287,6 @@ select option{background:var(--surface-2);color:var(--text)}
 #global-chat-send:disabled{opacity:.4;cursor:default}
 #global-chat-status{font-size:12px;color:var(--text-3);min-width:74px}
 
-#library-side{position:relative;width:392px;max-width:44vw;flex-shrink:0;background:var(--surface);border-left:1px solid var(--border);display:flex;transition:width .22s ease,max-width .22s ease}
-#library-side.chat-collapsed{width:560px;max-width:70vw}
-#library-side.collapsed{width:42px;max-width:42px}
 #library-side-toggle{width:42px;flex-shrink:0;border:0;border-right:1px solid var(--border);background:var(--surface-2);color:var(--text-2);cursor:pointer;font-size:16px;transition:var(--transition)}
 #library-side-toggle:hover{color:var(--text-strong);background:var(--surface-3)}
 #library-side.collapsed #library-side-toggle{border-right:0}
@@ -330,7 +356,8 @@ select option{background:var(--surface-2);color:var(--text)}
 .sidebar-nav-btn.primary{background:var(--primary);color:#fff;border-color:var(--primary)}
 .sidebar-nav-btn.primary:hover{background:var(--primary-hover);border-color:var(--primary-hover);box-shadow:0 2px 8px rgba(53,115,240,.25)}
 .sidebar-nav-btn.icon-only{padding:5px 8px;font-size:14px}
-#folder-tree-body{flex:1;overflow-y:auto;padding:4px 0}
+#folder-tree-body{display:none}
+#folder-tree-actions{display:none}
 .folder-tree-item{padding:6px 12px;cursor:pointer;font-size:13px;color:var(--text-2);display:flex;align-items:center;gap:6px;transition:var(--transition);border-left:3px solid transparent;user-select:none}
 .folder-tree-item:hover{background:var(--list-hover);color:var(--text)}
 .folder-tree-item.active{border-left-color:var(--primary);background:var(--list-active);color:var(--text-strong);font-weight:500;box-shadow:inset 3px 0 0 var(--primary)}
@@ -1232,6 +1259,71 @@ body { display: flex !important; flex-direction: column !important; height: 100v
 
 <div id="library-view">
   <div id="home-shell">
+    <aside id="library-side" class="library-left">
+      <button id="library-side-toggle" onclick="toggleLibrarySide()" title="展开/收起导航">›</button>
+      <div class="library-side-content">
+        <div id="library-side-nav">
+          <button class="sidebar-nav-btn" onclick="showUpload()">📤 上传</button>
+          <button class="sidebar-nav-btn" onclick="showSettings()">⚙️ 设置</button>
+          <button class="sidebar-nav-btn" onclick="promptOrganizeLiterature()" title="自动整理文献">📚↗</button>
+        </div>
+        <div id="folder-tree-pane">
+        <div id="workspace-tree-header" style="padding:8px 12px 6px;border-bottom:1px solid var(--border);background:var(--surface-2);flex-shrink:0">
+          <button type="button" class="sidebar-nav-btn" style="width:100%;justify-content:flex-start;font-size:12px;gap:6px" onclick="toggleWorkspaceSwitcher(event)" title="切换工作空间">
+            <span>🗂️</span>
+            <span id="workspace-sidebar-name" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left">工作空间</span>
+            <span id="workspace-switcher-caret" style="font-size:10px;color:var(--text-3)">▼</span>
+          </button>
+          <div id="workspace-switcher-panel" style="display:none;padding-top:6px">
+            <div id="workspace-switcher-list" style="max-height:180px;overflow-y:auto;margin-bottom:6px"></div>
+            <button type="button" class="btn-emerald" style="width:100%;font-size:11px;margin-bottom:4px" onclick="promptCreateWorkspace()">＋ 新建工作空间</button>
+            <button type="button" class="btn-outline" style="width:100%;font-size:11px" onclick="pickAndOpenWorkspace()">打开文件夹…</button>
+          </div>
+        </div>
+        <div id="folder-tree-header">
+          <input type="text" id="searchInput" placeholder="🔍 搜索工作空间文件..." oninput="onLibrarySearchInput()" style="flex:1;min-width:0">
+        </div>
+        <div id="folder-tree-actions">
+          <button class="sidebar-action-btn" onclick="createFolderPrompt()" title="在根目录新建文件夹">
+            <span class="icon">📁</span> 新建文件夹
+          </button>
+          <button class="sidebar-action-btn" onclick="openNotesEditorFromTree()" title="新建 Markdown 笔记">
+            <span class="icon">📝</span> 新建笔记
+          </button>
+          <button class="sidebar-action-btn primary" onclick="switchToBitableView()" title="打开多维表格">
+            <span class="icon">📊</span> 多维表格
+          </button>
+          <button class="sidebar-action-btn" onclick="switchToKanbanView()" title="打开看板">
+            <span class="icon">📋</span> 看板
+          </button>
+        </div>
+        <div id="folder-tree-body"></div>
+        <div id="workspace-doc-tree" style="flex:1;overflow-y:auto;padding:4px 6px 10px"></div>
+        <div id="workspace-bookmark-tree" style="display:none;flex:1;overflow-y:auto;padding:4px 6px 10px"></div>
+        </div>
+      </div>
+    </aside>
+
+    <main id="library-main">
+      <div id="library-biblio-toolbar">
+        <h2>文献库</h2>
+        <span id="biblio-stats" class="stats" style="font-size:11px;color:var(--text-3)"></span>
+        <div class="biblio-view-toggle">
+          <button type="button" id="biblioViewTable" onclick="toggleBiblioView('table')" title="表格">≡ 表格</button>
+          <button type="button" id="biblioViewCards" onclick="toggleBiblioView('cards')" title="卡片">⊞ 卡片</button>
+        </div>
+        <button type="button" class="btn-outline" style="font-size:11px" onclick="promptOrganizeLiterature()" title="整理散落 PDF">📚 整理文献</button>
+        <button type="button" class="btn-outline" style="font-size:11px" onclick="biblioBatchExtract()" title="批量提取元数据">批量提取</button>
+      </div>
+      <div id="library-biblio-panel">
+        <div id="biblio-table-wrap"></div>
+        <div id="biblio-cards-wrap" style="display:none"></div>
+      </div>
+      <div id="biblio-preview-bar"></div>
+    </main>
+
+    <aside id="library-ai-panel" class="collapsed">
+      <button type="button" id="library-ai-expand" onclick="toggleChatPanel()" title="展开全库 AI">💬</button>
     <main id="global-chat-panel">
       <div id="home-topbar">
         <div class="home-title">
@@ -1245,11 +1337,9 @@ body { display: flex !important; flex-direction: column !important; height: 100v
         <button class="icon-btn" onclick="newLibrarySession()" title="新会话">＋</button>
         <button class="icon-btn" onclick="clearLibrarySession()" title="清空当前会话">⌫</button>
         <button class="icon-btn" onclick="deleteLibrarySession()" title="删除当前会话">🗑</button>
-        <button class="ctrl-btn" onclick="switchToNotesView()">📝 笔记</button>
-        <button class="ctrl-btn" onclick="switchToBitableView()">📊 多维表格</button>
         <button class="btn-emerald" onclick="showUpload()">📤 上传资料</button>
         <button class="ctrl-btn" onclick="showSettings()">⚙️ 设置</button>
-        <button class="icon-btn" id="btnCollapseChat" onclick="toggleChatPanel()" title="收起/展开 AI 聊天">◀</button>
+        <button class="icon-btn" id="btnCollapseChat" onclick="toggleChatPanel()" title="收起/展开 AI 聊天">▶</button>
       </div>
       <div id="global-chat-messages"></div>
       <div id="global-chat-sources"></div>
@@ -1259,40 +1349,8 @@ body { display: flex !important; flex-direction: column !important; height: 100v
         <button id="global-chat-send" onclick="sendLibraryChat()">➤</button>
       </div>
     </main>
-
-    <aside id="library-side">
-      <button id="library-side-toggle" onclick="toggleLibrarySide()" title="展开/收起资料列表">›</button>
-      <div class="library-side-content">
-        <div id="library-side-nav">
-          <button class="sidebar-nav-btn" onclick="switchToNotesView()">📝 笔记</button>
-          <button class="sidebar-nav-btn primary" onclick="switchToBitableView()">📊 多维表格</button>
-          <button class="sidebar-nav-btn" onclick="showUpload()">📤 上传</button>
-          <button class="sidebar-nav-btn" onclick="showSettings()">⚙️ 设置</button>
-          <button class="sidebar-nav-btn icon-only" id="btnExpandChatSide" onclick="toggleChatPanel()" title="展开/收起 AI 聊天">💬</button>
-        </div>
-        <div id="folder-tree-pane">
-        <div id="folder-tree-header">
-          <input type="text" id="searchInput" placeholder="🔍 搜索文献..." oninput="onLibrarySearchInput()" style="flex:1;min-width:0">
-        </div>
-        <div id="library-source-tabs" style="display:flex;gap:4px;padding:0 8px 6px;flex-wrap:wrap">
-          <button type="button" class="sidebar-nav-btn active" id="libSrcArticles" onclick="setLibrarySource('articles')">📚 文献</button>
-          <button type="button" class="sidebar-nav-btn" id="libSrcWorkspace" onclick="setLibrarySource('workspace')">🗂️ 工作空间</button>
-          <button type="button" class="sidebar-nav-btn" id="libSrcBookmarks" onclick="setLibrarySource('bookmarks')">🔗 书签</button>
-        </div>
-        <div id="folder-tree-actions">
-          <button class="sidebar-action-btn" onclick="createFolderPrompt()" title="在根目录新建文件夹">
-            <span class="icon">📁</span> 新建文件夹
-          </button>
-          <button class="sidebar-action-btn primary" onclick="switchToBitableView()" title="打开多维表格工作区">
-            <span class="icon">📊</span> 多维表格
-          </button>
-        </div>
-        <div id="folder-tree-body"></div>
-        <div id="workspace-doc-tree" style="display:none;flex:1;overflow-y:auto;padding:4px 6px 10px"></div>
-        <div id="workspace-bookmark-tree" style="display:none;flex:1;overflow-y:auto;padding:4px 6px 10px"></div>
-        </div>
-      </div>
     </aside>
+
     <div id="library-context-menu">
       <div class="ctx-title" id="ctxSelectionLabel">1 项</div>
       <button onclick="exportContextSelection('bibtex')">导出 BibTeX</button>
@@ -1374,6 +1432,10 @@ body { display: flex !important; flex-direction: column !important; height: 100v
           <label style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:8px 12px;background:var(--surface-2);border-radius:var(--radius-sm);cursor:pointer;font-size:12px;color:var(--text-2)">
             <input type="checkbox" id="setProtectPdf" onchange="onSettingChange()" style="accent-color:var(--accent)">
             <span>🛡️ 解析时保护 PDF 可读（强制 CPU，不占 GPU 显存）</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:8px 12px;background:var(--surface-2);border-radius:var(--radius-sm);cursor:pointer;font-size:12px;color:var(--text-2)">
+            <input type="checkbox" id="setIngestOnOpen" onchange="onWorkspaceIngestSettingChange()" style="accent-color:var(--accent)">
+            <span>打开工作空间后自动识别文献并提取元数据</span>
           </label>
           <label style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:8px 12px;background:var(--surface-2);border-radius:var(--radius-sm);cursor:pointer;font-size:12px;color:var(--text-2)">
             <input type="checkbox" id="setAutoExtractInfo" onchange="onSettingChange()" style="accent-color:var(--accent)">
@@ -1677,7 +1739,9 @@ body { display: flex !important; flex-direction: column !important; height: 100v
           <div id="workspaceInfo" style="font-size:12px;color:var(--text-2);line-height:1.6"></div>
           <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
             <input type="text" id="workspacePathInput" placeholder="工作空间绝对路径，如 D:\research" style="flex:1;min-width:200px;font-size:12px">
+            <button class="btn-outline" onclick="browseWorkspacePath()">浏览</button>
             <button class="btn-emerald" onclick="openWorkspacePath()">打开</button>
+            <button class="btn-outline" onclick="promptCreateWorkspaceFromSettings()">新建</button>
             <button class="btn-outline" onclick="rescanWorkspace()">重新扫描</button>
           </div>
           <div id="workspaceRecentList" style="margin-top:10px;font-size:12px;color:var(--text-2)"></div>
@@ -1937,8 +2001,7 @@ body { display: flex !important; flex-direction: column !important; height: 100v
 <div id="notes-view">
   <div id="notes-topbar" class="sy-topbar">
     <div id="notes-topbar-left">
-      <button class="sy-btn-ghost" onclick="backFromNotesView()">文库</button>
-      <button class="sy-btn-ghost" onclick="switchToBitableView()">多维表格</button>
+      <button class="sy-btn-ghost" onclick="backFromNotesView()">返回</button>
       <span id="notes-breadcrumb"></span>
       <span id="notes-save-indicator"></span>
     </div>
@@ -2008,11 +2071,10 @@ body { display: flex !important; flex-direction: column !important; height: 100v
 <div id="bitable-view">
   <div id="bitable-topbar" class="sy-topbar">
     <div id="bitable-topbar-left">
-      <button class="sy-btn-ghost" onclick="backFromBitableView()">文库</button>
-      <span style="font-weight:500;color:var(--text-strong);font-size:13px">多维表格</span>
+      <button class="sy-btn-ghost" onclick="backFromBitableView()">返回</button>
+      <span id="bitable-page-title" style="font-weight:500;color:var(--text-strong);font-size:13px">多维表格</span>
     </div>
     <div id="bitable-topbar-right">
-      <button class="sy-btn-ghost" onclick="switchToNotesView()">笔记</button>
       <button class="sy-btn-primary" onclick="bitableCreateDatabase()">新建表格</button>
     </div>
   </div>
@@ -2192,6 +2254,9 @@ const TabManager = {
         if (oldTab.id !== 'home') {
             oldTab.data.chatHtml = document.getElementById('chat-messages')?.innerHTML || '';
         }
+        if (oldTab.type === 'note' && oldTab.data?.noteId && noteSaveDirty && notesEditor) {
+            autoSaveNote().catch(() => {});
+        }
         if (oldTab.type === 'article') {
             // Only cache content that actually loaded. If the user
             // switched away while the markdown was still fetching,
@@ -2311,7 +2376,12 @@ const TabManager = {
     } else if (tab.type === 'note' || tab.type === 'md') {
        const nvB = document.getElementById('notes-view');
        if (nvB) nvB.classList.add('active');
-       // init notes view
+       const noteId = tab.data?.noteId;
+       if (noteId) {
+         const open = () => openNoteInTab(noteId);
+         if (!notesIndex.length) loadNotebooksAndNotes().then(open).catch(open);
+         else open();
+       }
     } else if (tab.type === 'url' || tab.type === 'pdf_direct') {
        const iframe = document.getElementById('iframe-' + id);
        if (iframe) iframe.classList.add('active');
@@ -2326,6 +2396,14 @@ const TabManager = {
          lv.classList.add('hidden');
          lv.style.display = 'none';
        }
+    } else if (tab.type === 'bitable' || tab.type === 'kanban') {
+       stopGpuMonitor();
+       if (markdownEditor) { markdownEditor.destroy(); markdownEditor = null; }
+       bitablePageMode = tab.type === 'kanban' ? 'kanban' : 'table';
+       _applyBitablePageChrome();
+       const bt = document.getElementById('bitable-view');
+       if (bt) bt.classList.add('active');
+       loadBitableList(tab.data?.dbId);
     }
     if (typeof applyColumnVisibility === 'function') applyColumnVisibility();
   },
@@ -2340,6 +2418,14 @@ const TabManager = {
         Object.keys(tab.data.translationPollTimers || {}).forEach(tid => clearTimeout(tab.data.translationPollTimers[tid]));
         if (tab.data.convPollTimer) clearInterval(tab.data.convPollTimer);
         removeArticlePdf(tab.data.article?.id);
+    }
+    if (tab.type === 'note' && tab.data?.noteId) {
+      _removeTab(tab.data.noteId);
+      if (typeof renderNoteTabsBar === 'function') renderNoteTabsBar();
+    }
+    if (tab.type === 'bitable' || tab.type === 'kanban') {
+      bitableCurrentId = null;
+      bitableRenderCache = null;
     }
     
     this.tabs.splice(idx, 1);
@@ -3407,6 +3493,45 @@ function browseDataRoot() {
   el.select();
 }
 
+async function pickFolderDialog(title, defaultDir) {
+  const fallbackDir = (defaultDir || '').trim();
+  if (window.pywebview?.api?.pick_folder) {
+    try {
+      const picked = await window.pywebview.api.pick_folder(fallbackDir);
+      if (picked && typeof picked === 'object' && picked.error) {
+        throw new Error(picked.error);
+      }
+      if (picked) return String(picked);
+      return null;
+    } catch (e) {
+      toast('打开文件夹选择器失败：' + (e.message || e), 'error');
+      return null;
+    }
+  }
+  const manual = await uiPrompt(title || '请输入文件夹绝对路径', fallbackDir, '选择文件夹');
+  return manual && manual.trim() ? manual.trim() : null;
+}
+
+async function browseWorkspacePath() {
+  const input = document.getElementById('workspacePathInput');
+  const picked = await pickFolderDialog('选择工作空间文件夹', input?.value?.trim() || workspaceMeta?.root || '');
+  if (picked && input) input.value = picked;
+}
+
+async function pickAndOpenWorkspace() {
+  const picked = await pickFolderDialog('选择工作空间文件夹', workspaceMeta?.root || '');
+  if (!picked) return;
+  workspaceSwitcherOpen = false;
+  const panel = document.getElementById('workspace-switcher-panel');
+  if (panel) panel.style.display = 'none';
+  const caret = document.getElementById('workspace-switcher-caret');
+  if (caret) caret.textContent = '▼';
+  const input = document.getElementById('workspacePathInput');
+  if (input) input.value = picked;
+  await switchWorkspace(picked);
+  await loadWorkspaceInfo();
+}
+
 function showDataRootMsg(msg, colorClass) {
   const el = document.getElementById('dataRootMsg');
   el.textContent = msg;
@@ -3437,7 +3562,7 @@ async function loadWorkspaceInfo() {
     infoEl.style.whiteSpace = 'pre-wrap';
     if (pathInput) pathInput.value = ws.root || '';
     await loadRecentWorkspaces();
-    if (librarySource === 'workspace') await loadWorkspaceDocuments();
+    await loadWorkspaceTree();
   } catch (e) {
     statusEl.textContent = '（获取失败）';
     infoEl.textContent = '';
@@ -3450,10 +3575,13 @@ async function loadRecentWorkspaces() {
   try {
     const r = await fetch('/api/workspace/recent');
     const d = await r.json();
-    const items = (d.workspaces || []).slice(0, 5);
+    const items = (d.workspaces || []).slice(0, 8);
     if (!items.length) { el.textContent = ''; return; }
     el.innerHTML = '<div style="font-size:11px;color:var(--text-3);margin-bottom:4px">最近打开</div>' +
-      items.map(w => `<button type="button" class="btn-outline ws-recent-btn" data-ws-path="${esc(w.path)}" style="display:block;width:100%;text-align:left;margin-bottom:4px;font-size:11px">${esc(w.name || w.path)}</button>`).join('');
+      items.map(w => `<div style="display:flex;gap:4px;align-items:center;margin-bottom:4px">
+        <button type="button" class="btn-outline ws-recent-btn" data-ws-path="${esc(w.path)}" style="flex:1;text-align:left;font-size:11px;min-width:0">${esc(w.name || w.path)}</button>
+        <button type="button" class="icon-btn" title="移除" style="flex-shrink:0;font-size:12px;padding:2px 6px" onclick="deleteWorkspace(${JSON.stringify(w.path)})">✕</button>
+      </div>`).join('');
     el.querySelectorAll('.ws-recent-btn').forEach(btn => {
       btn.addEventListener('click', () => openWorkspacePath(btn.dataset.wsPath));
     });
@@ -3466,56 +3594,457 @@ async function openWorkspacePath(pathOverride) {
   const input = document.getElementById('workspacePathInput');
   const path = (pathOverride || input?.value || '').trim();
   if (!path) { showDataRootMsg('请输入工作空间路径', 'rose'); return; }
+  await switchWorkspace(path);
+  await loadWorkspaceInfo();
+}
+
+let unifiedFilter = 'all';
+let workspaceDocuments = [];
+let workspaceBookmarks = [];
+let workspaceDocFilter = 'all';
+let workspaceTree = null;
+let workspaceMeta = null;
+let expandedWorkspaceDirs = new Set();
+
+(function loadWorkspaceExpandedState() {
+  try {
+    const raw = localStorage.getItem('kb-expanded-workspace-dirs');
+    if (raw) expandedWorkspaceDirs = new Set(JSON.parse(raw));
+  } catch (_) {}
+})();
+
+function _saveWorkspaceExpandedState() {
+  try {
+    localStorage.setItem('kb-expanded-workspace-dirs', JSON.stringify([...expandedWorkspaceDirs]));
+  } catch (_) {}
+}
+
+function updateWorkspaceSidebarHeader() {
+  const el = document.getElementById('workspace-sidebar-name');
+  if (!el) return;
+  if (!workspaceMeta) {
+    el.textContent = '未打开工作空间';
+    el.title = '点击选择工作空间目录';
+    return;
+  }
+  const label = workspaceMeta.name || workspaceMeta.root || '工作空间';
+  el.textContent = label;
+  el.title = workspaceMeta.root || label;
+}
+
+function showWorkspaceSettings() {
+  showSettings();
+  showSettingsTab('paneStorage');
+}
+
+let workspaceSwitcherOpen = false;
+
+function toggleWorkspaceSwitcher(ev) {
+  if (ev) ev.stopPropagation();
+  workspaceSwitcherOpen = !workspaceSwitcherOpen;
+  const panel = document.getElementById('workspace-switcher-panel');
+  const caret = document.getElementById('workspace-switcher-caret');
+  if (panel) panel.style.display = workspaceSwitcherOpen ? 'block' : 'none';
+  if (caret) caret.textContent = workspaceSwitcherOpen ? '▲' : '▼';
+  if (workspaceSwitcherOpen) renderWorkspaceSwitcherList();
+}
+
+async function renderWorkspaceSwitcherList() {
+  const el = document.getElementById('workspace-switcher-list');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/workspace/recent');
+    const d = await r.json();
+    const items = d.workspaces || [];
+    const activeRoot = (workspaceMeta?.root || '').replace(/\\/g, '/');
+    if (!items.length) {
+      el.innerHTML = '<div style="font-size:11px;color:var(--text-3);padding:4px 2px">暂无最近工作空间</div>';
+      return;
+    }
+    el.innerHTML = items.map(w => {
+      const active = String(w.path || '').replace(/\\/g, '/') === activeRoot;
+      return `<div style="display:flex;gap:4px;align-items:center;margin-bottom:4px">
+        <button type="button" class="sidebar-nav-btn${active ? ' active' : ''}" style="flex:1;justify-content:flex-start;font-size:11px;min-width:0" onclick='switchWorkspace(${JSON.stringify(w.path)})'>
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(w.name || w.path)}</span>
+        </button>
+        <button type="button" class="icon-btn" title="从列表移除" style="flex-shrink:0;font-size:12px;padding:2px 6px" onclick="event.stopPropagation(); deleteWorkspace(${JSON.stringify(w.path)})">✕</button>
+      </div>`;
+    }).join('');
+  } catch (_) {
+    el.innerHTML = '<div style="font-size:11px;color:var(--rose);padding:4px 2px">加载失败</div>';
+  }
+}
+
+async function switchWorkspace(path) {
+  if (!path) return;
   try {
     const r = await fetch('/api/workspace/open', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({path, scan: true}),
+      body: JSON.stringify({path, scan: true, bindData: true}),
     });
     const d = await r.json();
-    if (!d.ok) throw new Error(d.message || '打开失败');
-    showDataRootMsg('工作空间已打开', 'emerald');
-    await loadWorkspaceInfo();
-    await loadWorkspaceDocuments();
-    setLibrarySource('workspace');
+    if (!d.ok) throw new Error(d.message || '切换失败');
+    if (d.articles) articles = d.articles;
+    workspaceSwitcherOpen = false;
+    const panel = document.getElementById('workspace-switcher-panel');
+    if (panel) panel.style.display = 'none';
+    const caret = document.getElementById('workspace-switcher-caret');
+    if (caret) caret.textContent = '▼';
+    expandedWorkspaceDirs = new Set(['__root__']);
+    await loadWorkspaceTree();
+    await loadNotebooksAndNotes();
+    biblioFolderFilter = null;
+    startIngestPolling();
+    if (typeof renderLibrary === 'function') renderLibrary();
+    showDataRootMsg('已切换工作空间', 'emerald');
   } catch (e) {
-    showDataRootMsg('打开工作空间失败: ' + e.message, 'rose');
+    showDataRootMsg('切换失败: ' + e.message, 'rose');
   }
 }
 
-let librarySource = 'articles';
-let workspaceDocuments = [];
-let workspaceBookmarks = [];
-let workspaceDocFilter = 'all';
-
-function setLibrarySource(source) {
-  librarySource = source;
-  try { localStorage.setItem('kbaseLibrarySource', source); } catch (_) {}
-  ['libSrcArticles', 'libSrcWorkspace', 'libSrcBookmarks'].forEach(id => {
-    document.getElementById(id)?.classList.toggle('active', id === 'libSrcArticles' && source === 'articles' || id === 'libSrcWorkspace' && source === 'workspace' || id === 'libSrcBookmarks' && source === 'bookmarks');
-  });
-  const folderBody = document.getElementById('folder-tree-body');
-  const wsTree = document.getElementById('workspace-doc-tree');
-  const bmTree = document.getElementById('workspace-bookmark-tree');
-  const folderActions = document.getElementById('folder-tree-actions');
-  if (folderBody) folderBody.style.display = source === 'articles' ? '' : 'none';
-  if (wsTree) wsTree.style.display = source === 'workspace' ? 'block' : 'none';
-  if (bmTree) bmTree.style.display = source === 'bookmarks' ? 'block' : 'none';
-  if (folderActions) folderActions.style.display = source === 'articles' ? '' : 'none';
-  const search = document.getElementById('searchInput');
-  if (search) {
-    const placeholders = {articles: '🔍 搜索文献...', workspace: '🔍 搜索工作空间文档...', bookmarks: '🔍 搜索书签...'};
-    search.placeholder = placeholders[source] || placeholders.articles;
+async function deleteWorkspace(path) {
+  if (!path) return;
+  const name = String(path).split(/[\\/]/).pop() || path;
+  if (!(await uiConfirm(
+    `确定从工作空间列表移除「${name}」？\n\n仅取消关联，不会删除磁盘上的文件夹。`,
+    '移除工作空间'
+  ))) return;
+  try {
+    const r = await fetch('/api/workspace/delete', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({path, deleteFiles: false}),
+    });
+    const d = await r.json();
+    if (!r.ok || d.ok === false) throw new Error(d.error || d.message || '移除失败');
+    if (d.articles) articles = d.articles;
+    if (d.workspace) workspaceMeta = d.workspace;
+    expandedWorkspaceDirs = new Set(['__root__']);
+    await loadWorkspaceTree();
+    await loadNotebooksAndNotes();
+    await loadWorkspaceInfo();
+    if (workspaceSwitcherOpen) renderWorkspaceSwitcherList();
+    const msg = d.notice || '已从工作空间列表移除';
+    if (d.switchedTo) toast(msg + '，已切换到其他工作空间', 'success');
+    else toast(msg, 'success');
+  } catch (e) {
+    toast('移除失败: ' + e.message, 'error');
   }
-  if (source === 'workspace') loadWorkspaceDocuments();
-  else if (source === 'bookmarks') loadWorkspaceBookmarks();
-  else filterArticles();
+}
+
+async function promptCreateWorkspace(parentDefault) {
+  const name = await uiPrompt('请输入工作空间名称', '', '新建工作空间');
+  if (name === null || !name.trim()) return;
+  let parent = parentDefault;
+  if (!parent) {
+    const guess = workspaceMeta?.root
+      ? String(workspaceMeta.root).replace(/[\\/][^\\/]+$/, '')
+      : '';
+    parent = await pickFolderDialog('选择工作空间所在父目录', guess);
+  }
+  if (!parent || !String(parent).trim()) return;
+  try {
+    const r = await fetch('/api/workspace/create', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({parent: String(parent).trim(), name: name.trim()}),
+    });
+    const d = await r.json();
+    if (!r.ok || d.ok === false) throw new Error(d.error || d.message || '创建失败');
+    if (d.articles) articles = d.articles;
+    if (d.workspace) workspaceMeta = d.workspace;
+    workspaceSwitcherOpen = false;
+    const panel = document.getElementById('workspace-switcher-panel');
+    if (panel) panel.style.display = 'none';
+    expandedWorkspaceDirs = new Set(['__root__']);
+    await loadWorkspaceTree();
+    await loadNotebooksAndNotes();
+    await loadWorkspaceInfo();
+    showDataRootMsg('工作空间已创建并打开', 'emerald');
+  } catch (e) {
+    showDataRootMsg('创建失败: ' + e.message, 'rose');
+  }
+}
+
+function promptCreateWorkspaceFromSettings() {
+  const input = document.getElementById('workspacePathInput');
+  const parent = input?.value?.trim() || '';
+  promptCreateWorkspace(parent || undefined);
+}
+
+const UNIFIED_FILTER_IDS = {};
+
+function setUnifiedFilter(filter) {
+  unifiedFilter = 'all';
+  const wsTree = document.getElementById('workspace-doc-tree');
+  if (wsTree) wsTree.style.display = 'block';
+  const bmTree = document.getElementById('workspace-bookmark-tree');
+  if (bmTree) bmTree.style.display = 'none';
+  const search = document.getElementById('searchInput');
+  if (search) search.placeholder = '🔍 搜索工作空间文件...';
+  loadWorkspaceTree();
+  renderBiblioPanel();
+  updateBiblioMainVisibility();
+}
+
+function updateBiblioMainVisibility() {
+  const main = document.getElementById('library-main');
+  if (!main) return;
+  const show = unifiedFilter === 'all' || unifiedFilter === 'pdf';
+  main.style.display = show ? 'flex' : 'none';
+}
+
+/** @deprecated use setUnifiedFilter */
+function setLibrarySource(source) {
+  const map = {articles: 'all', workspace: 'all', bookmarks: 'bookmarks'};
+  setUnifiedFilter(map[source] || source);
 }
 
 function onLibrarySearchInput() {
-  if (librarySource === 'workspace') renderWorkspaceDocTree();
-  else if (librarySource === 'bookmarks') renderWorkspaceBookmarkTree();
-  else filterArticles();
+  renderWorkspaceDocTree();
+  renderBiblioPanel();
+}
+
+let biblioViewMode = localStorage.getItem('kbaseBiblioView') || 'table';
+let biblioSortCol = 'title';
+let biblioSortDir = 1;
+let biblioSelectedId = null;
+let biblioFolderFilter = null;
+let libraryStatusCache = null;
+let ingestPollTimer = null;
+
+function toggleBiblioView(mode) {
+  biblioViewMode = mode === 'cards' ? 'cards' : 'table';
+  try { localStorage.setItem('kbaseBiblioView', biblioViewMode); } catch (_) {}
+  document.getElementById('biblioViewTable')?.classList.toggle('active', biblioViewMode === 'table');
+  document.getElementById('biblioViewCards')?.classList.toggle('active', biblioViewMode === 'cards');
+  renderBiblioPanel();
+}
+
+function _biblioAuthors(a) {
+  if (a.authors && a.authors.length) return a.authors.join(', ');
+  return a.author || '';
+}
+
+function _biblioStatusHtml(a) {
+  const parts = [];
+  if (a.md_available) parts.push('解析✓');
+  if (a.translated) parts.push('翻译✓');
+  if (a.metadata_extracted) parts.push('元数据✓');
+  return parts.length ? parts.join(' ') : '—';
+}
+
+function getFilteredBiblioArticles() {
+  const q = (document.getElementById('searchInput')?.value || '').trim().toLowerCase();
+  let list = articles.slice();
+  if (biblioFolderFilter) list = list.filter(a => a.id === biblioFolderFilter);
+  if (q) {
+    list = list.filter(a => {
+      const hay = [a.title, a.author, (a.authors || []).join(' '), a.doi, a.year, a.venue, a.source_filename, (a.tags || []).join(' ')].join(' ').toLowerCase();
+      return hay.includes(q);
+    });
+  }
+  const col = biblioSortCol;
+  list.sort((a, b) => {
+    let av = a[col], bv = b[col];
+    if (col === 'authors') { av = _biblioAuthors(a); bv = _biblioAuthors(b); }
+    av = String(av || '').toLowerCase();
+    bv = String(bv || '').toLowerCase();
+    if (av < bv) return -1 * biblioSortDir;
+    if (av > bv) return 1 * biblioSortDir;
+    return 0;
+  });
+  return list;
+}
+
+function selectBiblioArticle(id) {
+  biblioSelectedId = id;
+  renderBiblioPanel();
+  const a = articles.find(x => x.id === id);
+  const bar = document.getElementById('biblio-preview-bar');
+  if (!bar || !a) { if (bar) bar.classList.remove('visible'); return; }
+  bar.classList.add('visible');
+  const tags = (a.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join(' ');
+  bar.innerHTML = `<strong>${esc(a.title)}</strong>${a.doi ? ` · DOI: ${esc(a.doi)}` : ''}<br>${esc((a.abstract || '').slice(0, 400))}${(a.abstract || '').length > 400 ? '…' : ''}${tags ? '<div style="margin-top:6px">' + tags + '</div>' : ''}`;
+}
+
+function sortBiblioColumn(col) {
+  if (biblioSortCol === col) biblioSortDir *= -1;
+  else { biblioSortCol = col; biblioSortDir = 1; }
+  renderBiblioPanel();
+}
+
+function renderBiblioPanel() {
+  const stats = document.getElementById('biblio-stats');
+  const list = getFilteredBiblioArticles();
+  if (stats) {
+    const pending = libraryStatusCache?.pendingOrganize;
+    stats.textContent = `${list.length} 篇` + (pending ? ` · ${pending} 待整理` : '');
+  }
+  if (biblioViewMode === 'cards') renderBiblioCards(list);
+  else renderBiblioTable(list);
+}
+
+function renderBiblioTable(list) {
+  const wrap = document.getElementById('biblio-table-wrap');
+  const cards = document.getElementById('biblio-cards-wrap');
+  if (cards) cards.style.display = 'none';
+  if (!wrap) return;
+  wrap.style.display = 'block';
+  if (!list.length) {
+    wrap.innerHTML = '<div style="padding:32px;text-align:center;color:var(--text-3);font-size:13px">暂无文献。上传 PDF 或打开工作空间后自动识别。</div>';
+    return;
+  }
+  const rows = list.map(a => {
+    const sel = biblioSelectedId === a.id ? ' selected' : '';
+    const authors = _biblioAuthors(a);
+    const checked = selectedArticleIds.has(a.id) ? ' checked' : '';
+    return `<tr class="${sel.trim()}" data-id="${esc(a.id)}" onclick="selectBiblioArticle('${esc(a.id)}')" ondblclick="openReader('${esc(a.id)}')">
+      <td onclick="event.stopPropagation()"><input type="checkbox" class="biblio-row-check" data-id="${esc(a.id)}"${checked} onchange="toggleBiblioSelect('${esc(a.id)}', this.checked)"></td>
+      <td>${esc(a.title || a.id)}</td>
+      <td title="${esc(authors)}">${esc(authors.slice(0, 48))}${authors.length > 48 ? '…' : ''}</td>
+      <td>${esc(a.year || '')}</td>
+      <td>${esc(a.venue || '')}</td>
+      <td>${esc(kindLabel(a.kind) || '')}</td>
+      <td><span class="biblio-status">${_biblioStatusHtml(a)}</span></td>
+    </tr>`;
+  }).join('');
+  wrap.innerHTML = `<table class="biblio-table"><thead><tr>
+    <th>☐</th>
+    <th onclick="sortBiblioColumn('title')">标题</th>
+    <th onclick="sortBiblioColumn('authors')">作者</th>
+    <th onclick="sortBiblioColumn('year')">年份</th>
+    <th onclick="sortBiblioColumn('venue')">期刊/会议</th>
+    <th>类型</th>
+    <th>状态</th>
+  </tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function renderBiblioCards(list) {
+  const wrap = document.getElementById('biblio-table-wrap');
+  const cards = document.getElementById('biblio-cards-wrap');
+  if (wrap) wrap.style.display = 'none';
+  if (!cards) return;
+  cards.style.display = 'grid';
+  if (!list.length) {
+    cards.innerHTML = '<div style="padding:32px;text-align:center;color:var(--text-3);font-size:13px;grid-column:1/-1">暂无文献</div>';
+    return;
+  }
+  cards.innerHTML = list.map(a => {
+    const sel = biblioSelectedId === a.id ? ' selected' : '';
+    const authors = _biblioAuthors(a);
+    const abstract = (a.abstract || '').slice(0, 160);
+    return `<div class="biblio-card${sel}" onclick="selectBiblioArticle('${esc(a.id)}')" ondblclick="openReader('${esc(a.id)}')">
+      <div class="biblio-card-title">${esc(a.title || a.id)}</div>
+      ${authors ? `<div class="biblio-card-author">${esc(authors)}</div>` : ''}
+      <div class="biblio-card-meta">
+        ${a.year ? `<span>📅 ${esc(a.year)}</span>` : ''}
+        ${a.venue ? `<span>📚 ${esc(a.venue)}</span>` : ''}
+        <span>${_biblioStatusHtml(a)}</span>
+      </div>
+      ${abstract ? `<div class="biblio-card-abstract">${esc(abstract)}${(a.abstract||'').length > 160 ? '…' : ''}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function toggleBiblioSelect(id, checked) {
+  if (checked) selectedArticleIds.add(id);
+  else selectedArticleIds.delete(id);
+}
+
+function biblioBatchExtract() {
+  const ids = selectedArticleIds.size ? [...selectedArticleIds] : getFilteredBiblioArticles().map(a => a.id);
+  if (!ids.length) { showDataRootMsg('请先选择文献', 'rose'); return; }
+  selectedArticleIds = new Set(ids);
+  batchExtractAndSummarize();
+}
+
+async function refreshLibraryStatus() {
+  try {
+    const r = await fetch('/api/workspace/library-status');
+    if (r.ok) libraryStatusCache = await r.json();
+  } catch (_) {}
+  renderBiblioPanel();
+}
+
+async function pollIngestStatus() {
+  try {
+    const r = await fetch('/api/workspace/ingest-status');
+    if (!r.ok) return;
+    const st = await r.json();
+    if (st.phase && st.phase !== 'idle' && st.phase !== 'done') {
+      const stats = document.getElementById('biblio-stats');
+      if (stats) stats.textContent = `识别中 ${st.done || 0}/${st.total || 0}…`;
+    } else if (st.phase === 'done') {
+      await loadArticles();
+      renderBiblioPanel();
+      await refreshLibraryStatus();
+    }
+  } catch (_) {}
+}
+
+function startIngestPolling() {
+  if (ingestPollTimer) clearInterval(ingestPollTimer);
+  ingestPollTimer = setInterval(async () => {
+    await pollIngestStatus();
+  }, 2500);
+  pollIngestStatus();
+  refreshLibraryStatus();
+}
+
+async function onWorkspaceIngestSettingChange() {
+  const el = document.getElementById('setIngestOnOpen');
+  if (!el) return;
+  try {
+    await fetch('/api/workspace/settings', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ingestOnOpen: el.checked}),
+    });
+  } catch (_) {}
+}
+
+async function promptOrganizeLiterature() {
+  try {
+    const prev = await fetch('/api/workspace/organize-preview');
+    const plan = await prev.json();
+    const n = (plan.moves || []).length;
+    if (!n) { showDataRootMsg('没有需要整理的散落文献', 'amber'); return; }
+    const lines = (plan.moves || []).slice(0, 12).map(m => `• ${m.from} → ${m.to}`).join('\n');
+    const more = n > 12 ? `\n… 共 ${n} 项` : '';
+  if (!confirm(`将 ${plan.summary?.mainCount || n} 篇主文献移入 ${plan.targetDir || 'literature'}/。\n\n${lines}${more}\n\n是否继续？`)) return;
+    const r = await fetch('/api/workspace/organize-literature', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({dryRun: false, move: true}),
+    });
+    const data = await r.json();
+    if (!data.ok) throw new Error(data.message || '整理失败');
+    articles = data.articles || articles;
+    await loadWorkspaceTree();
+    renderBiblioPanel();
+    showDataRootMsg(`已整理 ${(data.moved || []).length} 个文件`, 'emerald');
+  } catch (e) {
+    showDataRootMsg('整理失败: ' + e.message, 'rose');
+  }
+}
+
+function _articleTitleForPath(path) {
+  const norm = String(path || '').replace(/\\/g, '/');
+  const m = norm.match(/^(?:articles|literature|\.literature)\/([^/]+)\//i);
+  if (m) {
+    const a = articles.find(x => x.id === m[1]);
+    if (a?.title) return a.title.length > 42 ? a.title.slice(0, 40) + '…' : a.title;
+  }
+  return null;
+}
+
+function _isPendingOrganizePath(path) {
+  if (!libraryStatusCache?.pendingOrganize) return false;
+  const norm = String(path || '').replace(/\\/g, '/').toLowerCase();
+  if (norm.match(/^(articles|literature|\.literature)\/[^/]+\/original\.pdf$/)) return false;
+  return norm.endsWith('.pdf');
 }
 
 async function loadWorkspaceBookmarks() {
@@ -3573,66 +4102,298 @@ async function promptAddBookmark() {
   }
 }
 
-async function loadWorkspaceDocuments() {
+async function loadWorkspaceTree() {
+  const el = document.getElementById('workspace-doc-tree');
   try {
-    const r = await fetch('/api/workspace/documents');
-    const d = await r.json();
-    workspaceDocuments = d.documents || [];
+    const infoResp = await fetch('/api/workspace/info');
+    const infoData = await infoResp.json();
+    workspaceMeta = infoData.active ? infoData.workspace : null;
+    updateWorkspaceSidebarHeader();
+    if (!workspaceMeta) {
+      workspaceTree = null;
+      workspaceDocuments = [];
+      if (el) {
+        el.innerHTML = '<div style="padding:12px;color:var(--text-3);font-size:12px">未打开工作空间。<br><button type="button" class="btn-emerald" style="margin-top:8px;font-size:12px" onclick="showWorkspaceSettings()">选择工作空间</button></div>';
+      }
+      return;
+    }
+    const treeResp = await fetch('/api/workspace/tree?ts=' + Date.now());
+    if (!treeResp.ok) throw new Error(await treeResp.text());
+    const treeData = await treeResp.json();
+    workspaceTree = treeData.tree || null;
+    workspaceDocuments = treeData.documents || [];
+    const ingestEl = document.getElementById('setIngestOnOpen');
+    if (ingestEl && workspaceMeta) ingestEl.checked = workspaceMeta.ingestOnOpen !== false;
+    _ensureDefaultWorkspaceExpanded();
     renderWorkspaceDocTree();
   } catch (e) {
-    const el = document.getElementById('workspace-doc-tree');
-    if (el) el.innerHTML = '<div style="padding:12px;color:var(--text-3);font-size:12px">无法加载工作空间文档</div>';
+    if (el) el.innerHTML = '<div style="padding:12px;color:var(--text-3);font-size:12px">无法加载工作空间目录树</div>';
   }
+}
+
+/** @deprecated alias */
+async function loadWorkspaceDocuments() {
+  return loadWorkspaceTree();
+}
+
+function _ensureDefaultWorkspaceExpanded() {
+  if (expandedWorkspaceDirs.size) return;
+  expandedWorkspaceDirs.add('__root__');
+  for (const child of (workspaceTree?.children || [])) {
+    if (['articles', 'notes', 'literature', '.literature'].includes(child.name)) {
+      expandedWorkspaceDirs.add(child.path || child.name || '');
+    }
+  }
+  _saveWorkspaceExpandedState();
+}
+
+function toggleWorkspaceDir(dirKey) {
+  const key = dirKey || '__root__';
+  if (expandedWorkspaceDirs.has(key)) expandedWorkspaceDirs.delete(key);
+  else expandedWorkspaceDirs.add(key);
+  _saveWorkspaceExpandedState();
+  renderWorkspaceDocTree();
+}
+
+function _treeNodeMatchesFilter(node) {
+  return !!node;
+}
+
+function _workspaceKindIcon(kind) {
+  return {pdf:'📕', markdown:'📄', word:'📝', html:'🌐', image:'🖼️', canvas:'🎨'}[kind] || '📄';
+}
+
+function _renderWorkspaceTreeNode(node, depth) {
+  if (!node || !_treeNodeMatchesFilter(node)) return '';
+  const indent = 12 + depth * 14;
+  if (node.type === 'dir') {
+    const key = node.path || '__root__';
+    const children = (node.children || []).filter(child => _treeNodeMatchesFilter(child));
+    const isExpanded = expandedWorkspaceDirs.has(key);
+    const canExpand = children.length > 0;
+    const litMatch = String(node.path || '').match(/^(?:literature|\.literature|articles)\/([^/]+)\/?$/i);
+    const folderClick = litMatch
+      ? `event.stopPropagation();biblioFolderFilter='${esc(litMatch[1])}';renderBiblioPanel();`
+      : `toggleWorkspaceDir('${esc(key)}')`;
+    let html = `<div class="folder-tree-item" style="padding-left:${indent}px" onclick="${folderClick}">
+      <span class="folder-toggle" onclick="event.stopPropagation();toggleWorkspaceDir('${esc(key)}')">${canExpand ? (isExpanded ? '▼' : '▶') : ''}</span>
+      <span class="folder-icon">📁</span>
+      <span class="folder-name">${esc(node.name || workspaceMeta?.name || '根目录')}</span>
+      ${canExpand ? `<span class="folder-count">${children.length}</span>` : ''}
+    </div>`;
+    if (isExpanded) {
+      for (const child of children) html += _renderWorkspaceTreeNode(child, depth + 1);
+    }
+    return html;
+  }
+  const icon = _workspaceKindIcon(node.kind);
+  const titleFromArticle = node.kind === 'pdf' ? _articleTitleForPath(node.path) : null;
+  const label = titleFromArticle || node.title || node.name || node.path;
+  const pending = node.kind === 'pdf' && _isPendingOrganizePath(node.path);
+  return `<div class="folder-tree-item" style="padding-left:${indent}px" onclick="openWorkspaceTreeEntry('${esc(node.path || '')}','${esc(node.docId || '')}','${esc(node.kind || '')}')">
+    <span class="folder-toggle"></span>
+    <span class="folder-icon">${icon}</span>
+    <span class="folder-name" title="${esc(node.path || '')}">${esc(label)}${pending ? ' <span style="color:var(--amber);font-size:10px">待整理</span>' : ''}</span>
+  </div>`;
+}
+
+function _flattenWorkspaceTreeFiles(node, out) {
+  if (!node) return;
+  if (node.type === 'file') { out.push(node); return; }
+  for (const child of (node.children || [])) _flattenWorkspaceTreeFiles(child, out);
 }
 
 function renderWorkspaceDocTree() {
   const el = document.getElementById('workspace-doc-tree');
   if (!el) return;
-  const q = (document.getElementById('searchInput')?.value || '').trim().toLowerCase();
-  let docs = workspaceDocuments.filter(d => d.status !== 'missing');
-  if (q) {
-    docs = docs.filter(d => {
-      const hay = [d.title, d.path, d.id, d.kind].join(' ').toLowerCase();
-      return hay.includes(q);
-    });
-  }
-  const kindOrder = {pdf:0, markdown:1, word:2, html:3, image:4};
-  docs.sort((a, b) => {
-    const ka = kindOrder[a.kind] ?? 9;
-    const kb = kindOrder[b.kind] ?? 9;
-    if (ka !== kb) return ka - kb;
-    return String(a.path || a.title || '').localeCompare(String(b.path || b.title || ''));
-  });
-  if (!docs.length) {
-    el.innerHTML = '<div style="padding:12px;color:var(--text-3);font-size:12px">无文档。请在设置中打开工作空间或点击「重新扫描」。</div>';
+  if (!workspaceTree) {
+    el.innerHTML = '<div style="padding:12px;color:var(--text-3);font-size:12px">未打开工作空间。<br><button type="button" class="btn-emerald" style="margin-top:8px;font-size:12px" onclick="showWorkspaceSettings()">选择工作空间</button></div>';
     return;
   }
-  const kindIcon = {pdf:'📕', markdown:'📄', word:'📝', html:'🌐', image:'🖼️'};
-  el.innerHTML = docs.map(d => {
-    const icon = (d.ui && d.ui.icon) || kindIcon[d.kind] || '📄';
-    const label = d.title || d.path || d.id;
-    const sub = d.path ? `<div style="font-size:10px;color:var(--text-3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.path)}</div>` : '';
-    return `<div class="folder-item" style="cursor:pointer;padding:6px 8px;border-radius:var(--radius-sm)" onclick="openWorkspaceDocument('${esc(d.id)}')">
-      <span>${icon}</span> <span>${esc(label)}</span>${sub}
-    </div>`;
-  }).join('');
+  const q = (document.getElementById('searchInput')?.value || '').trim().toLowerCase();
+  let html = '';
+  if (q) {
+    const hits = [];
+    _flattenWorkspaceTreeFiles(workspaceTree, hits);
+    let files = hits.filter(f => _treeNodeMatchesFilter(f));
+    files = files.filter(f => [f.name, f.path, f.title, f.kind].join(' ').toLowerCase().includes(q));
+    if (!files.length) {
+      el.innerHTML = html + '<div style="padding:12px;color:var(--text-3);font-size:12px">无匹配文件</div>';
+      return;
+    }
+    html += files.map(f => `<div class="folder-tree-item" style="padding-left:12px" onclick="openWorkspaceTreeEntry('${esc(f.path || '')}','${esc(f.docId || '')}','${esc(f.kind || '')}')">
+      <span class="folder-toggle"></span>
+      <span class="folder-icon">${_workspaceKindIcon(f.kind)}</span>
+      <span class="folder-name" title="${esc(f.path || '')}">${esc(f.title || f.name)}</span>
+    </div>`).join('');
+    el.innerHTML = html;
+    return;
+  }
+  html += _renderWorkspaceTreeNode(workspaceTree, 0);
+  if (!html.trim()) {
+    html = '<div style="padding:12px;color:var(--text-3);font-size:12px">此筛选下暂无内容</div>';
+  }
+  el.innerHTML = html;
+}
+
+function _isMarkdownOrHtmlPath(path, kind) {
+  if (kind === 'markdown' || kind === 'html') return true;
+  const lower = String(path || '').toLowerCase();
+  return lower.endsWith('.md') || lower.endsWith('.markdown') || lower.endsWith('.html') || lower.endsWith('.htm');
+}
+
+async function _loadWorkspaceMarkdownText(norm) {
+  const wpUrl = '/' + norm.split('/').map(encodeURIComponent).join('/');
+  let resp = await fetch(wpUrl + '?t=' + Date.now());
+  if (resp.ok) return await resp.text();
+  const noteMatch = norm.match(/(?:^|\/)notes\/([^/]+)\.md$/i);
+  if (noteMatch) {
+    resp = await fetch('/api/notes/' + encodeURIComponent(noteMatch[1]));
+    if (resp.ok) {
+      const data = await resp.json();
+      return data.content || '';
+    }
+  }
+  return null;
+}
+
+function openWorkspaceTreeEntry(path, docId, kind) {
+  if (kind === 'pdf' || String(path || '').toLowerCase().endsWith('.pdf')) {
+    openPdfFromWorkspacePath(path);
+    return;
+  }
+  if (docId) {
+    openWorkspaceDocument(docId);
+    return;
+  }
+  const doc = workspaceDocuments.find(d => String(d.path || '').replace(/\\/g, '/') === String(path || '').replace(/\\/g, '/'));
+  if (doc) {
+    openWorkspaceDocument(doc.id);
+    return;
+  }
+  if (_isMarkdownOrHtmlPath(path, kind)) {
+    openWorkspaceMarkdown(path);
+    return;
+  }
+}
+
+function _noteIdFromWorkspacePath(path) {
+  const norm = String(path || '').replace(/\\/g, '/');
+  const m = norm.match(/(?:^|\/)notes\/([^/]+)\.md$/i);
+  return m ? m[1] : null;
+}
+
+async function openWorkspaceNote(path, title) {
+  const norm = String(path || '').replace(/\\/g, '/').replace(/^\//, '');
+  const noteId = _noteIdFromWorkspacePath(norm);
+  if (!noteId) return false;
+  if (!notesIndex.length) {
+    try { await loadNotebooksAndNotes(); } catch (e) {}
+  }
+  const meta = notesStore.get(noteId);
+  const displayTitle = title || (meta && meta.title) || noteId;
+  const tabKey = 'note-' + noteId;
+  TabManager.openTab(tabKey, 'note', '📝 ' + displayTitle, { noteId }, true);
+  return true;
+}
+
+async function openWorkspaceMarkdown(path, title, docId) {
+  const norm = String(path || '').replace(/\\/g, '/').replace(/^\//, '');
+  if (!norm) return;
+  if (await openWorkspaceNote(norm, title)) return;
+  const displayTitle = title || norm.split('/').pop() || norm;
+  const tabKey = docId ? ('ws-' + docId) : ('ws-path-' + norm);
+  TabManager.openTab(tabKey, 'article', '📄 ' + displayTitle, {
+    article: {
+      id: tabKey,
+      title: displayTitle,
+      workspacePath: norm,
+      md_available: true,
+      pdf_available: false,
+    },
+  }, true);
+}
+
+async function openPdfFromWorkspacePath(path) {
+  const norm = String(path || '').replace(/\\/g, '/');
+  const m = norm.match(/^(?:articles|literature|\.literature)\/([^/]+)\//i);
+  if (!m) {
+    showDataRootMsg('无法打开 PDF: ' + (path || ''), 'rose');
+    return;
+  }
+  const articleId = m[1];
+  if (!articles.find(a => a.id === articleId)) await loadArticles();
+  if (!articles.find(a => a.id === articleId)) {
+    articles.push({
+      id: articleId,
+      title: articleId,
+      pdf_available: true,
+      md_available: false,
+      translated: false,
+      summarized: false,
+      tags: [],
+    });
+  }
+  await openReader(articleId);
+}
+
+async function loadUnifiedDatabaseTree() {
+  try {
+    const resp = await fetch('/api/databases?ts=' + Date.now());
+    if (!resp.ok) throw new Error(await resp.text());
+    const data = await resp.json();
+    bitableListCache = data.databases || [];
+    renderUnifiedDatabaseTree();
+  } catch (e) {
+    const el = document.getElementById('workspace-doc-tree');
+    if (el) el.innerHTML = '<div style="padding:12px;color:var(--text-3);font-size:12px">无法加载多维表格</div>';
+  }
+}
+
+function renderUnifiedDatabaseTree() {
+  const el = document.getElementById('workspace-doc-tree');
+  if (!el) return;
+  const q = (document.getElementById('searchInput')?.value || '').trim().toLowerCase();
+  let items = (bitableListCache || []).slice();
+  if (q) items = items.filter(db => [db.name, db.id, db.icon].join(' ').toLowerCase().includes(q));
+  const addBtn = '<button type="button" class="btn-emerald" style="width:100%;margin-bottom:8px;font-size:12px" onclick="openBitableFromTree()">＋ 新建表格</button>';
+  if (!items.length) {
+    el.innerHTML = addBtn + '<div style="padding:8px;color:var(--text-3);font-size:12px">暂无表格</div>';
+    return;
+  }
+  el.innerHTML = addBtn + items.map(db => `<div class="folder-item" style="cursor:pointer;padding:6px 8px;border-radius:var(--radius-sm)" onclick="openBitableFromTree('${esc(db.id)}')">
+    <span>${esc(db.icon || '📊')}</span> <span>${esc(db.name || 'Untitled')}</span>
+  </div>`).join('');
+}
+
+function openBitableFromTree(dbId) {
+  switchToBitableView(dbId);
+}
+
+async function openNotesEditorFromTree() {
+  try {
+    const resp = await fetch('/api/notes', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({title: 'Untitled', notebook_id: 'nb_default'})
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    const note = await resp.json();
+    notesStore.upsert(note);
+    if (typeof renderWorkspaceDocTree === 'function') renderWorkspaceDocTree();
+    await openWorkspaceNote('notes/' + note.id + '.md', note.title || 'Untitled');
+  } catch(e) {
+    console.error('openNotesEditorFromTree failed', e);
+    toast('新建笔记失败：' + (e.message || e), 'error');
+  }
 }
 
 function openWorkspaceDocument(docId) {
   const doc = workspaceDocuments.find(d => d.id === docId);
   if (!doc) return;
   const path = String(doc.path || '');
-  const articleMatch = path.match(/^articles\/([^/]+)\//);
-  if (doc.kind === 'pdf' && articleMatch) {
-    openArticle(articleMatch[1]);
-    return;
-  }
-  const noteMatch = path.match(/^notes\/(.+)\.md$/);
-  if (doc.kind === 'markdown' && noteMatch) {
-    const noteId = noteMatch[1];
-    switchToNotesView();
-    const note = [...notesStore.values()].find(n => n.id === noteId || (n.title + '.md') === noteMatch[1] + '.md');
-    if (note) openNoteInTab(note.id);
+  if (doc.kind === 'pdf' || path.toLowerCase().endsWith('.pdf')) {
+    openPdfFromWorkspacePath(path);
     return;
   }
   if (doc.kind === 'word' && path) {
@@ -3649,15 +4410,14 @@ function openWorkspaceDocument(docId) {
       })
       .then(() => {
         showDataRootMsg('Word 已解析，请在工作空间树中打开对应 .parsed.md', 'emerald');
-        loadWorkspaceDocuments();
+        loadWorkspaceTree();
       })
       .catch(e => showDataRootMsg('Word 打开失败: ' + e.message, 'rose'));
     return;
   }
-  if (path && (doc.kind === 'markdown' || doc.kind === 'html')) {
-    fetch('/' + path).then(r => r.ok ? r.text() : Promise.reject()).then(md => {
-      TabManager.openTab('ws-' + docId, 'article', doc.title || path, {article: {id: docId, title: doc.title || path, md_available: true, pdf_available: false}}, false);
-    }).catch(() => showDataRootMsg('无法打开: ' + path, 'rose'));
+  if (path && _isMarkdownOrHtmlPath(path, doc.kind)) {
+    openWorkspaceMarkdown(path, doc.title || path.split('/').pop() || path, docId);
+    return;
   }
 }
 
@@ -3671,7 +4431,7 @@ async function rescanWorkspace() {
     const d = await r.json();
     if (!d.ok) throw new Error(d.message || '扫描失败');
     await loadWorkspaceInfo();
-    await loadWorkspaceDocuments();
+    await loadWorkspaceTree();
     showDataRootMsg(`扫描完成：${d.stats?.total ?? 0} 个文档`, 'emerald');
   } catch (e) {
     showDataRootMsg('工作空间扫描失败: ' + e.message, 'rose');
@@ -3868,23 +4628,25 @@ async function init() {
   await loadLLMConfig();
   await loadArticles();
   await loadArticleFolders();
-  renderLibrary();
   applyLibrarySideState();
+  applyAiPanelState();
+  toggleBiblioView(biblioViewMode);
   await loadLibrarySessions();
-  // Eagerly load the notes index so the @ mention in any
-  // article-scoped note can list every notebook note (and
-  // every article) without first visiting the notes view.
   await loadNotebooksAndNotes();
-  loadWorkspaceDocuments().catch(() => {});
-  const savedSource = localStorage.getItem('kbaseLibrarySource');
-  if (savedSource === 'workspace' || savedSource === 'bookmarks' || !savedSource) {
-    setLibrarySource(savedSource || 'workspace');
-  }
+  loadWorkspaceTree().catch(() => {});
+  startIngestPolling();
+  setUnifiedFilter('all');
   TabManager.init();
-  // Expose for debugging from devtools / Playwright.
   window.TabManager = TabManager;
-  // Auto-check for updates on startup (once per session, no spam).
   setTimeout(() => loadUpdateInfo().catch(() => {}), 3000);
+}
+
+function applyAiPanelState() {
+  const panel = document.getElementById('library-ai-panel');
+  const collapsed = localStorage.getItem('kbaseAiPanelCollapsed') !== '0';
+  if (panel) panel.classList.toggle('collapsed', collapsed);
+  const btn = document.getElementById('btnCollapseChat');
+  if (btn) btn.textContent = collapsed ? '▶' : '◀';
 }
 init().catch(e => {
   const gm = chatEl('global-chat-messages');
@@ -4055,14 +4817,14 @@ function toggleArticleDetailMode() {
 }
 
 function toggleChatPanel() {
-  const chat = document.getElementById('global-chat-panel');
-  const side = document.getElementById('library-side');
+  const panel = document.getElementById('library-ai-panel');
   const btn = document.getElementById('btnCollapseChat');
-  const btnSide = document.getElementById('btnExpandChatSide');
-  const collapsed = chat.classList.toggle('chat-collapsed');
-  if (side) side.classList.toggle('chat-collapsed', collapsed);
+  const expandBtn = document.getElementById('library-ai-expand');
+  if (!panel) return;
+  const collapsed = panel.classList.toggle('collapsed');
+  try { localStorage.setItem('kbaseAiPanelCollapsed', collapsed ? '1' : '0'); } catch (_) {}
   if (btn) btn.textContent = collapsed ? '▶' : '◀';
-  if (btnSide) btnSide.title = collapsed ? '展开 AI 聊天' : '收起 AI 聊天';
+  if (expandBtn) expandBtn.title = collapsed ? '展开全库 AI' : '收起 AI';
 }
 
 function _renderArticleDetailFull(a, indent) {
@@ -4310,7 +5072,7 @@ async function createSubFolder(parentId) {
 function filterArticles() {
   renderFolderTree();
 }
-function renderLibrary() { renderFolderTree(); }
+function renderLibrary() { renderFolderTree(); renderBiblioPanel(); }
 function renderGridView() {}
 function renderBoardView() {}
 function setView() {}
@@ -4789,7 +5551,7 @@ function toggleLibrarySide() {
 function libraryWelcomeHtml() {
   return `<div class="global-welcome">
     <h3>全库资料问答</h3>
-    <p>我会检索右侧列表中的已上传资料、解析稿、校准稿和译文，再基于命中的内容回答。</p>
+    <p>我会检索工作空间中的已上传资料、解析稿、校准稿和译文，再基于命中的内容回答。</p>
     <p>会话会自动保存；历史变长后会压缩成记忆摘要，并保留最近几轮原文上下文。</p>
     <div class="quick-row">
       <button class="quick-chip" onclick="askQuick('这些资料主要研究了哪些问题？')">这些资料主要研究了哪些问题？</button>
@@ -5296,11 +6058,45 @@ async function initArticleTab(tabId, tabData) {
   document.getElementById('rbTranslate').disabled = true;
   document.getElementById('rbSummarize').disabled = true;
 
+  // Workspace markdown: load by relative path (notes/, literature/, etc.)
+  if (article.workspacePath) {
+    let wsMdLoaded = false;
+    try {
+      const wp = String(article.workspacePath).replace(/^\//, '');
+      const loadedMarkdown = await _loadWorkspaceMarkdownText(wp);
+      if (loadedMarkdown != null) {
+        tabData.currentRawMd = loadedMarkdown;
+        tabData.translationChecked = true;
+        if (!isCurrentTab()) return;
+        currentRawMd = loadedMarkdown;
+        renderReaderMarkdown(currentRawMd, article, true);
+        wsMdLoaded = true;
+      }
+    } catch (e) { console.error('Error loading workspace markdown:', e); }
+    if (!isCurrentTab()) return;
+    document.getElementById('md-loading').style.display = 'none';
+    if (wsMdLoaded) {
+      document.getElementById('md-content').style.display = 'block';
+      document.getElementById('rbEdit').disabled = false;
+    } else {
+      document.getElementById('md-content').innerHTML = `
+        <div style="max-width:500px;margin:60px auto;text-align:center">
+          <p style="font-size:14px;color:var(--text-2);margin-bottom:16px">无法加载 Markdown 文件</p>
+          <p style="font-size:12px;color:var(--text-3)">${esc(article.workspacePath || '')}</p>
+        </div>`;
+      document.getElementById('md-content').style.display = 'block';
+    }
+    applyColumnVisibility();
+    startGpuMonitor();
+    return;
+  }
+
   // Load MD (prefer calibrated version)
   let mdLoaded = false;
   try {
     let t = Date.now();
     let resp = await fetch(`articles/${article.id}/${article.id}_calibrated.md?t=${t}`);
+    if (!resp.ok) resp = await fetch(`articles/${article.id}/${article.id}.parsed.md?t=${t}`);
     if (!resp.ok) resp = await fetch(`articles/${article.id}/${article.id}.md?t=${t}`);
     if (resp.ok) {
       const loadedMarkdown = await resp.text();
@@ -5348,12 +6144,25 @@ async function initArticleTab(tabId, tabData) {
     document.getElementById('md-content').style.display = 'block';
   }
 
-  // Load translated
+  // Load translated (prefer workspace .zh.md)
   if (article.translated) {
     try {
-      const trResp = await fetch(`articles/${article.id}/${article.id}_translated.md?t=${Date.now()}`);
-      if (trResp.ok) {
-        const loadedTranslation = await trResp.text();
+      const wsDerivEarly = await fetchArticleDerivations(article.id);
+      const transMetaEarly = wsDerivEarly?.derivations?.translated_md;
+      let loadedTranslation = '';
+      if (transMetaEarly?.url) {
+        const trResp = await fetch(transMetaEarly.url + '?t=' + Date.now());
+        if (trResp.ok) loadedTranslation = await trResp.text();
+      }
+      if (!loadedTranslation) {
+        const trResp = await fetch(`articles/${article.id}/${article.id}.zh.md?t=${Date.now()}`);
+        if (trResp.ok) loadedTranslation = await trResp.text();
+      }
+      if (!loadedTranslation) {
+        const trResp = await fetch(`articles/${article.id}/${article.id}_translated.md?t=${Date.now()}`);
+        if (trResp.ok) loadedTranslation = await trResp.text();
+      }
+      if (loadedTranslation) {
         tabData.translatedMd = loadedTranslation;
         tabData.translationChecked = true;
         if (!isCurrentTab()) return;
@@ -6287,16 +7096,28 @@ function updateTranslationUi(articleId, state) {
   if (status && label) status.textContent = label;
   isTranslating = state.status === 'running';
   if (btn) {
-    btn.disabled = isTranslating || !currentRawMd;
+    btn.disabled = isTranslating || (!currentRawMd && !parsedMd);
     btn.textContent = isTranslating ? '🌐 翻译中' : '🌐 翻译';
   }
 }
 
 async function loadTranslatedForArticle(articleId, renderIfCurrent=false) {
-  const resp = await fetch('articles/' + articleId + '/' + articleId + '_translated.md?ts=' + Date.now());
-  if (!resp.ok) return false;
-  const text = await resp.text();
   const article = articles.find(a => a.id === articleId);
+  let text = '';
+  try {
+    const wsDeriv = await fetchArticleDerivations(articleId);
+    const transMeta = wsDeriv?.derivations?.translated_md;
+    if (transMeta?.url) {
+      const resp = await fetch(transMeta.url + '?ts=' + Date.now());
+      if (resp.ok) text = await resp.text();
+    }
+  } catch (_) {}
+  if (!text) {
+    let resp = await fetch('articles/' + articleId + '/' + articleId + '.zh.md?ts=' + Date.now());
+    if (!resp.ok) resp = await fetch('articles/' + articleId + '/' + articleId + '_translated.md?ts=' + Date.now());
+    if (!resp.ok) return false;
+    text = await resp.text();
+  }
   if (article) article.translated = true;
   if (currentArticle && currentArticle.id === articleId) {
     translatedMd = text;
@@ -6357,7 +7178,7 @@ async function checkTranslationStatus(articleId) {
 }
 
 function openTranslateModal() {
-  if (!currentArticle || isTranslating || !currentRawMd) return;
+  if (!currentArticle || isTranslating || (!currentRawMd && !parsedMd)) return;
   
   // Set default mode based on has_old_translation
   const modeSelect = document.getElementById('trans-mode');
@@ -6371,7 +7192,7 @@ function openTranslateModal() {
 }
 
 async function submitTranslation() {
-  if (!currentArticle || isTranslating || !currentRawMd) return;
+  if (!currentArticle || isTranslating || (!currentRawMd && !parsedMd)) return;
   
   const mode = document.getElementById('trans-mode').value;
   const targetLanguage = document.getElementById('trans-target-lang').value.trim() || "Simplified Chinese";
@@ -6548,7 +7369,7 @@ async function doSummarize(force=false) {
       return;
     }
   }
-  if (!currentRawMd) {
+  if (!currentRawMd && !parsedMd) {
     status.textContent = '当前资料没有可用于总结的 Markdown 内容';
     setTimeout(()=>{status.textContent=''},2500);
     return;
@@ -6770,30 +7591,50 @@ function backFromNotesView() {
   document.getElementById('notes-view').classList.remove('active');
   document.getElementById('library-view').classList.remove('hidden');
   renderNoteTags([]);
-  renderLibrary();
+  setUnifiedFilter('all');
 }
 
 // ===== BITABLE VIEW (飞书多维表格) =====
 let bitableCurrentId = null;
 let bitableListCache = [];
 let bitableRenderCache = null;
+let bitablePageMode = 'table';
 
-function switchToBitableView() {
-  stopGpuMonitor();
-  if (markdownEditor) { markdownEditor.destroy(); markdownEditor = null; }
-  document.getElementById('library-view').classList.add('hidden');
-  document.getElementById('reader-view').classList.remove('active');
-  document.getElementById('notes-view').classList.remove('active');
-  document.getElementById('bitable-view').classList.add('active');
-  loadBitableList();
+function _applyBitablePageChrome() {
+  const titleEl = document.getElementById('bitable-page-title');
+  const sidebarTitle = document.querySelector('#bitable-sidebar-header .title');
+  const emptyTitle = document.querySelector('#bitable-empty h3');
+  const emptyDesc = document.querySelector('#bitable-empty p');
+  const createBtn = document.querySelector('#bitable-topbar-right .sy-btn-primary');
+  const sidebarCreate = document.querySelector('#bitable-sidebar-header .sy-btn-primary');
+  const isKanban = bitablePageMode === 'kanban';
+  if (titleEl) titleEl.textContent = isKanban ? '看板' : '多维表格';
+  if (sidebarTitle) sidebarTitle.textContent = isKanban ? '全部看板' : '全部表格';
+  if (emptyTitle) emptyTitle.textContent = isKanban ? '看板' : '多维表格';
+  if (emptyDesc) {
+    emptyDesc.textContent = isKanban
+      ? '按分组字段管理任务与记录，支持拖拽与筛选'
+      : '类似飞书多维表格：独立管理结构化数据，支持表格视图与看板视图';
+  }
+  if (createBtn) createBtn.style.display = isKanban ? 'none' : '';
+  if (sidebarCreate) sidebarCreate.style.display = isKanban ? 'none' : '';
+}
+
+function switchToBitableView(dbId) {
+  TabManager.openTab('bitable-main', 'bitable', '📊 多维表格', { dbId: dbId || null }, true);
+}
+
+function switchToKanbanView(dbId) {
+  TabManager.openTab('kanban-main', 'kanban', '📋 看板', { dbId: dbId || null }, true);
 }
 
 function backFromBitableView() {
-  bitableCurrentId = null;
-  bitableRenderCache = null;
-  document.getElementById('bitable-view').classList.remove('active');
-  document.getElementById('library-view').classList.remove('hidden');
-  renderLibrary();
+  const tabId = TabManager.activeTabId;
+  if (tabId === 'bitable-main' || tabId === 'kanban-main') {
+    TabManager.closeTab(tabId);
+  } else {
+    TabManager.activateTab('home');
+  }
 }
 
 async function loadBitableList(selectId) {
@@ -6803,8 +7644,16 @@ async function loadBitableList(selectId) {
     const data = await resp.json();
     bitableListCache = data.databases || [];
     renderBitableList();
-    if (selectId) openBitableDatabase(selectId);
-    else if (bitableCurrentId) openBitableDatabase(bitableCurrentId);
+    if (selectId) {
+      openBitableDatabase(selectId);
+    } else if (bitableCurrentId) {
+      openBitableDatabase(bitableCurrentId);
+    } else {
+      const empty = document.getElementById('bitable-empty');
+      const editor = document.getElementById('bitable-editor');
+      if (empty) empty.style.display = '';
+      if (editor) editor.style.display = 'none';
+    }
   } catch (e) {
     toast('加载多维表格失败：' + (e.message || e), 'error');
   }
@@ -6813,13 +7662,14 @@ async function loadBitableList(selectId) {
 function renderBitableList() {
   const host = document.getElementById('bitable-list');
   if (!host) return;
-  if (!bitableListCache.length) {
-    host.innerHTML = '<div style="padding:20px 14px;font-size:12px;color:var(--text-3)">暂无表格，点击 ＋ 创建</div>';
+  const items = bitableListCache.slice();
+  if (!items.length) {
+    host.innerHTML = `<div style="padding:20px 14px;font-size:12px;color:var(--text-3)">${bitablePageMode === 'kanban' ? '暂无表格，请先在多维表格中创建并添加看板视图' : '暂无表格，点击 ＋ 创建'}</div>`;
     return;
   }
-  host.innerHTML = bitableListCache.map(db => `
+  host.innerHTML = items.map(db => `
     <div class="bitable-list-item${db.id === bitableCurrentId ? ' active' : ''}" onclick="openBitableDatabase('${esc(db.id)}')">
-      <span class="icon">${esc(db.icon || '📊')}</span>
+      <span class="icon">${esc(db.icon || (bitablePageMode === 'kanban' ? '📋' : '📊'))}</span>
       <div class="info">
         <div class="title">${esc(db.name || 'Untitled')}</div>
         <div class="meta">${db.row_count || 0} 行 · ${db.view_count || 1} 视图</div>
@@ -6857,6 +7707,14 @@ async function openBitableDatabase(dbId) {
     _kbInvalidateDb(dbId);
     const data = await _kbFetchDatabase(dbId);
     bitableRenderCache = data;
+    if (bitablePageMode === 'kanban') {
+      const views = data.views || [data.view].filter(Boolean);
+      const kanbanView = views.find(v => v.type === 'kanban');
+      if (kanbanView && data.view?.id !== kanbanView.id) {
+        await bitableSwitchView(kanbanView.id);
+        return;
+      }
+    }
     renderBitableEditor(data);
   } catch (e) {
     if (content) content.innerHTML = '<div class="kb-db-error" style="padding:40px">加载失败: ' + esc(e.message || e) + '</div>';

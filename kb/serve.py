@@ -21,6 +21,8 @@ from pathlib import Path
 import storage
 from app_config import load_recent_workspaces
 from workspace import (
+    create_workspace,
+    destroy_workspace,
     get_active_workspace,
     open_workspace,
     require_active_workspace,
@@ -138,6 +140,35 @@ def _is_inside(path: Path, base: Path) -> bool:
             return os.path.commonpath([str(path), str(base)]) == str(base)
         except ValueError:
             return False
+
+
+def _workspace_static_root() -> Path:
+    ws = get_active_workspace()
+    if ws is not None:
+        return ws.root.resolve()
+    return DATA_ROOT.resolve()
+
+
+def _resolve_workspace_static_file(relative: str) -> Path | None:
+    """Map a workspace-relative URL path to a file under the active workspace root."""
+    rel = relative.replace("\\", "/").strip("/")
+    if not rel or ".." in rel.split("/"):
+        return None
+    root = _workspace_static_root()
+    target = (root / rel).resolve()
+    if _is_inside(target, root) and target.is_file():
+        try:
+            first = target.relative_to(root).parts[0]
+        except ValueError:
+            return None
+        if first == ".kbase":
+            return None
+        return target
+    if rel.startswith("notes/"):
+        note_file = (NOTES_DIR / rel[len("notes/"):]).resolve()
+        if note_file.is_file():
+            return note_file
+    return None
 
 
 def _database_path_parts(request_path: str) -> tuple[str, str | None, str | None]:
@@ -298,6 +329,8 @@ def _versioned_markdown_files(article_id: str) -> list[Path]:
 
 def scan_articles() -> list[dict]:
     """Reconcile the filesystem with SQLite, returning the full article list."""
+    from workspace_paths import adjacent_parsed_md_path, adjacent_zh_md_path
+
     with get_conn() as conn:
         existing = {
             row["id"]: dict(row)
@@ -309,10 +342,17 @@ def scan_articles() -> list[dict]:
                 continue
             aid = folder.name
             article = existing.pop(aid, None)
-            trans_exists = (folder / f"{aid}_translated.md").exists()
+
+            pdf_candidates = [p for p in folder.iterdir() if p.is_file() and p.suffix.lower() == ".pdf"]
+            pdf_path = pdf_candidates[0] if pdf_candidates else folder / "original.pdf"
+            parsed_exists = adjacent_parsed_md_path(folder, pdf_path, aid).exists()
+            trans_exists = (
+                adjacent_zh_md_path(folder, pdf_path, aid).exists()
+                or (folder / f"{aid}_translated.md").exists()
+            )
             summary_exists = (folder / f"{aid}_summary.md").exists()
-            pdf_exists = (folder / "original.pdf").exists()
-            md_exists = (folder / f"{aid}.md").exists()
+            pdf_exists = (folder / "original.pdf").exists() or bool(pdf_candidates)
+            md_exists = parsed_exists or (folder / f"{aid}.md").exists()
 
             meta = _read_json_file(folder / f"{aid}_meta.json")
             info = _read_json_file(folder / f"{aid}_info.json")
@@ -488,9 +528,18 @@ def run_conversion(pdf_path: str, article_id: str, engine_name: str = "marker", 
             set_conv_status(article_id, "conversion", "error", "解析失败，查看日志了解详情")
             return
 
-        # Snapshot versioned copy
+        # Snapshot versioned copy (prefer workspace-adjacent .parsed.md)
+        from workspace_paths import (
+            adjacent_parsed_md_path,
+            adjacent_zh_md_path,
+            legacy_md_path,
+        )
+
         article_dir = article_dir_for(article_id)
-        md_file = article_dir / f"{article_id}.md"
+        pdf = Path(pdf_path)
+        adjacent = adjacent_parsed_md_path(article_dir, pdf, article_id)
+        legacy = legacy_md_path(article_dir, article_id)
+        md_file = adjacent if adjacent.exists() else legacy
         versioned = article_dir / f"{article_id}_{engine_name}.md"
         if md_file.exists():
             try:
@@ -500,13 +549,20 @@ def run_conversion(pdf_path: str, article_id: str, engine_name: str = "marker", 
             record_article_history_safe(article_id, engine_name, versioned)
 
         # Drop outdated derived files. Translated goes to *_translated_old.md.
-        for suffix in ("_calibrated.md", "_translated.md", "_summary.md"):
-            derived = article_dir / f"{article_id}{suffix}"
+        zh_file = adjacent_zh_md_path(article_dir, pdf, article_id)
+        for derived in (
+            article_dir / f"{article_id}_calibrated.md",
+            article_dir / f"{article_id}_translated.md",
+            article_dir / f"{article_id}_summary.md",
+            zh_file,
+        ):
             if not derived.exists():
                 continue
             try:
-                if suffix == "_translated.md":
+                if derived.name.endswith("_translated.md"):
                     shutil.move(str(derived), str(article_dir / f"{article_id}_translated_old.md"))
+                elif derived == zh_file:
+                    shutil.move(str(derived), str(article_dir / f"{article_id}_translated_old.zh.md"))
                 else:
                     derived.unlink()
             except OSError as exc:
@@ -515,11 +571,12 @@ def run_conversion(pdf_path: str, article_id: str, engine_name: str = "marker", 
         record_conversion(article_id, engine_name, "success")
         set_conv_status(article_id, "conversion", "done", "解析完成")
         update_article_fields(article_id, {
-            "md_available": md_file.exists(),
+            "md_available": adjacent.exists() or legacy.exists(),
             "parser": engine_name,
         })
         try:
             from derivations import sync_legacy_parse
+
             result = sync_legacy_parse(article_id, md_file, engine_name)
             if result:
                 log(f"Workspace: parsed → {result.get('path')}")
@@ -865,12 +922,20 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_workspace_article_derivations(aid)
             elif path == "/api/workspace/documents":
                 self.handle_workspace_documents_get()
+            elif path == "/api/workspace/tree":
+                self.handle_workspace_tree_get()
             elif path == "/api/workspace/search":
                 self.handle_workspace_search()
             elif path == "/api/workspace/bookmarks":
                 self.handle_workspace_bookmarks_get()
             elif path == "/api/workspace/reindex":
                 self.handle_workspace_reindex()
+            elif path == "/api/workspace/ingest-status":
+                self.handle_workspace_ingest_status()
+            elif path == "/api/workspace/library-status":
+                self.handle_workspace_library_status()
+            elif path == "/api/workspace/organize-preview":
+                self.handle_workspace_organize_preview()
             elif path.startswith("/api/workspace/documents/"):
                 doc_id = path.split("/api/workspace/documents/", 1)[1].strip("/")
                 self.handle_workspace_document_get(doc_id)
@@ -942,10 +1007,14 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                     self._error(404, "Asset not found")
                     return
             else:
-                target = (PACKAGE_DIR / relative).resolve()
-                if not _is_inside(target, PACKAGE_DIR.resolve()):
-                    self._error(403, "Access denied")
-                    return
+                ws_target = _resolve_workspace_static_file(relative)
+                if ws_target is not None:
+                    target = ws_target
+                else:
+                    target = (PACKAGE_DIR / relative).resolve()
+                    if not _is_inside(target, PACKAGE_DIR.resolve()):
+                        self._error(403, "Access denied")
+                        return
         if not target.exists():
             self._error(404, f"Not found: {path}")
             return
@@ -964,6 +1033,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
     @staticmethod
     def _guess_content_type(target: Path) -> str:
         suffix = target.suffix.lower()
+        if suffix in {".md", ".markdown"}:
+            return "text/markdown; charset=utf-8"
         if suffix == ".html":
             return "text/html; charset=utf-8"
         if suffix == ".pdf":
@@ -1071,6 +1142,10 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_set_data_root()
             elif path == "/api/workspace/open":
                 self.handle_workspace_open()
+            elif path == "/api/workspace/create":
+                self.handle_workspace_create()
+            elif path == "/api/workspace/delete":
+                self.handle_workspace_delete()
             elif path == "/api/workspace/scan":
                 self.handle_workspace_scan()
             elif path.startswith("/api/workspace/documents/") and path.endswith("/preparse"):
@@ -1080,6 +1155,12 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_workspace_bookmarks_create()
             elif path == "/api/workspace/reindex":
                 self.handle_workspace_reindex()
+            elif path == "/api/workspace/ingest-run":
+                self.handle_workspace_ingest_run()
+            elif path == "/api/workspace/organize-literature":
+                self.handle_workspace_organize_literature()
+            elif path == "/api/workspace/settings":
+                self.handle_workspace_settings_save()
             elif path == "/api/skills/install":
                 self.handle_skills_install()
             elif path == "/api/skills/preview":
@@ -2084,18 +2165,72 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             self._error(400, "path is required")
             return
         scan = bool(data.get("scan", True))
+        bind_data = bool(data.get("bindData", True))
         try:
             ws = open_workspace(ws_path, scan=scan)
+            data_root = _activate_workspace_session(ws) if bind_data else None
         except (OSError, ValueError) as exc:
             self._error(400, str(exc))
             return
-        self._json({"ok": True, "workspace": ws.info()})
-        try:
-            from workspace_watch import start_workspace_watcher
+        payload: dict = {"ok": True, "workspace": ws.info()}
+        if data_root:
+            payload["dataRoot"] = data_root
+            payload["articles"] = scan_articles()
+        self._json(payload)
 
-            start_workspace_watcher(ws)
-        except Exception:
+    def handle_workspace_create(self) -> None:
+        """POST /api/workspace/create — create and open a new workspace."""
+        data = self._read_json()
+        path = (data.get("path") or "").strip()
+        name = (data.get("name") or "").strip()
+        parent = (data.get("parent") or "").strip()
+        if not path:
+            if not parent or not name:
+                self._error(400, "需要 path，或 parent + name")
+                return
+            path = str(Path(parent) / name)
+        elif name and Path(path).name != name:
             pass
+        try:
+            ws = create_workspace(path, name=name or None, scan=True)
+            data_root = _activate_workspace_session(ws)
+        except (OSError, ValueError) as exc:
+            self._error(400, str(exc))
+            return
+        self._json({
+            "ok": True,
+            "workspace": ws.info(),
+            "dataRoot": data_root,
+            "articles": scan_articles(),
+        })
+
+    def handle_workspace_delete(self) -> None:
+        """POST /api/workspace/delete — remove workspace from recents (optional file delete)."""
+        data = self._read_json()
+        ws_path = (data.get("path") or "").strip()
+        if not ws_path:
+            self._error(400, "path is required")
+            return
+        delete_files = bool(data.get("deleteFiles", False))
+        try:
+            result = destroy_workspace(ws_path, delete_files=delete_files)
+        except ValueError as exc:
+            self._error(400, str(exc))
+            return
+        except OSError as exc:
+            self._error(500, f"删除失败: {exc}")
+            return
+        payload: dict = {"ok": True, **result}
+        ws = get_active_workspace()
+        if ws is not None:
+            payload["workspace"] = ws.info()
+            if result.get("wasActive"):
+                payload["dataRoot"] = _activate_workspace_session(ws)
+                payload["articles"] = scan_articles()
+        else:
+            payload["workspace"] = None
+            payload["articles"] = []
+        self._json(payload)
 
     def handle_workspace_info(self) -> None:
         """GET /api/workspace/info — active workspace metadata."""
@@ -2115,6 +2250,13 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             self._error(400, str(exc))
             return
         stats = ws.scan(full=full)
+        if full:
+            try:
+                from workspace_ingest import start_workspace_ingest
+
+                start_workspace_ingest(ws)
+            except Exception:
+                pass
         self._json({"ok": True, "stats": stats, "workspace": ws.info()})
 
     def handle_workspace_documents_get(self) -> None:
@@ -2129,6 +2271,19 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         query = (qs.get("q", [""])[0] or "").strip() or None
         docs = ws.list_documents(kind=kind, query=query)
         self._json({"documents": docs})
+
+    def handle_workspace_tree_get(self) -> None:
+        """GET /api/workspace/tree — filesystem folder/file tree for the active workspace."""
+        try:
+            ws = require_active_workspace()
+        except RuntimeError as exc:
+            self._error(400, str(exc))
+            return
+        qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        include_derivations = (qs.get("derivations", ["0"])[0] or "0").strip() in ("1", "true", "yes")
+        payload = ws.list_directory_tree(include_derivations=include_derivations)
+        payload["documents"] = ws.list_documents()
+        self._json(payload)
 
     def handle_workspace_search(self) -> None:
         """GET /api/workspace/search?q= — full-text search in workspace."""
@@ -2248,6 +2403,92 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             self._json({"articleId": aid, "derivations": {}, "docId": None})
             return
         self._json(result)
+
+    def handle_workspace_ingest_status(self) -> None:
+        """GET /api/workspace/ingest-status — background PDF ingest progress."""
+        from workspace_ingest import ingest_status
+
+        self._json(ingest_status())
+
+    def handle_workspace_library_status(self) -> None:
+        """GET /api/workspace/library-status — scattered PDF / pending counts."""
+        from workspace_ingest import library_status
+
+        try:
+            require_active_workspace()
+        except RuntimeError as exc:
+            self._error(400, str(exc))
+            return
+        self._json(library_status())
+
+    def handle_workspace_ingest_run(self) -> None:
+        """POST /api/workspace/ingest-run — manually trigger PDF ingest."""
+        from workspace_ingest import start_workspace_ingest
+
+        data = self._read_json()
+        force = bool(data.get("force", False))
+        try:
+            ws = require_active_workspace()
+        except RuntimeError as exc:
+            self._error(400, str(exc))
+            return
+        started = start_workspace_ingest(ws, force=force)
+        self._json({"ok": True, "started": started})
+
+    def handle_workspace_organize_preview(self) -> None:
+        """GET /api/workspace/organize-preview — dry-run organize plan."""
+        from literature_organize import organize_preview
+
+        qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        target_dir = (qs.get("targetDir", [""])[0] or "").strip() or None
+        try:
+            require_active_workspace()
+            plan = organize_preview(target_dir=target_dir)
+        except (RuntimeError, ValueError) as exc:
+            self._error(400, str(exc))
+            return
+        self._json(plan)
+
+    def handle_workspace_organize_literature(self) -> None:
+        """POST /api/workspace/organize-literature — move PDFs into literature/."""
+        from literature_organize import organize_literature
+
+        data = self._read_json()
+        dry_run = bool(data.get("dryRun", False))
+        move = bool(data.get("move", True))
+        target_dir = (data.get("targetDir") or "").strip() or None
+        try:
+            require_active_workspace()
+            report = organize_literature(dry_run=dry_run, target_dir=target_dir, move=move)
+        except (RuntimeError, ValueError) as exc:
+            self._error(400, str(exc))
+            return
+        if not dry_run:
+            payload: dict = {"ok": True, **report, "articles": scan_articles()}
+            self._json(payload)
+        else:
+            self._json(report)
+
+    def handle_workspace_settings_save(self) -> None:
+        """POST /api/workspace/settings — update workspace.json flags."""
+        data = self._read_json()
+        try:
+            ws = require_active_workspace()
+        except RuntimeError as exc:
+            self._error(400, str(exc))
+            return
+        manifest = ws.load_manifest()
+        for key in (
+            "ingestOnOpen",
+            "autoClassifyPdfs",
+            "autoExtractMetadata",
+            "classifyUseLlm",
+            "literatureDir",
+        ):
+            if key in data:
+                manifest[key] = data[key]
+        ws.save_manifest(manifest)
+        self._json({"ok": True, "workspace": ws.info()})
 
     def handle_skills_install(self) -> None:
         """POST /api/skills/install — install tools + skill file to target directory."""
@@ -2469,10 +2710,43 @@ def _unique_archive_name(name, used):
 PACKAGE_DIR = Path(__file__).resolve().parent
 
 
-def _bootstrap_workspace() -> None:
-    """Open the legacy data root as the default workspace when possible."""
+def _activate_workspace_session(ws) -> dict:
+    """Bind workspace root as runtime data root and refresh indexes."""
+    from storage import bind_data_root_runtime
+
+    info = bind_data_root_runtime(ws.root, literature_dir=ws.literature_dir_name())
     try:
-        ws = open_workspace(DATA_ROOT, scan=True)
+        from workspace_index import rebuild_index
+
+        rebuild_index(ws)
+    except Exception:
+        pass
+    try:
+        from workspace_watch import start_workspace_watcher
+
+        start_workspace_watcher(ws)
+    except Exception:
+        pass
+    try:
+        from workspace_ingest import start_workspace_ingest
+
+        start_workspace_ingest(ws)
+    except Exception:
+        pass
+    return info
+
+
+def _bootstrap_workspace() -> None:
+    """Open the last (or default) workspace and bind it as the data root."""
+    from app_config import get_last_workspace_path
+
+    try:
+        last = get_last_workspace_path()
+        ws_path = Path(last) if last else DATA_ROOT
+        if not ws_path.is_dir():
+            ws_path = DATA_ROOT
+        ws = open_workspace(ws_path, scan=True)
+        _activate_workspace_session(ws)
         print(f" Workspace: {ws.root}")
         print(f" Documents: {len(ws.list_documents())}")
         try:

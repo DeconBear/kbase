@@ -11,7 +11,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-from app_config import set_last_workspace_path, touch_recent_workspace
+from app_config import (
+    clear_last_workspace_if,
+    load_recent_workspaces,
+    remove_recent_workspace,
+    set_last_workspace_path,
+    touch_recent_workspace,
+)
 from storage import _atomic_write_json
 
 WORKSPACE_SPEC_VERSION = 1
@@ -174,6 +180,12 @@ class Workspace:
                 "derivationStorage": "adjacent",
                 "defaultParseEngine": "marker",
                 "defaultTranslateLang": "zh",
+                "literatureDir": "literature",
+                "literatureLayout": "per-paper-folder",
+                "ingestOnOpen": True,
+                "autoClassifyPdfs": True,
+                "autoExtractMetadata": True,
+                "classifyUseLlm": "uncertain_only",
             }
             self.save_manifest(manifest)
         if not self.links_path.exists():
@@ -217,6 +229,9 @@ class Workspace:
         manifest = self.load_manifest()
         globs = manifest.get("ignoreGlobs") or list(DEFAULT_IGNORE_GLOBS)
         return tuple(str(g) for g in globs)
+
+    def literature_dir_name(self) -> str:
+        return str(self.load_manifest().get("literatureDir") or "articles").strip("/") or "articles"
 
     def iter_candidate_files(self) -> Iterator[Path]:
         globs = self.ignore_globs()
@@ -498,6 +513,86 @@ class Workspace:
             "openedAt": manifest.get("openedAt"),
             "lastScanAt": manifest.get("lastScanAt"),
             "documentCount": len(self.list_documents()),
+            "literatureDir": manifest.get("literatureDir") or "articles",
+            "ingestOnOpen": manifest.get("ingestOnOpen", True),
+            "autoClassifyPdfs": manifest.get("autoClassifyPdfs", True),
+            "autoExtractMetadata": manifest.get("autoExtractMetadata", True),
+        }
+
+    def list_directory_tree(
+        self,
+        *,
+        max_depth: int = 48,
+        include_derivations: bool = False,
+    ) -> dict[str, Any]:
+        """Return the workspace filesystem as a nested folder/file tree."""
+        globs = self.ignore_globs()
+        doc_by_path = {
+            str(doc.get("path") or "").replace("\\", "/"): doc
+            for doc in self.list_documents()
+        }
+
+        def should_skip(rel: str, *, is_dir: bool) -> bool:
+            rel = rel.replace("\\", "/").strip("/")
+            if not rel:
+                return False
+            parts = Path(rel).parts
+            if parts and parts[0] == ".kbase":
+                return True
+            probe = rel if is_dir else rel
+            if _matches_any_glob(probe, globs):
+                return True
+            if _matches_any_glob(f"{probe}/", globs):
+                return True
+            if not is_dir and not include_derivations and is_derivation_path(rel):
+                return True
+            return False
+
+        def build_dir(abs_dir: Path, rel: str, depth: int) -> dict[str, Any]:
+            display_name = self.root.name if not rel else abs_dir.name
+            node: dict[str, Any] = {
+                "name": display_name,
+                "path": rel.replace("\\", "/"),
+                "type": "dir",
+                "children": [],
+            }
+            if depth >= max_depth:
+                return node
+            try:
+                entries = sorted(
+                    abs_dir.iterdir(),
+                    key=lambda p: (not p.is_dir(), p.name.lower()),
+                )
+            except OSError:
+                return node
+            for entry in entries:
+                entry_rel = f"{rel}/{entry.name}" if rel else entry.name
+                entry_rel = entry_rel.replace("\\", "/")
+                if entry.is_dir():
+                    if should_skip(entry_rel, is_dir=True):
+                        continue
+                    node["children"].append(build_dir(entry, entry_rel, depth + 1))
+                    continue
+                if not entry.is_file() or should_skip(entry_rel, is_dir=False):
+                    continue
+                kind = detect_kind(entry_rel) or "file"
+                doc = doc_by_path.get(entry_rel)
+                file_node: dict[str, Any] = {
+                    "name": entry.name,
+                    "path": entry_rel,
+                    "type": "file",
+                    "kind": kind,
+                }
+                if doc:
+                    file_node["docId"] = doc.get("id")
+                    file_node["title"] = doc.get("title")
+                node["children"].append(file_node)
+            return node
+
+        return {
+            "root": str(self.root),
+            "name": self.root.name,
+            "tree": build_dir(self.root, "", 0),
         }
 
 
@@ -521,6 +616,150 @@ def open_workspace(path: str | Path, *, scan: bool = True) -> Workspace:
     if scan:
         ws.scan(full=True)
     return ws
+
+
+def create_workspace(
+    path: str | Path,
+    *,
+    name: str | None = None,
+    scan: bool = True,
+) -> Workspace:
+    """Create a new workspace directory with default kbase layout."""
+    root = Path(path).resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "literature").mkdir(exist_ok=True)
+    (root / "notes").mkdir(exist_ok=True)
+    ws = open_workspace(root, scan=scan)
+    if name and name.strip():
+        manifest = ws.load_manifest()
+        manifest["name"] = name.strip()
+        ws.save_manifest(manifest)
+        touch_recent_workspace(ws.root, name=name.strip())
+    return ws
+
+
+def _is_kbase_workspace_root(root: Path) -> bool:
+    if (root / ".kbase" / "workspace.json").is_file():
+        return True
+    for name in ("notes", "articles", "literature", ".literature"):
+        if (root / name).is_dir():
+            return True
+    return False
+
+
+def _protected_workspace_roots() -> set[Path]:
+    try:
+        from storage import DATA_ROOT, REPO_ROOT
+
+        return {
+            Path(REPO_ROOT).resolve() / "data",
+            DATA_ROOT.resolve(),
+            Path.home().resolve(),
+            Path.home().resolve() / "Documents",
+        }
+    except ImportError:
+        return set()
+
+
+def _is_protected_workspace(root: Path) -> bool:
+    import os
+
+    key = os.path.normcase(str(root.resolve()))
+    return any(os.path.normcase(str(p)) == key for p in _protected_workspace_roots())
+
+
+def _rmtree_force(root: Path) -> None:
+    """Best-effort recursive delete (handles read-only files on Windows)."""
+    import os
+    import shutil
+    import stat
+
+    def _onerror(func, path, exc_info):  # noqa: ANN001
+        try:
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+        except Exception:
+            pass
+
+    shutil.rmtree(root, onerror=_onerror)
+
+
+def _pick_fallback_workspace(exclude: Path) -> Path | None:
+    import os
+
+    exclude_key = os.path.normcase(str(exclude.resolve()))
+    for item in load_recent_workspaces():
+        candidate = Path(str(item.get("path") or "")).resolve()
+        if os.path.normcase(str(candidate)) == exclude_key:
+            continue
+        if candidate.is_dir():
+            return candidate
+    try:
+        from storage import DATA_ROOT
+
+        default = DATA_ROOT.resolve()
+        if os.path.normcase(str(default)) != exclude_key and default.is_dir():
+            return default
+    except ImportError:
+        pass
+    return None
+
+
+def destroy_workspace(path: str | Path, *, delete_files: bool = False) -> dict[str, Any]:
+    """Remove a workspace from recents; optionally delete its directory."""
+    import os
+
+    root = Path(path).resolve()
+    active = get_active_workspace()
+    was_active = (
+        active is not None
+        and os.path.normcase(str(active.root.resolve())) == os.path.normcase(str(root))
+    )
+
+    removed_from_recents = remove_recent_workspace(root)
+    clear_last_workspace_if(root)
+
+    switched_to: str | None = None
+    if was_active:
+        set_active_workspace(None)
+        fallback = _pick_fallback_workspace(root)
+        if fallback is not None:
+            open_workspace(fallback, scan=True)
+            switched_to = str(fallback)
+            try:
+                from storage import bind_data_root_runtime
+
+                bind_data_root_runtime(fallback)
+            except ImportError:
+                pass
+
+    deleted_files = False
+    notice: str | None = None
+
+    if delete_files:
+        if not root.is_dir():
+            notice = "工作空间目录已不存在，已从最近列表移除"
+        elif _is_protected_workspace(root):
+            notice = "默认数据目录受保护，已从最近列表移除（未删除文件）"
+        elif not _is_kbase_workspace_root(root):
+            raise ValueError("不是有效的 KBase 工作空间")
+        else:
+            try:
+                _rmtree_force(root)
+                deleted_files = not root.exists()
+                if not deleted_files:
+                    notice = "部分文件未能删除，请关闭占用后重试"
+            except OSError as exc:
+                raise OSError(f"删除文件夹失败: {exc}") from exc
+
+    return {
+        "path": str(root),
+        "wasActive": was_active,
+        "removedFromRecents": removed_from_recents,
+        "deletedFiles": deleted_files,
+        "switchedTo": switched_to,
+        "notice": notice,
+    }
 
 
 def require_active_workspace() -> Workspace:

@@ -85,6 +85,55 @@ LOCAL_ENV: Path = DATA_ROOT / "local.env"
 LLM_CONFIG_FILE: Path = DATA_ROOT / "llm_config.json"
 LOW_MEMORY_CONFIG: Path = DATA_ROOT / "low_memory_config.json"
 
+
+def resolve_literature_dir(root: Path) -> str:
+    """Read ``literatureDir`` from workspace manifest, default ``articles``."""
+    manifest = root / ".kbase" / "workspace.json"
+    if manifest.exists():
+        try:
+            import json
+
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            lit = str(data.get("literatureDir") or "articles").strip("/") or "articles"
+            return lit
+        except (OSError, json.JSONDecodeError, ValueError):
+            pass
+    if (root / "literature").is_dir():
+        return "literature"
+    return "articles"
+
+
+def bind_data_root_runtime(root: Path, *, literature_dir: str | None = None) -> dict:
+    """Switch the in-process data root (used when changing workspace)."""
+    global DATA_ROOT, ARTICLES_DIR, NOTES_DIR, KBASE_DIR, DB_PATH, LOGS_DIR
+    global CHAT_SESSIONS_DIR, CHAT_SESSIONS_INDEX, LOCAL_ENV, LLM_CONFIG_FILE, LOW_MEMORY_CONFIG
+
+    resolved = Path(root).resolve()
+    DATA_ROOT = resolved
+    lit_name = (literature_dir or resolve_literature_dir(resolved)).strip("/") or "articles"
+    ARTICLES_DIR = DATA_ROOT / lit_name
+    NOTES_DIR = DATA_ROOT / "notes"
+    KBASE_DIR = DATA_ROOT / ".kbase"
+    DB_PATH = KBASE_DIR / "index.db"
+    LOGS_DIR = DATA_ROOT / "logs"
+    CHAT_SESSIONS_DIR = DATA_ROOT / "chat_sessions"
+    CHAT_SESSIONS_INDEX = KBASE_DIR / "chat_sessions_index.json"
+    LOCAL_ENV = DATA_ROOT / "local.env"
+    LLM_CONFIG_FILE = DATA_ROOT / "llm_config.json"
+    LOW_MEMORY_CONFIG = DATA_ROOT / "low_memory_config.json"
+    ensure_directories()
+    init_db()
+    load_local_env()
+    try:
+        import engines._paths as engine_paths
+
+        engine_paths.ARTICLES_DIR = ARTICLES_DIR
+        engine_paths.DATA_ROOT = DATA_ROOT
+        engine_paths.LOW_MEMORY_CONFIG = LOW_MEMORY_CONFIG
+    except ImportError:
+        pass
+    return get_data_root_info()
+
 # Static / read-only assets shipped with the package (index.html, assets/, ...)
 PACKAGE_DIR: Path = _KB_PKG_DIR
 STATIC_INDEX_HTML: Path = PACKAGE_DIR / "index.html"
