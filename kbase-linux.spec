@@ -12,11 +12,15 @@ datas = [
 ]
 binaries = []
 hiddenimports = [
-    'kb.utils_yaml', 'kb.llm_config', 'kb.storage', 'kb.db_index',
-    'kb.document_info', 'kb.translate', 'kb.calibrate', 'kb.library_chat',
-    'kb.engines', 'kb.engines.marker', 'kb.engines.docmind',
-    'kb.engines.docparser', 'kb.engines.ocr', 'kb.engines.llm_vision',
-    'kb.engines.unisound', 'kb.serve',
+    'kb.utils_yaml', 'kb.storage', 'kb.database', 'kb.app_config', 'kb.workspace',
+    'kb.derivations', 'kb.workspace_paths', 'kb.workspace_watch', 'kb.workspace_search',
+    'kb.workspace_index', 'kb.literature_classify', 'kb.workspace_ingest',
+    'kb.literature_organize', 'kb.word_extract', 'kb.legacy_bridge', 'kb.bookmarks',
+    'kb.cli', 'kb.engines._paths', 'kb.llm_config', 'kb.document_info', 'kb.translate',
+    'kb.calibrate', 'kb.library_chat', 'kb.engines', 'kb.engines.marker',
+    'kb.engines.docmind', 'kb.engines.docparser', 'kb.engines.vision_ocr',
+    'kb.engines.ocr', 'kb.engines.llm_vision', 'kb.engines.unisound_parser',
+    'kb.serve', 'kb.version', 'kb.updater',
     'webview', 'fitz',
 ]
 
