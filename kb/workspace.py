@@ -649,11 +649,11 @@ def _is_kbase_workspace_root(root: Path) -> bool:
 
 def _protected_workspace_roots() -> set[Path]:
     try:
-        from storage import DATA_ROOT, REPO_ROOT
+        from storage import REPO_ROOT, default_data_root
 
         return {
             Path(REPO_ROOT).resolve() / "data",
-            DATA_ROOT.resolve(),
+            default_data_root().resolve(),
             Path.home().resolve(),
             Path.home().resolve() / "Documents",
         }
@@ -695,9 +695,9 @@ def _pick_fallback_workspace(exclude: Path) -> Path | None:
         if candidate.is_dir():
             return candidate
     try:
-        from storage import DATA_ROOT
+        from storage import default_data_root
 
-        default = DATA_ROOT.resolve()
+        default = default_data_root().resolve()
         if os.path.normcase(str(default)) != exclude_key and default.is_dir():
             return default
     except ImportError:

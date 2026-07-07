@@ -134,6 +134,17 @@ def bind_data_root_runtime(root: Path, *, literature_dir: str | None = None) -> 
         pass
     return get_data_root_info()
 
+
+def default_data_root() -> Path:
+    """The original default data root, unaffected by ``bind_data_root_runtime``.
+
+    ``DATA_ROOT`` is rebound whenever a workspace is opened, so callers that
+    need the *static* default (e.g. fallback selection when removing the
+    active workspace) must use this instead of reading ``DATA_ROOT`` directly.
+    """
+    return Path(_DATA_ROOT_OVERRIDE or (_REPO_ROOT / "data"))
+
+
 # Static / read-only assets shipped with the package (index.html, assets/, ...)
 PACKAGE_DIR: Path = _KB_PKG_DIR
 STATIC_INDEX_HTML: Path = PACKAGE_DIR / "index.html"
