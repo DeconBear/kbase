@@ -4,6 +4,7 @@ from __future__ import annotations
 import fnmatch
 import hashlib
 import json
+import os
 import re
 import threading
 import uuid
@@ -34,6 +35,7 @@ DEFAULT_IGNORE_GLOBS = (
 
 KIND_BY_EXT: dict[str, str] = {
     ".md": "markdown",
+    ".markdown": "markdown",
     ".pdf": "pdf",
     ".docx": "word",
     ".html": "html",
@@ -43,7 +45,36 @@ KIND_BY_EXT: dict[str, str] = {
     ".jpeg": "image",
     ".gif": "image",
     ".webp": "image",
-    ".canvas.json": "canvas",
+    ".txt": "text",
+    ".log": "text",
+    ".json": "json",
+    ".csv": "csv",
+    ".tsv": "csv",
+    ".bib": "text",
+    ".tex": "text",
+    ".py": "code",
+    ".js": "code",
+    ".ts": "code",
+    ".tsx": "code",
+    ".jsx": "code",
+    ".css": "code",
+    ".rs": "code",
+    ".go": "code",
+    ".java": "code",
+    ".c": "code",
+    ".cpp": "code",
+    ".h": "code",
+    ".hpp": "code",
+    ".r": "code",
+    ".m": "code",
+    ".sh": "code",
+    ".yaml": "code",
+    ".yml": "code",
+    ".toml": "code",
+    ".ini": "code",
+    ".xml": "code",
+    ".sql": "code",
+    ".ipynb": "code",
 }
 
 DERIVATION_SUFFIXES = (
@@ -216,12 +247,33 @@ class Workspace:
         self._manifest_cache = data
 
     def rel_path(self, abs_path: Path) -> str:
-        return abs_path.resolve().relative_to(self.root).as_posix()
+        # On Windows, Path.resolve() may yield \\?\ extended paths while
+        # self.root stays as a normal path — normalize both before relative_to.
+        root = self.root.resolve()
+        target = abs_path.resolve()
+        try:
+            return target.relative_to(root).as_posix()
+        except ValueError:
+            root_s = os.path.normcase(os.path.normpath(str(root)))
+            target_s = os.path.normcase(os.path.normpath(str(target)))
+            # Strip Windows extended-length prefix if present.
+            if root_s.startswith("\\\\?\\"):
+                root_s = root_s[4:]
+            if target_s.startswith("\\\\?\\"):
+                target_s = target_s[4:]
+            return Path(target_s).relative_to(Path(root_s)).as_posix()
 
     def resolve(self, rel_path: str) -> Path:
         rel = rel_path.replace("\\", "/").lstrip("/")
-        target = (self.root / rel).resolve()
-        if not str(target).startswith(str(self.root)):
+        root = self.root.resolve()
+        target = (root / rel).resolve()
+        root_s = os.path.normcase(os.path.normpath(str(root)))
+        target_s = os.path.normcase(os.path.normpath(str(target)))
+        if root_s.startswith("\\\\?\\"):
+            root_s = root_s[4:]
+        if target_s.startswith("\\\\?\\"):
+            target_s = target_s[4:]
+        if not target_s.startswith(root_s):
             raise ValueError("路径越界")
         return target
 
