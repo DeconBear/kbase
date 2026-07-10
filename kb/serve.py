@@ -98,15 +98,25 @@ from database import (
     add_column,
     add_row,
     add_view,
+    batch_delete_rows,
     create_database,
+    database_attachments_dir,
     delete_column,
     delete_database,
     delete_row,
     delete_view,
+    export_database_csv,
+    import_database_csv,
+    list_database_history,
     list_databases,
     load_database,
     public_field_types,
     render_database,
+    restore_database_history,
+    save_database_attachment,
+    import_legacy_databases,
+    reindex_all_databases,
+    search_databases,
     update_column,
     update_database_meta,
     update_row,
@@ -118,13 +128,24 @@ from version import VERSION
 
 PORT = 8765
 INVALID_ARTICLE_CHARS = set("/\\:*?\"<>|'")
-ALLOWED_SAVE_SUFFIXES = {".md", ".json", ".txt"}
+ALLOWED_SAVE_SUFFIXES = {
+    ".md", ".markdown", ".json", ".txt", ".log", ".csv", ".tsv",
+    ".bib", ".tex", ".py", ".js", ".ts", ".tsx", ".jsx", ".css",
+    ".rs", ".go", ".java", ".c", ".cpp", ".h", ".hpp", ".r", ".m",
+    ".sh", ".yaml", ".yml", ".toml", ".ini", ".xml", ".sql", ".ipynb",
+}
+TEXT_FILE_MAX_BYTES = 5 * 1024 * 1024
 _LOG_LOCK = threading.Lock()
 _CHAT_LOCK = threading.Lock()
 
 # Ensure the runtime layout exists on first import.
 ensure_directories()
 load_local_env()
+try:
+    import_legacy_databases()
+    reindex_all_databases()
+except Exception:
+    pass
 
 
 # ---------------------------------------------------------------------------
@@ -222,11 +243,8 @@ def article_id_from_request_path(request_path: str) -> str:
 
 
 def resolve_save_path(filepath: str) -> Path:
-    """Allow saving only inside the article folders or notes folder, with
-    restricted filename suffix. The file must end with .md / .json / .txt and
-    must be a single component inside the article or notes directory.
-    """
-    rel = Path(str(filepath or ""))
+    """Allow saving text-like files under the active workspace (or DATA_ROOT)."""
+    rel = Path(str(filepath or "").replace("\\", "/"))
     if (
         rel.is_absolute()
         or rel.drive
@@ -235,20 +253,68 @@ def resolve_save_path(filepath: str) -> Path:
         or not rel.parts
     ):
         raise ValueError("Invalid save path")
+    if rel.suffix.lower() not in ALLOWED_SAVE_SUFFIXES:
+        raise ValueError("Saving is only allowed for text-like files")
 
-    articles_root = ARTICLES_DIR.resolve()
-    notes_root = NOTES_DIR.resolve()
+    root = _workspace_static_root()
+    target = (root / rel).resolve()
+    if not _is_inside(target, root) or target == root:
+        raise ValueError("Saving is only allowed inside the workspace")
+    try:
+        first = target.relative_to(root).parts[0]
+    except ValueError as exc:
+        raise ValueError("Invalid save path") from exc
+    if first == ".kbase":
+        raise ValueError("Cannot write into .kbase")
+    return target
 
-    target = (DATA_ROOT / rel).resolve()
-    if _is_inside(target, articles_root) and target != articles_root:
-        if target.suffix.lower() not in ALLOWED_SAVE_SUFFIXES:
-            raise ValueError("Saving into article folders is only allowed for .md/.json/.txt files")
-        return target
-    if _is_inside(target, notes_root) and target != notes_root:
-        if target.suffix.lower() not in ALLOWED_SAVE_SUFFIXES:
-            raise ValueError("Saving into notes is only allowed for .md/.json/.txt files")
-        return target
-    raise ValueError("Saving is only allowed for article files and notes")
+
+def resolve_workspace_rel_path(rel_path: str, *, must_exist: bool = False) -> Path:
+    """Resolve a workspace-relative path for read/write (not under .kbase)."""
+    rel = str(rel_path or "").replace("\\", "/").strip("/")
+    if not rel or ".." in rel.split("/"):
+        raise ValueError("Invalid path")
+    root = _workspace_static_root()
+    target = (root / rel).resolve()
+    if not _is_inside(target, root):
+        raise ValueError("Path escapes workspace")
+    try:
+        parts = target.relative_to(root).parts
+    except ValueError as exc:
+        raise ValueError("Invalid path") from exc
+    if parts and parts[0] == ".kbase":
+        raise ValueError("Cannot access .kbase")
+    if must_exist and not target.exists():
+        raise FileNotFoundError(rel)
+    return target
+
+
+def note_id_for_workspace_path(rel_path: str) -> str:
+    """Stable SQLite note id for an arbitrary workspace markdown path."""
+    import hashlib
+
+    norm = str(rel_path or "").replace("\\", "/").strip("/")
+    digest = hashlib.sha256(norm.encode("utf-8")).hexdigest()[:20]
+    return f"ws_{digest}"
+
+
+def workspace_path_for_note_id(note_id: str) -> str | None:
+    """Return folder-stored path for ws_* notes, else None."""
+    note = next((n for n in get_all_notes() if n.get("id") == note_id), None)
+    if not note:
+        return None
+    folder = str(note.get("folder") or "")
+    if folder.startswith("path:"):
+        return folder[5:]
+    return None
+
+
+def resolve_note_markdown_path(note_id: str) -> Path:
+    """Resolve on-disk markdown for a note id (legacy notes/ or workspace path)."""
+    ws_path = workspace_path_for_note_id(note_id)
+    if ws_path:
+        return resolve_workspace_rel_path(ws_path, must_exist=False)
+    return note_file_for(note_id)
 
 
 # ---------------------------------------------------------------------------
@@ -917,6 +983,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_workspace_info()
             elif path == "/api/workspace/recent":
                 self._json({"workspaces": load_recent_workspaces()})
+            elif path == "/api/workspace/file":
+                self.handle_workspace_file_read()
             elif path.startswith("/api/workspace/articles/") and path.endswith("/derivations"):
                 aid = path.split("/api/workspace/articles/", 1)[1].rsplit("/derivations", 1)[0].strip("/")
                 self.handle_workspace_article_derivations(aid)
@@ -940,6 +1008,10 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 doc_id = path.split("/api/workspace/documents/", 1)[1].strip("/")
                 self.handle_workspace_document_get(doc_id)
             elif path == "/api/databases":
+                qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                if qs.get("search", [""])[0].strip():
+                    self._json({"results": search_databases(qs.get("search", [""])[0])})
+                    return
                 self._json({"databases": list_databases(), "fieldTypes": public_field_types()})
             elif path.startswith("/api/databases/"):
                 self.handle_get_database()
@@ -1006,6 +1078,23 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 else:
                     self._error(404, "Asset not found")
                     return
+            elif relative.startswith(".kbase/database_attachments/"):
+                tail = relative[len(".kbase/database_attachments/"):]
+                parts = tail.split("/", 1)
+                if len(parts) != 2 or ".." in tail:
+                    self._error(400, "Invalid attachment path")
+                    return
+                db_id = parts[0]
+                try:
+                    validate_database_id(db_id)
+                except ValueError:
+                    self._error(400, "Invalid database id")
+                    return
+                safe_name = parts[1]
+                if ".." in safe_name or "/" in safe_name or "\\" in safe_name:
+                    self._error(400, "Invalid attachment path")
+                    return
+                target = database_attachments_dir(db_id) / safe_name
             else:
                 ws_target = _resolve_workspace_static_file(relative)
                 if ws_target is not None:
@@ -1161,6 +1250,16 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_workspace_organize_literature()
             elif path == "/api/workspace/settings":
                 self.handle_workspace_settings_save()
+            elif path == "/api/workspace/file":
+                self.handle_workspace_file_read()
+            elif path == "/api/workspace/mkdir":
+                self.handle_workspace_mkdir()
+            elif path == "/api/workspace/write":
+                self.handle_workspace_write()
+            elif path == "/api/workspace/rename":
+                self.handle_workspace_rename()
+            elif path == "/api/workspace/delete-path":
+                self.handle_workspace_delete_path()
             elif path == "/api/skills/install":
                 self.handle_skills_install()
             elif path == "/api/skills/preview":
@@ -1320,6 +1419,7 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             original_path = article_dir / ("original.pdf" if is_pdf else f"original{ext}")
             original_path.write_bytes(content)
 
+            base = Path(filename).stem or article_id
             title = base.replace("_", " ")
             pages = 0
             kind = "paper" if is_pdf else "file"
@@ -1674,18 +1774,21 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
 
     def handle_get_note(self):
         note_id = self._note_id_from_path()
-        md_path = note_file_for(note_id)
+        md_path = resolve_note_markdown_path(note_id)
         if not md_path.exists():
             self._error(404, "Note not found")
             return
         content = md_path.read_text(encoding="utf-8")
         meta = next((n for n in get_all_notes() if n["id"] == note_id), None)
-        self._json({"id": note_id, "content": content, "meta": meta})
+        payload = {"id": note_id, "content": content, "meta": meta}
+        ws_path = workspace_path_for_note_id(note_id)
+        if ws_path:
+            payload["path"] = ws_path
+        self._json(payload)
 
     def handle_get_note_blocks(self):
         note_id = self._note_id_from_path()
-        # Verify the note exists.
-        md_path = note_file_for(note_id)
+        md_path = resolve_note_markdown_path(note_id)
         if not md_path.exists():
             self._error(404, "Note not found")
             return
@@ -1698,13 +1801,30 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             self._error(404, "Not found")
             return
         validate_database_id(db_id)
+        qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        if sub == "export":
+            fmt = qs.get("format", ["csv"])[0] or "csv"
+            view_id = qs.get("view", [""])[0] or None
+            if fmt == "csv":
+                csv_text = export_database_csv(db_id, view_id or None)
+                self.send_response(200)
+                self.send_header("Content-Type", "text/csv; charset=utf-8")
+                self.send_header("Content-Disposition", f'attachment; filename="{db_id}.csv"')
+                self.end_headers()
+                self.wfile.write(csv_text.encode("utf-8-sig"))
+                return
+            self._error(400, "Unsupported export format")
+            return
+        if sub == "history":
+            self._json({"history": list_database_history(db_id)})
+            return
         if sub:
             self._error(404, "Not found")
             return
-        qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
         if qs.get("render", [""])[0] in ("1", "true", "yes"):
             view_id = qs.get("view", [""])[0] or None
-            self._json(render_database(db_id, view_id or None))
+            query = qs.get("q", [""])[0] or ""
+            self._json(render_database(db_id, view_id or None, query=query))
             return
         self._json(load_database(db_id))
 
@@ -1714,21 +1834,44 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         self._json(create_database(name))
 
     def handle_database_post(self):
-        db_id, sub, _sub_id = _database_path_parts(self.path)
+        db_id, sub, sub_id = _database_path_parts(self.path)
         if not db_id:
             self._error(404, "Not found")
             return
         validate_database_id(db_id)
+        if sub == "attachments":
+            self.handle_database_attachment_upload(db_id)
+            return
         body = self._read_json()
         if sub == "rows":
+            if sub_id == "batch-delete":
+                ids = body.get("ids") if isinstance(body.get("ids"), list) else []
+                deleted = batch_delete_rows(db_id, [str(x) for x in ids])
+                self._json({"deleted": deleted})
+                return
             row = add_row(db_id, body.get("cells") if isinstance(body.get("cells"), dict) else None)
             self._json(row)
+            return
+        if sub == "import":
+            csv_text = str(body.get("csv") or "")
+            mode = str(body.get("mode") or "append")
+            self._json(import_database_csv(db_id, csv_text, mode=mode))
+            return
+        if sub == "history" and sub_id:
+            self._json(restore_database_history(db_id, sub_id))
+            return
+        if sub == "ai-generate":
+            self.handle_database_ai_generate(db_id, body if isinstance(body, dict) else {})
             return
         if sub == "columns":
             col = add_column(
                 db_id,
                 str(body.get("name") or "新列"),
                 str(body.get("type") or "text"),
+                **{k: body[k] for k in (
+                    "linkDatabase", "bidirectional", "reverseColumn", "linkColumn",
+                    "lookupColumn", "rollupColumn", "rollupFn", "expression", "aiPrompt",
+                ) if k in body},
             )
             self._json(col)
             return
@@ -1739,10 +1882,87 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 str(body.get("type") or "table"),
                 group_column=str(body.get("groupColumn") or ""),
                 cover_column=str(body.get("coverColumn") or ""),
+                date_column=str(body.get("dateColumn") or ""),
             )
             self._json(view)
             return
         self._error(404, "Not found")
+
+    def handle_database_attachment_upload(self, db_id: str):
+        content_type = self.headers.get("Content-Type", "")
+        if "multipart/form-data" not in content_type:
+            self._error(400, "Expected multipart/form-data")
+            return
+        boundary = ""
+        for part in content_type.split(";"):
+            part = part.strip()
+            if part.startswith("boundary="):
+                boundary = part.split("=", 1)[1].strip('"')
+                break
+        if not boundary:
+            self._error(400, "No boundary found")
+            return
+        length = int(self.headers.get("Content-Length", 0))
+        if not length:
+            self._error(400, "Empty payload")
+            return
+        body = self.rfile.read(length)
+        boundary_bytes = boundary.encode()
+        for part in body.split(b"--" + boundary_bytes):
+            if b"Content-Disposition" not in part:
+                continue
+            header_end = part.find(b"\r\n\r\n")
+            if header_end == -1:
+                continue
+            headers_raw = part[:header_end].decode(errors="replace")
+            content = part[header_end + 4 :]
+            if content.endswith(b"\r\n"):
+                content = content[:-2]
+            if 'name="file"' not in headers_raw:
+                continue
+            filename = "upload.bin"
+            disposition = next(
+                (line for line in headers_raw.splitlines() if line.lower().startswith("content-disposition")),
+                "",
+            )
+            match = re.search(r'filename="([^"]*)"', disposition) or re.search(r"filename=([^;\r\n]+)", disposition)
+            if match:
+                filename = Path(match.group(1).strip()).name or filename
+            if not content:
+                self._error(400, "Empty file")
+                return
+            self._json(save_database_attachment(db_id, filename, content))
+            return
+        self._error(400, "file field required")
+
+    def handle_database_ai_generate(self, db_id: str, body: dict):
+        row_id = str(body.get("rowId") or "")
+        col_id = str(body.get("columnId") or "")
+        if not row_id or not col_id:
+            self._error(400, "rowId and columnId required")
+            return
+        db = load_database(db_id)
+        col_map = {c["id"]: c for c in db.get("columns") or []}
+        col = col_map.get(col_id)
+        if not col or col.get("type") != "ai_text":
+            self._error(400, "Not an ai_text column")
+            return
+        row = next((r for r in db.get("rows") or [] if r.get("id") == row_id), None)
+        if not row:
+            self._error(404, "Row not found")
+            return
+        prompt_parts = [str(col.get("aiPrompt") or "根据以下字段生成文本：")]
+        for c in db.get("columns") or []:
+            if c.get("type") in ("ai_text", "formula", "lookup", "rollup"):
+                continue
+            val = (row.get("cells") or {}).get(c["id"], "")
+            if val not in ("", None, [], False):
+                prompt_parts.append(f"{c.get('name')}: {val}")
+        messages = [{"role": "user", "content": "\n".join(prompt_parts)}]
+        data = call_chat_completion(messages)
+        text = (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+        updated = update_row(db_id, row_id, {col_id: text.strip()})
+        self._json({"text": text.strip(), "row": updated})
 
     def handle_database_put(self):
         db_id, sub, sub_id = _database_path_parts(self.path)
@@ -1794,31 +2014,13 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         self._error(404, "Not found")
 
     def handle_create_notebook(self):
-        body = self._read_json()
-        name = str(body.get("name") or "").strip()[:100]
-        if not name:
-            self._error(400, "Notebook name is required")
-            return
-        nb = {
-            "name": name,
-            "icon": str(body.get("icon") or "📓")[:16],
-            "sort_order": int(body.get("sort_order") or 0),
-        }
-        upsert_notebook(nb)
-        self._json({"status": "ok", "notebooks": list_notebooks()})
+        self._error(410, "Notebooks are deprecated; organize notes with folders")
 
     def handle_update_notebook(self):
-        nb_id = urllib.parse.unquote(self.path.rstrip("/").rsplit("/", 1)[-1])
-        body = self._read_json()
-        nb = dict(body)
-        nb["id"] = nb_id
-        upsert_notebook(nb)
-        self._json({"status": "ok", "notebooks": list_notebooks()})
+        self._error(410, "Notebooks are deprecated; organize notes with folders")
 
     def handle_delete_notebook(self):
-        nb_id = urllib.parse.unquote(self.path.rstrip("/").rsplit("/", 1)[-1])
-        delete_notebook(nb_id)
-        self._json({"status": "ok", "notebooks": list_notebooks()})
+        self._error(410, "Notebooks are deprecated; organize notes with folders")
 
     def handle_create_article_folder(self):
         body = self._read_json()
@@ -1885,23 +2087,44 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
 
     def handle_create_note(self):
         body = self._read_json()
-        title = str(body.get("title") or "Untitled").strip()[:200]
-        folder = str(body.get("folder") or "").strip()[:200]
-        # Article-scoped notes (a.k.a. "文章小记") get a stable
-        # slug-based id so the same article always re-opens the
-        # same note file. The id is `<article_id>__<slug>`. Free
-        # notebook notes get the usual timestamp-based id.
+        title = str(body.get("title") or "Untitled").strip()[:200] or "Untitled"
+        rel_dir = str(body.get("dir") or body.get("rel_dir") or "").replace("\\", "/").strip("/")
         article_id = str(body.get("article_id") or "").strip()[:128] or None
         slug = re.sub(r"[^A-Za-z0-9_-]+", "_", str(body.get("slug") or title).strip())[:80] or "note"
+
         if article_id:
             note_id = f"art_{article_id}__{slug}"
+            md_path = note_file_for(note_id)
+            if not md_path.exists():
+                md_path.write_text(f"# {title}\n\n", encoding="utf-8")
+            path_out = f"notes/{note_id}.md"
+            folder = str(body.get("folder") or "").strip()[:200]
         else:
-            ts = time.strftime("%Y%m%d_%H%M%S")
-            uid = os.urandom(4).hex()
-            note_id = f"note_{ts}_{uid}"
-        md_path = note_file_for(note_id)
-        if not md_path.exists():
+            # Prefer human-readable filename under the chosen directory.
+            base_name = re.sub(r"[^\w\u4e00-\u9fff.-]+", "_", title).strip("._") or "Untitled"
+            if not base_name.lower().endswith(".md"):
+                base_name = f"{base_name}.md"
+            if rel_dir:
+                target_dir = resolve_workspace_rel_path(rel_dir, must_exist=False)
+            else:
+                try:
+                    target_dir = resolve_workspace_rel_path("notes", must_exist=False)
+                except ValueError:
+                    target_dir = NOTES_DIR
+            target_dir.mkdir(parents=True, exist_ok=True)
+            md_path = target_dir / base_name
+            if md_path.exists():
+                stem = Path(base_name).stem
+                md_path = target_dir / f"{stem}_{int(time.time())}.md"
             md_path.write_text(f"# {title}\n\n", encoding="utf-8")
+            try:
+                root = _workspace_static_root()
+                path_out = md_path.resolve().relative_to(root).as_posix()
+            except ValueError:
+                path_out = f"notes/{md_path.name}"
+            note_id = note_id_for_workspace_path(path_out)
+            folder = f"path:{path_out}"
+
         now = time.strftime("%Y-%m-%d %H:%M:%S")
         entry = {
             "id": note_id,
@@ -1910,10 +2133,11 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             "modified_at": now,
             "tags": [],
             "folder": folder,
-            "notebook_id": str(body.get("notebook_id") or "").strip()[:64] or None,
-            "parent_id": body.get("parent_id") or None,
+            "notebook_id": "nb_default",
+            "parent_id": None,
             "article_id": article_id,
             "links": [],
+            "path": path_out,
         }
         upsert_note(entry)
         self._json(entry)
@@ -1923,59 +2147,65 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         body = self._read_json()
         content = str(body.get("content") or "")
         title = str(body.get("title") or "").strip()[:200]
-        md_path = note_file_for(note_id)
-        if not md_path.exists():
+        # Allow binding/saving by workspace path (folder-first).
+        req_path = str(body.get("path") or "").replace("\\", "/").strip("/")
+        if req_path:
+            if not req_path.lower().endswith((".md", ".markdown")):
+                self._error(400, "Only markdown paths can be saved as notes")
+                return
+            md_path = resolve_workspace_rel_path(req_path, must_exist=False)
+            note_id = note_id_for_workspace_path(req_path)
+            folder = f"path:{req_path}"
+        else:
+            if note_id == "workspace_note":
+                self._error(400, "path required for workspace notes")
+                return
+            md_path = resolve_note_markdown_path(note_id)
+            folder = None
+        if not md_path.exists() and "content" not in body:
             self._error(404, "Note not found")
             return
         now = time.strftime("%Y-%m-%d %H:%M:%S")
         existing = next((n for n in get_all_notes() if n["id"] == note_id), {"id": note_id})
-        existing["title"] = title or existing.get("title", "")
+        existing["title"] = title or existing.get("title", "") or md_path.stem
         existing["modified_at"] = now
+        if folder:
+            existing["folder"] = folder
         if "tags" in body:
             tags = body["tags"]
             existing["tags"] = [str(t).strip()[:50] for t in tags if str(t).strip()] if isinstance(tags, list) else []
-        if "folder" in body:
-            existing["folder"] = str(body.get("folder") or "").strip()[:200]
-        if "parent_id" in body:
-            new_parent = body.get("parent_id") or None
-            if new_parent and _is_note_ancestor(note_id, new_parent):
-                self._error(400, "Cannot move note under its descendant")
-                return
-            existing["parent_id"] = new_parent
+        # Folder-first: ignore notebook/parent organization.
+        existing["notebook_id"] = "nb_default"
+        existing["parent_id"] = None
         if "doc_icon" in body:
             existing["doc_icon"] = str(body.get("doc_icon") or "").strip()[:16]
         if "article_id" in body:
             existing["article_id"] = (str(body.get("article_id") or "").strip()[:128] or None)
-        if "notebook_id" in body:
-            existing["notebook_id"] = str(body.get("notebook_id") or "").strip()[:64] or None
         existing.setdefault("created_at", now)
         upsert_note(existing)
         if "content" in body:
+            md_path.parent.mkdir(parents=True, exist_ok=True)
             try:
-                # Rebuild block anchors. We then rewrite the saved file
-                # with stable `<!--kb-block:anchor-->` markers so the
-                # frontend can map the rendered DOM back to anchors.
                 rows = sync_note_blocks(note_id, content)
                 annotated = inject_block_anchors(content, rows)
-                if annotated != content:
-                    md_path.write_text(annotated, encoding="utf-8")
-                # Build the cross-note link index used by the backlinks
-                # panel.
+                md_path.write_text(annotated, encoding="utf-8")
                 sync_note_links(note_id, annotated)
             except Exception as exc:  # noqa: BLE001
                 print(f"sync_note_blocks/links failed for {note_id}: {exc}")
-        # Return the annotated content so the client cache stays
-        # in sync with disk.
+                md_path.write_text(content, encoding="utf-8")
         try:
-            with open(md_path, "r", encoding="utf-8") as f:
-                saved = f.read()
+            saved = md_path.read_text(encoding="utf-8")
         except OSError:
             saved = content if "content" in body else ""
-        self._json({"status": "ok", "content": saved})
+        out = {"status": "ok", "content": saved, "id": note_id}
+        ws_path = workspace_path_for_note_id(note_id) or req_path
+        if ws_path:
+            out["path"] = ws_path
+        self._json(out)
 
     def handle_delete_note(self):
         note_id = self._note_id_from_path()
-        md_path = note_file_for(note_id)
+        md_path = resolve_note_markdown_path(note_id)
         if md_path.exists():
             md_path.unlink()
         delete_note(note_id)
@@ -2490,6 +2720,122 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         ws.save_manifest(manifest)
         self._json({"ok": True, "workspace": ws.info()})
 
+    def handle_workspace_file_read(self) -> None:
+        """GET/POST: read a text file by workspace-relative path."""
+        qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        rel = (qs.get("path", [""])[0] or "").strip()
+        if not rel and self.command == "POST":
+            body = self._read_json()
+            rel = str(body.get("path") or "").strip()
+        if not rel:
+            self._error(400, "path required")
+            return
+        target = resolve_workspace_rel_path(rel, must_exist=True)
+        if not target.is_file():
+            self._error(404, "Not a file")
+            return
+        size = target.stat().st_size
+        if size > TEXT_FILE_MAX_BYTES:
+            raw = target.read_bytes()[:TEXT_FILE_MAX_BYTES]
+            text = raw.decode("utf-8", errors="replace")
+            self._json({
+                "path": rel.replace("\\", "/"),
+                "content": text,
+                "size": size,
+                "readonly": True,
+                "truncated": True,
+            })
+            return
+        text = target.read_text(encoding="utf-8", errors="replace")
+        self._json({
+            "path": rel.replace("\\", "/"),
+            "content": text,
+            "size": size,
+            "readonly": False,
+            "truncated": False,
+        })
+
+    def handle_workspace_mkdir(self) -> None:
+        body = self._read_json()
+        rel = str(body.get("path") or body.get("dir") or "").replace("\\", "/").strip("/")
+        if not rel:
+            self._error(400, "path required")
+            return
+        target = resolve_workspace_rel_path(rel, must_exist=False)
+        target.mkdir(parents=True, exist_ok=True)
+        self._json({"ok": True, "path": rel})
+
+    def handle_workspace_write(self) -> None:
+        body = self._read_json()
+        rel = str(body.get("path") or "").replace("\\", "/").strip("/")
+        content = body.get("content")
+        if not rel:
+            self._error(400, "path required")
+            return
+        if content is None:
+            self._error(400, "content required")
+            return
+        target = resolve_save_path(rel)
+        if isinstance(content, str) and len(content.encode("utf-8")) > TEXT_FILE_MAX_BYTES:
+            self._error(400, "File too large to save via editor")
+            return
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(str(content), encoding="utf-8")
+        self._json({"ok": True, "path": rel})
+
+    def handle_workspace_rename(self) -> None:
+        body = self._read_json()
+        src = str(body.get("from") or body.get("src") or "").replace("\\", "/").strip("/")
+        dst = str(body.get("to") or body.get("dst") or "").replace("\\", "/").strip("/")
+        if not src or not dst:
+            self._error(400, "from and to required")
+            return
+        src_path = resolve_workspace_rel_path(src, must_exist=True)
+        dst_path = resolve_workspace_rel_path(dst, must_exist=False)
+        if dst_path.exists():
+            self._error(409, "Destination already exists")
+            return
+        dst_path.parent.mkdir(parents=True, exist_ok=True)
+        src_path.rename(dst_path)
+        if src.lower().endswith((".md", ".markdown")):
+            old_id = note_id_for_workspace_path(src)
+            new_id = note_id_for_workspace_path(dst)
+            existing = next((n for n in get_all_notes() if n.get("id") == old_id), None)
+            if existing:
+                delete_note(old_id)
+                existing["id"] = new_id
+                existing["folder"] = f"path:{dst}"
+                existing["title"] = existing.get("title") or Path(dst).stem
+                existing["modified_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+                upsert_note(existing)
+        self._json({"ok": True, "from": src, "to": dst})
+
+    def handle_workspace_delete_path(self) -> None:
+        body = self._read_json()
+        rel = str(body.get("path") or "").replace("\\", "/").strip("/")
+        if not rel:
+            self._error(400, "path required")
+            return
+        target = resolve_workspace_rel_path(rel, must_exist=True)
+        if target.is_dir():
+            # Drop SQLite note rows whose path lives under this directory.
+            prefix = rel.rstrip("/") + "/"
+            for note in list(get_all_notes()):
+                folder = str(note.get("folder") or "")
+                if folder.startswith("path:"):
+                    npath = folder[5:]
+                    if npath == rel or npath.startswith(prefix):
+                        try:
+                            delete_note(note["id"])
+                        except Exception:
+                            pass
+            shutil.rmtree(target)
+        else:
+            target.unlink()
+            if rel.lower().endswith((".md", ".markdown")):
+                delete_note(note_id_for_workspace_path(rel))
+        self._json({"ok": True, "path": rel})
+
     def handle_skills_install(self) -> None:
         """POST /api/skills/install — install tools + skill file to target directory."""
         data = self._read_json()
@@ -2604,6 +2950,9 @@ def validate_note_id(note_id: str) -> str:
     note_id = str(note_id or "").strip()
     if not note_id:
         raise ValueError("Note id is required")
+    # Placeholder used by path-based saves (body.path is authoritative).
+    if note_id == "workspace_note":
+        return note_id
     path = Path(note_id)
     if (
         path.is_absolute()
@@ -2710,34 +3059,44 @@ def _unique_archive_name(name, used):
 PACKAGE_DIR = Path(__file__).resolve().parent
 
 
-def _activate_workspace_session(ws) -> dict:
-    """Bind workspace root as runtime data root and refresh indexes."""
+def _activate_workspace_session(ws, *, heavy: bool = True) -> dict:
+    """Bind workspace root as runtime data root and optionally refresh indexes."""
     from storage import bind_data_root_runtime
 
     info = bind_data_root_runtime(ws.root, literature_dir=ws.literature_dir_name())
-    try:
-        from workspace_index import rebuild_index
+    if not heavy:
+        return info
 
-        rebuild_index(ws)
-    except Exception:
-        pass
-    try:
-        from workspace_watch import start_workspace_watcher
+    def _bg() -> None:
+        try:
+            from workspace_index import rebuild_index
 
-        start_workspace_watcher(ws)
-    except Exception:
-        pass
-    try:
-        from workspace_ingest import start_workspace_ingest
+            rebuild_index(ws)
+        except Exception:
+            pass
+        try:
+            from workspace_watch import start_workspace_watcher
 
-        start_workspace_ingest(ws)
-    except Exception:
-        pass
+            start_workspace_watcher(ws)
+        except Exception:
+            pass
+        try:
+            from workspace_ingest import start_workspace_ingest
+
+            start_workspace_ingest(ws)
+        except Exception:
+            pass
+
+    threading.Thread(target=_bg, daemon=True, name="ws-activate").start()
     return info
 
 
 def _bootstrap_workspace() -> None:
-    """Open the last (or default) workspace and bind it as the data root."""
+    """Open the last (or default) workspace and bind it as the data root.
+
+    Heavy scan/index/ingest runs in a background thread so HTTP can listen
+    immediately (Baidu Sync / large trees otherwise block startup for minutes).
+    """
     from app_config import get_last_workspace_path
 
     try:
@@ -2745,24 +3104,39 @@ def _bootstrap_workspace() -> None:
         ws_path = Path(last) if last else DATA_ROOT
         if not ws_path.is_dir():
             ws_path = DATA_ROOT
-        ws = open_workspace(ws_path, scan=True)
-        _activate_workspace_session(ws)
+        # Bind first without a full filesystem scan so the server can start.
+        ws = open_workspace(ws_path, scan=False)
+        _activate_workspace_session(ws, heavy=False)
         print(f" Workspace: {ws.root}")
-        print(f" Documents: {len(ws.list_documents())}")
-        try:
-            from workspace_index import rebuild_index
 
-            idx = rebuild_index(ws)
-            print(f" FTS index: {idx.get('indexed', 0)} files")
-        except Exception as exc:  # noqa: BLE001
-            print(f" FTS index skipped: {exc}")
-        try:
-            from workspace_watch import start_workspace_watcher
+        def _bg_scan() -> None:
+            try:
+                ws.scan(full=True)
+                print(f" Documents: {len(ws.list_documents())}")
+            except Exception as exc:  # noqa: BLE001
+                print(f" Workspace scan skipped: {exc}")
+            try:
+                from workspace_index import rebuild_index
 
-            mode = start_workspace_watcher(ws)
-            print(f" Workspace watcher: {mode}")
-        except Exception as exc:  # noqa: BLE001
-            print(f" Workspace watcher skipped: {exc}")
+                idx = rebuild_index(ws)
+                print(f" FTS index: {idx.get('indexed', 0)} files")
+            except Exception as exc:  # noqa: BLE001
+                print(f" FTS index skipped: {exc}")
+            try:
+                from workspace_watch import start_workspace_watcher
+
+                mode = start_workspace_watcher(ws)
+                print(f" Workspace watcher: {mode}")
+            except Exception as exc:  # noqa: BLE001
+                print(f" Workspace watcher skipped: {exc}")
+            try:
+                from workspace_ingest import start_workspace_ingest
+
+                start_workspace_ingest(ws)
+            except Exception:
+                pass
+
+        threading.Thread(target=_bg_scan, daemon=True, name="ws-bootstrap").start()
     except Exception as exc:  # noqa: BLE001
         print(f" Workspace bootstrap skipped: {exc}")
 

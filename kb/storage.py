@@ -210,6 +210,8 @@ def ensure_directories() -> None:
         ARTICLES_DIR,
         NOTES_DIR,
         KBASE_DIR,
+        KBASE_DIR / "databases",
+        KBASE_DIR / "database_attachments",
         LOGS_DIR,
         CHAT_SESSIONS_DIR,
     ):
@@ -545,6 +547,26 @@ CREATE INDEX IF NOT EXISTS idx_articles_date_added ON articles(date_added);
 CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag);
 CREATE INDEX IF NOT EXISTS idx_translation_article ON translation_state(article_id);
 CREATE INDEX IF NOT EXISTS idx_conv_history_article ON conversion_history(article_id);
+
+CREATE TABLE IF NOT EXISTS databases (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    icon TEXT,
+    description TEXT,
+    file_path TEXT NOT NULL,
+    row_count INTEGER DEFAULT 0,
+    view_count INTEGER DEFAULT 1,
+    updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS database_cell_index (
+    database_id TEXT NOT NULL,
+    row_id TEXT NOT NULL,
+    column_id TEXT NOT NULL,
+    text_value TEXT,
+    PRIMARY KEY (database_id, row_id, column_id)
+);
+CREATE INDEX IF NOT EXISTS idx_database_cell_text ON database_cell_index(text_value);
 """
 
 _BOOL_FIELDS = {
