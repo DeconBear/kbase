@@ -6,7 +6,8 @@ and chat sessions. The legacy kb-index.json / notes_index.json /
 library_chat_sessions.json files are no longer read or written by the app.
 
 Data root resolution (no environment variable overrides):
-- Packaged build (PyInstaller): ``<exe dir>/data``
+- New packaged installs: ``~/Documents/KBase``
+- Existing packaged installs with data beside the executable keep that path
 - Source run: ``<repo root>/data`` (parent of the ``kb`` package)
 
 The data root is created on first access. A minimal ``local.env`` is generated
@@ -37,15 +38,37 @@ else:
     _REPO_ROOT = _KB_PKG_DIR.parent
 
 REPO_ROOT: Path = _REPO_ROOT
-_DATA_PATH_FILE: Path = _REPO_ROOT / "data_path.txt"
+
+if sys.platform == "win32":
+    _CONFIG_ROOT = Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming") / "kbase"
+else:
+    _CONFIG_ROOT = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "kbase"
+
+_DATA_PATH_FILE: Path = _CONFIG_ROOT / "data_path.txt"
+_LEGACY_DATA_PATH_FILE: Path = _REPO_ROOT / "data_path.txt"
+
+
+def _packaged_default_root() -> Path:
+    """Choose a writable user workspace while preserving existing installs."""
+    legacy = _REPO_ROOT / "data"
+    articles = legacy / "articles"
+    try:
+        has_articles = articles.is_dir() and next(articles.iterdir(), None) is not None
+    except OSError:
+        has_articles = False
+    if (legacy / ".kbase" / "index.db").exists() or (legacy / "local.env").exists() or has_articles:
+        return legacy
+    return Path.home() / "Documents" / "KBase"
+
+
+_STATIC_DEFAULT_ROOT = _packaged_default_root() if getattr(sys, "frozen", False) else _REPO_ROOT / "data"
 
 # Honour a user-chosen data root override (written by set_data_root).
 _DATA_ROOT_OVERRIDE: Path | None = None
-if _DATA_PATH_FILE.exists():
+_override_file = _DATA_PATH_FILE if _DATA_PATH_FILE.exists() else _LEGACY_DATA_PATH_FILE
+if _override_file.exists():
     try:
-        candidate = Path(_DATA_PATH_FILE.read_text(encoding="utf-8").strip())
-        if candidate.name != "data":
-            candidate = candidate / "data"
+        candidate = Path(_override_file.read_text(encoding="utf-8").strip())
         if candidate.is_absolute():
             _DATA_ROOT_OVERRIDE = candidate
     except Exception:
@@ -56,7 +79,7 @@ if _DATA_PATH_FILE.exists():
 # but the user still needs a writable data directory. Fall back to the
 # XDG-compliant per-user data dir in that case. Detection is intentionally
 # conservative: only triggers when the repo root itself is unwritable.
-if _DATA_ROOT_OVERRIDE is None:
+if _DATA_ROOT_OVERRIDE is None and not getattr(sys, "frozen", False):
     try:
         # If we can write a probe file, the repo root is fine — keep default.
         probe = _REPO_ROOT / ".kbase_write_probe"
@@ -73,7 +96,7 @@ if _DATA_ROOT_OVERRIDE is None:
         except Exception:
             pass
 
-DATA_ROOT: Path = _DATA_ROOT_OVERRIDE or (_REPO_ROOT / "data")
+DATA_ROOT: Path = _DATA_ROOT_OVERRIDE or _STATIC_DEFAULT_ROOT
 ARTICLES_DIR: Path = DATA_ROOT / "articles"
 NOTES_DIR: Path = DATA_ROOT / "notes"
 KBASE_DIR: Path = DATA_ROOT / ".kbase"
@@ -142,7 +165,7 @@ def default_data_root() -> Path:
     need the *static* default (e.g. fallback selection when removing the
     active workspace) must use this instead of reading ``DATA_ROOT`` directly.
     """
-    return Path(_DATA_ROOT_OVERRIDE or (_REPO_ROOT / "data"))
+    return Path(_DATA_ROOT_OVERRIDE or _STATIC_DEFAULT_ROOT)
 
 
 # Static / read-only assets shipped with the package (index.html, assets/, ...)
@@ -250,35 +273,57 @@ def get_data_root_info() -> dict:
     """Return the current data root and whether it has been overridden."""
     return {
         "dataRoot": str(DATA_ROOT),
+        "defaultDataRoot": str(default_data_root()),
         "installRoot": str(REPO_ROOT),
+        "isPackaged": bool(getattr(sys, "frozen", False)),
         "isOverridden": _DATA_ROOT_OVERRIDE is not None,
+        "isDefaultActive": DATA_ROOT == default_data_root(),
+        "isLegacyInstallRoot": bool(
+            _DATA_ROOT_OVERRIDE is None
+            and getattr(sys, "frozen", False)
+            and _STATIC_DEFAULT_ROOT == (_REPO_ROOT / "data")
+        ),
     }
 
 
 def set_data_root(new_root: str) -> dict:
     """Persist a user-chosen data root override.
 
-    Writes *new_root* to ``data_path.txt`` in the install/portable root.
+    Writes *new_root* to the per-user application configuration directory.
     The application must be restarted for the change to take effect on all
     modules because the path constants are resolved at import time.
 
     Returns a dict with ``{ok, message, dataRoot}`` suitable for the
     frontend.
     """
-    candidate = Path(new_root).resolve()
+    global _DATA_ROOT_OVERRIDE
+
+    if not str(new_root or "").strip():
+        return {"ok": False, "message": "路径不能为空"}
+    candidate = Path(new_root).expanduser().resolve()
     if not candidate.is_absolute():
         return {"ok": False, "message": "路径必须是绝对路径"}
 
-    # Normalise: the user picks a parent directory; we store data/ under it.
-    if candidate.name != "data":
-        candidate = candidate / "data"
+    if candidate.exists() and not candidate.is_dir():
+        return {"ok": False, "message": "路径必须是文件夹"}
 
     data_root_str = str(candidate)
 
+    tmp = _DATA_PATH_FILE.with_suffix(".tmp")
     try:
-        _DATA_PATH_FILE.write_text(data_root_str, encoding="utf-8")
+        _DATA_PATH_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(data_root_str, encoding="utf-8")
+        os.replace(tmp, _DATA_PATH_FILE)
     except OSError as e:
         return {"ok": False, "message": f"无法写入配置文件: {e}"}
+
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    _DATA_ROOT_OVERRIDE = candidate
 
     return {
         "ok": True,

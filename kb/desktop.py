@@ -5,6 +5,7 @@ bundles, kb modules are pre-aliased so source-style bare imports still work.
 """
 from __future__ import annotations
 
+import base64
 import os
 import sys
 import traceback
@@ -131,18 +132,34 @@ def main() -> None:
     print(f"Opening desktop window at {url}")
 
     class Api:
+        def _save_bytes(self, content: bytes, suggested_name: str):
+            result = webview.windows[0].create_file_dialog(
+                webview.SAVE_DIALOG, directory="", save_filename=suggested_name
+            )
+            if not result:
+                return False
+            target = result[0]
+            temp_target = f"{target}.kbase-tmp-{os.getpid()}"
+            try:
+                with open(temp_target, "wb") as file:
+                    file.write(content)
+                os.replace(temp_target, target)
+            finally:
+                if os.path.exists(temp_target):
+                    os.unlink(temp_target)
+            return True
+
         def save_file(self, content: str, suggested_name: str):
             try:
-                result = webview.windows[0].create_file_dialog(
-                    webview.SAVE_DIALOG, directory="", save_filename=suggested_name
-                )
-                if result:
-                    with open(result[0], "wb") as f:
-                        f.write(content.encode("utf-8"))
-                    return True
+                return self._save_bytes(content.encode("utf-8"), suggested_name)
             except Exception as exc:  # noqa: BLE001
                 return str(exc)
-            return False
+
+        def save_file_base64(self, content: str, suggested_name: str):
+            try:
+                return self._save_bytes(base64.b64decode(content, validate=True), suggested_name)
+            except Exception as exc:  # noqa: BLE001
+                return str(exc)
 
         def quit_app(self) -> None:
             """Close the application window — used by the auto-updater flow."""

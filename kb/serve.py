@@ -15,6 +15,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 import zipfile
 from pathlib import Path
 
@@ -28,14 +29,6 @@ from workspace import (
     require_active_workspace,
 )
 from storage import (
-    ARTICLES_DIR,
-    DATA_ROOT,
-    DB_PATH,
-    KBASE_DIR,
-    LOCAL_ENV,
-    LLM_CONFIG_FILE,
-    LOW_MEMORY_CONFIG,
-    NOTES_DIR,
     STATIC_INDEX_HTML,
     add_item_to_workspace,
     delete_article,
@@ -167,7 +160,7 @@ def _workspace_static_root() -> Path:
     ws = get_active_workspace()
     if ws is not None:
         return ws.root.resolve()
-    return DATA_ROOT.resolve()
+    return storage.DATA_ROOT.resolve()
 
 
 def _resolve_workspace_static_file(relative: str) -> Path | None:
@@ -175,6 +168,15 @@ def _resolve_workspace_static_file(relative: str) -> Path | None:
     rel = relative.replace("\\", "/").strip("/")
     if not rel or ".." in rel.split("/"):
         return None
+    ws = get_active_workspace()
+    if ws is not None and ws.is_readonly_path(rel):
+        try:
+            target = ws.resolve(rel)
+        except ValueError:
+            return None
+        if target.suffix.lower() not in {".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}:
+            return None
+        return target if target.is_file() else None
     root = _workspace_static_root()
     target = (root / rel).resolve()
     if _is_inside(target, root) and target.is_file():
@@ -186,7 +188,7 @@ def _resolve_workspace_static_file(relative: str) -> Path | None:
             return None
         return target
     if rel.startswith("notes/"):
-        note_file = (NOTES_DIR / rel[len("notes/"):]).resolve()
+        note_file = (storage.NOTES_DIR / rel[len("notes/"):]).resolve()
         if note_file.is_file():
             return note_file
     return None
@@ -230,8 +232,8 @@ def validate_article_id(article_id: str) -> str:
 
 def article_dir_for(article_id: str) -> Path:
     article_id = validate_article_id(article_id)
-    base = ARTICLES_DIR.resolve()
-    target = (ARTICLES_DIR / article_id).resolve()
+    base = storage.ARTICLES_DIR.resolve()
+    target = (storage.ARTICLES_DIR / article_id).resolve()
     if target == base or not _is_inside(target, base):
         raise ValueError("Invalid article path")
     return target
@@ -245,6 +247,8 @@ def article_id_from_request_path(request_path: str) -> str:
 def resolve_save_path(filepath: str) -> Path:
     """Allow saving text-like files under the active workspace (or DATA_ROOT)."""
     rel = Path(str(filepath or "").replace("\\", "/"))
+    if str(rel).replace("\\", "/").startswith("@sources/"):
+        raise ValueError("External sources are read-only; copy the file into managed storage first")
     if (
         rel.is_absolute()
         or rel.drive
@@ -274,6 +278,12 @@ def resolve_workspace_rel_path(rel_path: str, *, must_exist: bool = False) -> Pa
     rel = str(rel_path or "").replace("\\", "/").strip("/")
     if not rel or ".." in rel.split("/"):
         raise ValueError("Invalid path")
+    ws = get_active_workspace()
+    if ws is not None and ws.is_readonly_path(rel):
+        target = ws.resolve(rel)
+        if must_exist and not target.exists():
+            raise FileNotFoundError(rel)
+        return target
     root = _workspace_static_root()
     target = (root / rel).resolve()
     if not _is_inside(target, root):
@@ -287,6 +297,13 @@ def resolve_workspace_rel_path(rel_path: str, *, must_exist: bool = False) -> Pa
     if must_exist and not target.exists():
         raise FileNotFoundError(rel)
     return target
+
+
+def require_managed_workspace_path(rel_path: str) -> None:
+    """Reject mutations against linked external folders."""
+    ws = get_active_workspace()
+    if ws is not None and ws.is_readonly_path(rel_path):
+        raise ValueError("External sources are read-only; copy files into managed storage first")
 
 
 def note_id_for_workspace_path(rel_path: str) -> str:
@@ -403,7 +420,7 @@ def scan_articles() -> list[dict]:
             for row in conn.execute("SELECT * FROM articles").fetchall()
         }
 
-        for folder in sorted(ARTICLES_DIR.iterdir()) if ARTICLES_DIR.exists() else []:
+        for folder in sorted(storage.ARTICLES_DIR.iterdir()) if storage.ARTICLES_DIR.exists() else []:
             if not folder.is_dir():
                 continue
             aid = folder.name
@@ -492,7 +509,7 @@ def scan_articles() -> list[dict]:
                     article["kind"] = info["document_kind"]
                 tags = info.get("tags") or info.get("keywords") or []
                 if tags:
-                    article["tags"] = tags[:8]
+                    article["tags"] = tags
 
             # Page count from meta
             if meta.get("page_stats") and not article.get("pages"):
@@ -502,7 +519,7 @@ def scan_articles() -> list[dict]:
 
         # Any leftover rows whose article folder is gone: drop them.
         for aid in list(existing.keys()):
-            if not (ARTICLES_DIR / aid).exists():
+            if not (storage.ARTICLES_DIR / aid).exists():
                 delete_article(aid)
 
     return get_all_articles()
@@ -539,7 +556,7 @@ def get_conv_status(article_id: str, task: str) -> dict | None:
 
 
 def _log_path(article_id: str, task: str) -> Path:
-    folder = KBASE_DIR / "logs" / article_id
+    folder = storage.KBASE_DIR / "logs" / article_id
     folder.mkdir(parents=True, exist_ok=True)
     return folder / f"{task}.log"
 
@@ -953,6 +970,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_get_attachments()
             elif path.startswith("/api/articles/") and path.endswith("/notes"):
                 self.handle_get_article_notes()
+            elif path == "/api/articles/duplicates":
+                self._json({"groups": _find_duplicate_article_groups(get_all_articles())})
             elif path == "/api/notes":
                 from legacy_bridge import enrich_notes
 
@@ -983,6 +1002,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_workspace_info()
             elif path == "/api/workspace/recent":
                 self._json({"workspaces": load_recent_workspaces()})
+            elif path == "/api/workspace/sources":
+                self.handle_workspace_sources_get()
             elif path == "/api/workspace/file":
                 self.handle_workspace_file_read()
             elif path.startswith("/api/workspace/articles/") and path.endswith("/derivations"):
@@ -1030,6 +1051,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             self._error(400, str(exc))
         except FileNotFoundError as exc:
             self._error(404, str(exc))
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            self.close_connection = True
         except Exception as exc:  # noqa: BLE001
             self._error(500, str(exc))
 
@@ -1047,9 +1070,9 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
 
     def _collect_settings(self) -> dict:
         runtime = {}
-        if LOW_MEMORY_CONFIG.exists():
+        if storage.LOW_MEMORY_CONFIG.exists():
             try:
-                runtime = json.loads(LOW_MEMORY_CONFIG.read_text(encoding="utf-8"))
+                runtime = json.loads(storage.LOW_MEMORY_CONFIG.read_text(encoding="utf-8"))
             except Exception:
                 runtime = {}
         for key in ("DOCPARSER_API_URL", "DOCPARSER_ENGINE"):
@@ -1060,7 +1083,7 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
 
     def serve_static(self, path: str) -> None:
         # Translate URL path to filesystem path under data/ or package dir.
-        relative = path.lstrip("/")
+        relative = urllib.parse.unquote(path.lstrip("/"))
         if not relative or relative == "index.html":
             target = STATIC_INDEX_HTML
         else:
@@ -1074,7 +1097,7 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                     if ".." in safe_name or "/" in safe_name or "\\" in safe_name:
                         self._error(400, "Invalid asset path")
                         return
-                    target = ARTICLES_DIR / aid / safe_name
+                    target = storage.ARTICLES_DIR / aid / safe_name
                 else:
                     self._error(404, "Asset not found")
                     return
@@ -1168,6 +1191,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_article_delete()
             elif path == "/api/articles/update":
                 self.handle_article_update()
+            elif path == "/api/articles/import":
+                self.handle_article_import()
             elif path == "/api/llm-config":
                 self._json(save_llm_config_from_public(self._read_json()))
             elif path == "/api/chat":
@@ -1237,6 +1262,12 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_workspace_delete()
             elif path == "/api/workspace/scan":
                 self.handle_workspace_scan()
+            elif path == "/api/workspace/sources":
+                self.handle_workspace_source_add()
+            elif path == "/api/workspace/sources/remove":
+                self.handle_workspace_source_remove()
+            elif path == "/api/workspace/import-managed":
+                self.handle_workspace_import_managed()
             elif path.startswith("/api/workspace/documents/") and path.endswith("/preparse"):
                 doc_id = path.split("/api/workspace/documents/", 1)[1].rsplit("/preparse", 1)[0].strip("/")
                 self.handle_workspace_preparse(doc_id)
@@ -1276,6 +1307,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self._error(404, "Not found")
         except ValueError as exc:
             self._error(400, str(exc))
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            self.close_connection = True
         except Exception as exc:  # noqa: BLE001
             self._error(500, str(exc))
 
@@ -1304,6 +1337,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self._error(404, "Not found")
         except ValueError as exc:
             self._error(400, str(exc))
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            self.close_connection = True
         except Exception as exc:  # noqa: BLE001
             self._error(500, str(exc))
 
@@ -1329,6 +1364,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self._error(404, "Not found")
         except ValueError as exc:
             self._error(400, str(exc))
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            self.close_connection = True
         except Exception as exc:  # noqa: BLE001
             self._error(500, str(exc))
 
@@ -1612,7 +1649,7 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         if not ids:
             self._error(400, "No articles selected")
             return
-        if export_format not in {"bibtex", "pdf", "markdown"}:
+        if export_format not in {"bibtex", "ris", "csljson", "pdf", "markdown"}:
             self._error(400, "Unsupported export format")
             return
 
@@ -1626,6 +1663,18 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             used: set[str] = set()
             content = ("\n\n".join(_article_to_bibtex(a, used) for a in articles) + "\n").encode("utf-8")
             self._send_download(content, f"kbase_export_{stamp}.bib", "application/x-bibtex; charset=utf-8")
+            return
+        if export_format == "ris":
+            content = ("\n".join(_article_to_ris(a) for a in articles) + "\n").encode("utf-8")
+            self._send_download(content, f"kbase_export_{stamp}.ris", "application/x-research-info-systems; charset=utf-8")
+            return
+        if export_format == "csljson":
+            content = json.dumps(
+                [_article_to_csl_json(article) for article in articles],
+                ensure_ascii=False,
+                indent=2,
+            ).encode("utf-8")
+            self._send_download(content, f"kbase_export_{stamp}.json", "application/json; charset=utf-8")
             return
 
         archive = io.BytesIO()
@@ -1682,6 +1731,26 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             return
         update_article_fields(article_id, updates)
         self._json({"status": "ok"})
+
+    def handle_article_import(self):
+        body = self._read_json()
+        text = str(body.get("text") or "")
+        if not text.strip():
+            self._error(400, "text is required")
+            return
+        if len(text.encode("utf-8")) > 10 * 1024 * 1024:
+            self._error(413, "Import file is too large")
+            return
+        fmt = str(body.get("format") or "").strip().lower()
+        filename = str(body.get("filename") or "").strip()
+        skip_duplicates = body.get("skipDuplicates", True) is not False
+        result = _import_reference_records(
+            text,
+            fmt=fmt,
+            filename=filename,
+            skip_duplicates=skip_duplicates,
+        )
+        self._json(result)
 
     def handle_article_delete(self):
         body = self._read_json()
@@ -1883,6 +1952,9 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 group_column=str(body.get("groupColumn") or ""),
                 cover_column=str(body.get("coverColumn") or ""),
                 date_column=str(body.get("dateColumn") or ""),
+                end_date_column=str(body.get("endDateColumn") or ""),
+                category_column=str(body.get("categoryColumn") or ""),
+                value_column=str(body.get("valueColumn") or ""),
             )
             self._json(view)
             return
@@ -2105,12 +2177,13 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             if not base_name.lower().endswith(".md"):
                 base_name = f"{base_name}.md"
             if rel_dir:
+                require_managed_workspace_path(rel_dir)
                 target_dir = resolve_workspace_rel_path(rel_dir, must_exist=False)
             else:
                 try:
                     target_dir = resolve_workspace_rel_path("notes", must_exist=False)
                 except ValueError:
-                    target_dir = NOTES_DIR
+                    target_dir = storage.NOTES_DIR
             target_dir.mkdir(parents=True, exist_ok=True)
             md_path = target_dir / base_name
             if md_path.exists():
@@ -2153,6 +2226,7 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             if not req_path.lower().endswith((".md", ".markdown")):
                 self._error(400, "Only markdown paths can be saved as notes")
                 return
+            require_managed_workspace_path(req_path)
             md_path = resolve_workspace_rel_path(req_path, must_exist=False)
             note_id = note_id_for_workspace_path(req_path)
             folder = f"path:{req_path}"
@@ -2160,6 +2234,9 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             if note_id == "workspace_note":
                 self._error(400, "path required for workspace notes")
                 return
+            existing_path = workspace_path_for_note_id(note_id)
+            if existing_path:
+                require_managed_workspace_path(existing_path)
             md_path = resolve_note_markdown_path(note_id)
             folder = None
         if not md_path.exists() and "content" not in body:
@@ -2205,6 +2282,9 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
 
     def handle_delete_note(self):
         note_id = self._note_id_from_path()
+        existing_path = workspace_path_for_note_id(note_id)
+        if existing_path:
+            require_managed_workspace_path(existing_path)
         md_path = resolve_note_markdown_path(note_id)
         if md_path.exists():
             md_path.unlink()
@@ -2388,24 +2468,45 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         self._json(path_info)
 
     def handle_workspace_open(self) -> None:
-        """POST /api/workspace/open — open a workspace directory."""
+        """POST /api/workspace/open — open a workspace directory.
+
+        Full filesystem scan and article reconcile run in the background so the
+        UI can switch instantly (large / synced disks otherwise appear stuck).
+        """
         data = self._read_json()
         ws_path = (data.get("path") or "").strip()
         if not ws_path:
             self._error(400, "path is required")
             return
-        scan = bool(data.get("scan", True))
+        want_scan = bool(data.get("scan", True))
         bind_data = bool(data.get("bindData", True))
         try:
-            ws = open_workspace(ws_path, scan=scan)
-            data_root = _activate_workspace_session(ws) if bind_data else None
+            # Never scan synchronously — Baidu Sync / large trees block for minutes.
+            ws = open_workspace(ws_path, scan=False)
+            if bind_data:
+                data_root = _activate_workspace_session(ws, heavy=want_scan, scan=want_scan)
+            else:
+                data_root = None
+                if want_scan:
+                    def _scan_only() -> None:
+                        try:
+                            ws.scan(full=True)
+                        except Exception:
+                            pass
+
+                    threading.Thread(
+                        target=_scan_only,
+                        daemon=True,
+                        name="ws-open-scan",
+                    ).start()
         except (OSError, ValueError) as exc:
             self._error(400, str(exc))
             return
-        payload: dict = {"ok": True, "workspace": ws.info()}
+        payload: dict = {"ok": True, "workspace": ws.info(), "scanPending": want_scan}
         if data_root:
             payload["dataRoot"] = data_root
-            payload["articles"] = scan_articles()
+            # Article reconcile is expensive; client refreshes via GET /api/articles.
+            payload["articlesPending"] = True
         self._json(payload)
 
     def handle_workspace_create(self) -> None:
@@ -2422,8 +2523,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         elif name and Path(path).name != name:
             pass
         try:
-            ws = create_workspace(path, name=name or None, scan=True)
-            data_root = _activate_workspace_session(ws)
+            ws = create_workspace(path, name=name or None, scan=False)
+            data_root = _activate_workspace_session(ws, heavy=True, scan=True)
         except (OSError, ValueError) as exc:
             self._error(400, str(exc))
             return
@@ -2431,7 +2532,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             "ok": True,
             "workspace": ws.info(),
             "dataRoot": data_root,
-            "articles": scan_articles(),
+            "articlesPending": True,
+            "scanPending": True,
         })
 
     def handle_workspace_delete(self) -> None:
@@ -2466,9 +2568,92 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         """GET /api/workspace/info — active workspace metadata."""
         ws = get_active_workspace()
         if ws is None:
-            self._json({"active": False, "workspace": None, "legacyDataRoot": str(DATA_ROOT)})
+            self._json({"active": False, "workspace": None, "legacyDataRoot": str(storage.DATA_ROOT)})
             return
-        self._json({"active": True, "workspace": ws.info(), "legacyDataRoot": str(DATA_ROOT)})
+        self._json({"active": True, "workspace": ws.info(), "legacyDataRoot": str(storage.DATA_ROOT)})
+
+    def handle_workspace_sources_get(self) -> None:
+        """List linked, read-only folders."""
+        try:
+            ws = require_active_workspace()
+        except RuntimeError as exc:
+            self._error(400, str(exc))
+            return
+        self._json({"sources": ws.sources()})
+
+    def handle_workspace_source_add(self) -> None:
+        """Link an existing folder without changing it."""
+        data = self._read_json()
+        path = str(data.get("path") or "").strip()
+        name = str(data.get("name") or "").strip() or None
+        if not path:
+            self._error(400, "path is required")
+            return
+        try:
+            ws = require_active_workspace()
+            source = ws.add_source(path, name=name)
+        except (RuntimeError, OSError, ValueError) as exc:
+            self._error(400, str(exc))
+            return
+
+        def _scan_source() -> None:
+            try:
+                ws.scan(full=True)
+                from workspace_index import rebuild_index
+
+                rebuild_index(ws)
+                from workspace_watch import start_workspace_watcher
+
+                start_workspace_watcher(ws)
+            except Exception:
+                pass
+
+        threading.Thread(target=_scan_source, daemon=True, name="ws-source-scan").start()
+        self._json({"ok": True, "source": source, "sources": ws.sources(), "scanPending": True})
+
+    def handle_workspace_source_remove(self) -> None:
+        """Unlink source metadata only; never delete source files."""
+        data = self._read_json()
+        source_id = str(data.get("sourceId") or "").strip()
+        try:
+            ws = require_active_workspace()
+            result = ws.remove_source(source_id)
+        except (RuntimeError, OSError, ValueError) as exc:
+            self._error(400, str(exc))
+            return
+
+        def _refresh_after_remove() -> None:
+            try:
+                from workspace_index import rebuild_index
+
+                rebuild_index(ws)
+                from workspace_watch import start_workspace_watcher
+
+                start_workspace_watcher(ws)
+            except Exception:
+                pass
+
+        threading.Thread(
+            target=_refresh_after_remove,
+            daemon=True,
+            name="ws-source-remove-refresh",
+        ).start()
+        self._json({"ok": True, **result, "sources": ws.sources()})
+
+    def handle_workspace_import_managed(self) -> None:
+        """Copy a linked file into managed-files/inbox."""
+        data = self._read_json()
+        rel = str(data.get("path") or "").replace("\\", "/").strip("/")
+        if not rel:
+            self._error(400, "path is required")
+            return
+        try:
+            ws = require_active_workspace()
+            result = ws.import_managed_file(rel)
+        except (RuntimeError, OSError, ValueError) as exc:
+            self._error(400, str(exc))
+            return
+        self._json({"ok": True, **result})
 
     def handle_workspace_scan(self) -> None:
         """POST /api/workspace/scan — reconcile sidecars with disk."""
@@ -2735,6 +2920,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             self._error(404, "Not a file")
             return
         size = target.stat().st_size
+        ws = get_active_workspace()
+        source_readonly = bool(ws and ws.is_readonly_path(rel))
         if size > TEXT_FILE_MAX_BYTES:
             raw = target.read_bytes()[:TEXT_FILE_MAX_BYTES]
             text = raw.decode("utf-8", errors="replace")
@@ -2751,7 +2938,7 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             "path": rel.replace("\\", "/"),
             "content": text,
             "size": size,
-            "readonly": False,
+            "readonly": source_readonly,
             "truncated": False,
         })
 
@@ -2761,6 +2948,7 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         if not rel:
             self._error(400, "path required")
             return
+        require_managed_workspace_path(rel)
         target = resolve_workspace_rel_path(rel, must_exist=False)
         target.mkdir(parents=True, exist_ok=True)
         self._json({"ok": True, "path": rel})
@@ -2790,6 +2978,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         if not src or not dst:
             self._error(400, "from and to required")
             return
+        require_managed_workspace_path(src)
+        require_managed_workspace_path(dst)
         src_path = resolve_workspace_rel_path(src, must_exist=True)
         dst_path = resolve_workspace_rel_path(dst, must_exist=False)
         if dst_path.exists():
@@ -2816,6 +3006,7 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         if not rel:
             self._error(400, "path required")
             return
+        require_managed_workspace_path(rel)
         target = resolve_workspace_rel_path(rel, must_exist=True)
         if target.is_dir():
             # Drop SQLite note rows whose path lives under this directory.
@@ -2966,8 +3157,443 @@ def validate_note_id(note_id: str) -> str:
 
 def note_file_for(note_id: str) -> Path:
     note_id = validate_note_id(note_id)
-    NOTES_DIR.mkdir(parents=True, exist_ok=True)
-    return NOTES_DIR / f"{note_id}.md"
+    storage.NOTES_DIR.mkdir(parents=True, exist_ok=True)
+    return storage.NOTES_DIR / f"{note_id}.md"
+
+
+# ---------------------------------------------------------------------------
+# Reference import and duplicate helpers
+# ---------------------------------------------------------------------------
+
+
+def _normalize_reference_doi(value) -> str:
+    doi = _clean_bib_value(value).lower()
+    doi = re.sub(r"^(?:https?://(?:dx\.)?doi\.org/|doi:\s*)", "", doi)
+    return doi.strip().rstrip(".,;)")
+
+
+def _normalize_reference_title(value) -> str:
+    return re.sub(r"[\W_]+", "", _clean_bib_value(value).casefold(), flags=re.UNICODE)
+
+
+def _reference_year(value) -> str:
+    match = re.search(r"(?:18|19|20|21)\d{2}", _clean_bib_value(value))
+    return match.group(0) if match else ""
+
+
+def _reference_match_keys(item: dict) -> list[tuple[str, str]]:
+    keys: list[tuple[str, str]] = []
+    doi = _normalize_reference_doi(item.get("doi"))
+    if doi:
+        keys.append((f"doi:{doi}", "DOI 相同"))
+    title = _normalize_reference_title(item.get("title"))
+    year = _reference_year(item.get("year"))
+    if len(title) >= 8 and year:
+        keys.append((f"title:{title}|{year}", "标题和年份相同"))
+    return keys
+
+
+def _find_duplicate_article_groups(articles: list[dict]) -> list[dict]:
+    """Group likely duplicate references without deleting or merging files."""
+    parent = list(range(len(articles)))
+
+    def find(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    def union(left: int, right: int) -> None:
+        left_root, right_root = find(left), find(right)
+        if left_root != right_root:
+            parent[right_root] = left_root
+
+    matches: dict[str, list[int]] = {}
+    labels: dict[str, str] = {}
+    for index, article in enumerate(articles):
+        for key, label in _reference_match_keys(article):
+            matches.setdefault(key, []).append(index)
+            labels[key] = label
+    for indexes in matches.values():
+        for index in indexes[1:]:
+            union(indexes[0], index)
+
+    grouped: dict[int, list[int]] = {}
+    for index in range(len(articles)):
+        grouped.setdefault(find(index), []).append(index)
+    reasons: dict[int, set[str]] = {}
+    for key, indexes in matches.items():
+        if len(indexes) > 1:
+            reasons.setdefault(find(indexes[0]), set()).add(labels[key])
+
+    result = []
+    for root, indexes in grouped.items():
+        if len(indexes) < 2:
+            continue
+        items = []
+        for index in indexes:
+            article = articles[index]
+            items.append({
+                "id": article.get("id"),
+                "title": article.get("title") or article.get("id"),
+                "authors": article.get("authors") or _split_authors(article.get("author")),
+                "year": article.get("year") or "",
+                "doi": article.get("doi") or "",
+                "venue": article.get("venue") or "",
+            })
+        items.sort(key=lambda item: (_clean_bib_value(item.get("title")).casefold(), str(item.get("id"))))
+        result.append({"reasons": sorted(reasons.get(root) or {"元数据相似"}), "items": items})
+    result.sort(key=lambda group: _clean_bib_value(group["items"][0].get("title")).casefold())
+    return result
+
+
+def _first_reference_value(fields: dict[str, list[str]], *names: str) -> str:
+    for name in names:
+        values = fields.get(name) or []
+        if values and _clean_bib_value(values[0]):
+            return _clean_bib_value(values[0])
+    return ""
+
+
+def _parse_ris_records(text: str) -> list[dict]:
+    raw_records: list[dict[str, list[str]]] = []
+    fields: dict[str, list[str]] = {}
+    last_tag = ""
+    for raw_line in text.splitlines():
+        match = re.match(r"^([A-Z0-9]{2})\s{0,2}-\s?(.*)$", raw_line.rstrip())
+        if not match:
+            continuation = raw_line.strip()
+            if continuation and last_tag and fields.get(last_tag):
+                fields[last_tag][-1] = f"{fields[last_tag][-1]} {continuation}".strip()
+            continue
+        tag, value = match.group(1), match.group(2).strip()
+        if tag == "TY" and fields:
+            raw_records.append(fields)
+            fields = {}
+        if tag == "ER":
+            if fields:
+                raw_records.append(fields)
+            fields, last_tag = {}, ""
+            continue
+        fields.setdefault(tag, []).append(value)
+        last_tag = tag
+    if fields:
+        raw_records.append(fields)
+
+    records = []
+    for item in raw_records:
+        title = _first_reference_value(item, "TI", "T1", "CT", "BT")
+        authors = [
+            _clean_bib_value(author)
+            for author in [*(item.get("AU") or []), *(item.get("A1") or [])]
+            if _clean_bib_value(author)
+        ]
+        records.append({
+            "title": title,
+            "authors": authors,
+            "year": _reference_year(_first_reference_value(item, "PY", "Y1", "DA")),
+            "venue": _first_reference_value(item, "JO", "JF", "T2", "JA", "PB"),
+            "doi": _normalize_reference_doi(_first_reference_value(item, "DO")),
+            "abstract": _first_reference_value(item, "AB", "N2"),
+            "tags": [_clean_bib_value(tag) for tag in item.get("KW") or [] if _clean_bib_value(tag)],
+            "url": _first_reference_value(item, "UR", "L1"),
+            "category": _first_reference_value(item, "TY"),
+            "kind": "paper",
+        })
+    return records
+
+
+def _unbrace_bib_value(value: str) -> str:
+    value = value.strip()
+    while len(value) >= 2 and value[0] == "{" and value[-1] == "}":
+        value = value[1:-1].strip()
+    value = re.sub(r"\\([{}_%&#])", r"\1", value)
+    return _clean_bib_value(value.replace("{", "").replace("}", ""))
+
+
+def _parse_bibtex_fields(body: str) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    index = 0
+    while index < len(body):
+        while index < len(body) and (body[index].isspace() or body[index] == ","):
+            index += 1
+        name_match = re.match(r"[A-Za-z][\w-]*", body[index:])
+        if not name_match:
+            break
+        name = name_match.group(0).lower()
+        index += len(name_match.group(0))
+        while index < len(body) and body[index].isspace():
+            index += 1
+        if index >= len(body) or body[index] != "=":
+            break
+        index += 1
+        while index < len(body) and body[index].isspace():
+            index += 1
+        if index >= len(body):
+            fields[name] = ""
+            break
+        if body[index] == "{":
+            start, depth = index + 1, 1
+            index += 1
+            while index < len(body) and depth:
+                if body[index] == "{" and body[index - 1] != "\\":
+                    depth += 1
+                elif body[index] == "}" and body[index - 1] != "\\":
+                    depth -= 1
+                index += 1
+            value = body[start:index - 1] if depth == 0 else body[start:]
+        elif body[index] == '"':
+            start = index + 1
+            index += 1
+            while index < len(body):
+                if body[index] == '"' and body[index - 1] != "\\":
+                    break
+                index += 1
+            value = body[start:index]
+            index = min(index + 1, len(body))
+        else:
+            start = index
+            while index < len(body) and body[index] != ",":
+                index += 1
+            value = body[start:index]
+        fields[name] = _unbrace_bib_value(value)
+    return fields
+
+
+def _parse_bibtex_records(text: str) -> list[dict]:
+    records = []
+    entry_re = re.compile(r"@([A-Za-z]+)\s*([({])")
+    position = 0
+    while True:
+        match = entry_re.search(text, position)
+        if not match:
+            break
+        entry_type = match.group(1).lower()
+        opening = match.group(2)
+        closing = "}" if opening == "{" else ")"
+        index, depth, quoted = match.end(), 1, False
+        while index < len(text) and depth:
+            char = text[index]
+            escaped = index > 0 and text[index - 1] == "\\"
+            if char == '"' and not escaped:
+                quoted = not quoted
+            elif not quoted and not escaped:
+                if char == opening:
+                    depth += 1
+                elif char == closing:
+                    depth -= 1
+            index += 1
+        content = text[match.end():index - 1] if depth == 0 else text[match.end():]
+        position = max(index, match.end())
+        if entry_type in {"comment", "preamble", "string"} or "," not in content:
+            continue
+        fields = _parse_bibtex_fields(content.split(",", 1)[1])
+        authors = [
+            _unbrace_bib_value(author)
+            for author in re.split(r"\s+and\s+", fields.get("author", ""), flags=re.I)
+            if _unbrace_bib_value(author)
+        ]
+        tags = [tag.strip() for tag in re.split(r"\s*[;,]\s*", fields.get("keywords", "")) if tag.strip()]
+        records.append({
+            "title": fields.get("title", ""),
+            "authors": authors,
+            "year": _reference_year(fields.get("year") or fields.get("date")),
+            "venue": fields.get("journal") or fields.get("booktitle") or fields.get("publisher") or fields.get("school") or "",
+            "doi": _normalize_reference_doi(fields.get("doi")),
+            "abstract": fields.get("abstract", ""),
+            "tags": tags,
+            "url": fields.get("url", ""),
+            "category": entry_type,
+            "kind": "paper",
+        })
+    return records
+
+
+def _creator_name(creator: dict) -> str:
+    if not isinstance(creator, dict):
+        return ""
+    if creator.get("literal") or creator.get("name"):
+        return _clean_bib_value(creator.get("literal") or creator.get("name"))
+    return _clean_bib_value(" ".join(
+        str(creator.get(key) or "").strip()
+        for key in ("given", "firstName", "family", "lastName")
+        if creator.get(key)
+    ))
+
+
+def _parse_json_reference_records(text: str) -> list[dict]:
+    payload = json.loads(text)
+    if isinstance(payload, dict) and isinstance(payload.get("items"), list):
+        payload = payload["items"]
+    elif isinstance(payload, dict):
+        payload = [payload]
+    if not isinstance(payload, list):
+        raise ValueError("JSON reference import must contain an object or array")
+    records = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        creators = item.get("author") if isinstance(item.get("author"), list) else item.get("creators") or []
+        authors = [name for name in (_creator_name(creator) for creator in creators) if name]
+        issued = item.get("issued") or {}
+        date_parts = issued.get("date-parts") if isinstance(issued, dict) else []
+        issued_year = date_parts[0][0] if date_parts and isinstance(date_parts[0], list) and date_parts[0] else ""
+        tags_value = item.get("tags") or item.get("keyword") or []
+        if isinstance(tags_value, str):
+            tags = [tag.strip() for tag in re.split(r"\s*[;,]\s*", tags_value) if tag.strip()]
+        else:
+            tags = [
+                _clean_bib_value(tag.get("tag") if isinstance(tag, dict) else tag)
+                for tag in tags_value if _clean_bib_value(tag.get("tag") if isinstance(tag, dict) else tag)
+            ]
+        venue = item.get("container-title") or item.get("publicationTitle") or item.get("publisher") or ""
+        if isinstance(venue, list):
+            venue = venue[0] if venue else ""
+        records.append({
+            "title": _clean_bib_value(item.get("title")),
+            "authors": authors,
+            "year": _reference_year(issued_year or item.get("date") or item.get("year")),
+            "venue": _clean_bib_value(venue),
+            "doi": _normalize_reference_doi(item.get("DOI") or item.get("doi")),
+            "abstract": _clean_bib_value(item.get("abstract") or item.get("abstractNote")),
+            "tags": tags,
+            "url": _clean_bib_value(item.get("URL") or item.get("url")),
+            "category": _clean_bib_value(item.get("type") or item.get("itemType")),
+            "kind": "paper",
+        })
+    return records
+
+
+def _parse_reference_records(text: str, fmt: str, filename: str) -> tuple[str, list[dict]]:
+    aliases = {
+        "ris": "ris", "bib": "bibtex", "bibtex": "bibtex",
+        "json": "json", "csl": "json", "csljson": "json", "zotero": "json",
+    }
+    detected = aliases.get(fmt.lower().lstrip("."), "")
+    safe_filename = filename.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    if not detected:
+        if safe_filename.endswith(".ris"):
+            detected = "ris"
+        elif safe_filename.endswith(".bib"):
+            detected = "bibtex"
+        elif safe_filename.endswith(".json"):
+            detected = "json"
+    if not detected:
+        stripped = text.lstrip()
+        if re.search(r"^TY\s{0,2}-", stripped, flags=re.M):
+            detected = "ris"
+        elif stripped.startswith("@"):
+            detected = "bibtex"
+        elif stripped.startswith(("[", "{")):
+            detected = "json"
+    if detected == "ris":
+        records = _parse_ris_records(text)
+    elif detected == "bibtex":
+        records = _parse_bibtex_records(text)
+    elif detected == "json":
+        records = _parse_json_reference_records(text)
+    else:
+        raise ValueError("Unsupported reference format; use RIS, BibTeX, or CSL/Zotero JSON")
+    if len(records) > 5000:
+        raise ValueError("A single import is limited to 5000 references")
+    return detected, records
+
+
+def _import_reference_records(text: str, *, fmt: str, filename: str, skip_duplicates: bool) -> dict:
+    detected, records = _parse_reference_records(text, fmt, filename)
+    existing_keys = {
+        key
+        for article in get_all_articles()
+        for key, _label in _reference_match_keys(article)
+    }
+    source_name = filename.replace("\\", "/").rsplit("/", 1)[-1][:255]
+    imported: list[dict] = []
+    skipped = 0
+    errors: list[dict] = []
+    for index, record in enumerate(records, start=1):
+        title = _clean_bib_value(record.get("title"))
+        if not title:
+            errors.append({"record": index, "error": "missing title"})
+            continue
+        record_keys = {key for key, _label in _reference_match_keys(record)}
+        if skip_duplicates and record_keys.intersection(existing_keys):
+            skipped += 1
+            continue
+        authors = [
+            _clean_bib_value(author)
+            for author in record.get("authors") or []
+            if _clean_bib_value(author)
+        ]
+        article_id = f"ref_{uuid.uuid4().hex[:16]}"
+        while get_article(article_id) is not None:
+            article_id = f"ref_{uuid.uuid4().hex[:16]}"
+        now = time.strftime("%Y-%m-%d %H:%M:%S")
+        tags = list(dict.fromkeys(
+            _clean_bib_value(tag) for tag in record.get("tags") or [] if _clean_bib_value(tag)
+        ))
+        info = {
+            "title": title,
+            "author": "; ".join(authors),
+            "authors": authors,
+            "doi": _normalize_reference_doi(record.get("doi")),
+            "year": _reference_year(record.get("year")),
+            "venue": _clean_bib_value(record.get("venue")),
+            "abstract": _clean_bib_value(record.get("abstract")),
+            "category": _clean_bib_value(record.get("category")),
+            "tags": tags,
+            "url": _clean_bib_value(record.get("url")),
+            "document_kind": record.get("kind") or "paper",
+            "import_file": source_name,
+            "extracted_at": now,
+            "extraction_reason": f"import:{detected}",
+        }
+        article = {
+            "id": article_id,
+            "title": title,
+            "author": info["author"],
+            "authors": authors,
+            "pages": 0,
+            "date_added": now,
+            "category": info["category"],
+            "doi": info["doi"],
+            "year": info["year"],
+            "venue": info["venue"],
+            "abstract": info["abstract"],
+            "translated": False,
+            "summarized": False,
+            "pdf_available": False,
+            "md_available": False,
+            "file_available": False,
+            "converting": False,
+            "source_filename": "",
+            "kind": info["document_kind"],
+            "metadata_extracted": True,
+            "metadata_extracted_at": now,
+            "metadata_source": f"import:{detected}",
+            "parser": detected,
+            "preparse_error": "",
+            "tags": tags,
+        }
+        folder = article_dir_for(article_id)
+        folder.mkdir(parents=True, exist_ok=False)
+        try:
+            storage._atomic_write_json(folder / f"{article_id}_info.json", info)
+            upsert_article(article)
+        except Exception:
+            shutil.rmtree(folder, ignore_errors=True)
+            raise
+        existing_keys.update(record_keys)
+        imported.append({
+            "id": article_id, "title": title, "year": info["year"], "doi": info["doi"]
+        })
+    return {
+        "format": detected,
+        "parsed": len(records),
+        "imported": len(imported),
+        "skipped": skipped,
+        "errors": errors,
+        "articles": imported,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -3035,6 +3661,48 @@ def _article_to_bibtex(article, used):
     return f"@{entry_type}{{{_article_bib_key(article, used)},\n" + ",\n".join(body) + "\n}"
 
 
+def _article_to_ris(article) -> str:
+    authors = article.get("authors") if isinstance(article.get("authors"), list) else []
+    if not authors:
+        authors = _split_authors(article.get("author", ""))
+    lines = ["TY  - JOUR" if (article.get("kind") or "paper") == "paper" else "TY  - GEN"]
+    fields = [
+        ("TI", article.get("title") or article.get("source_filename") or article.get("id")),
+        *[("AU", author) for author in authors],
+        ("PY", _reference_year(article.get("year"))),
+        ("JF", article.get("venue")),
+        ("DO", _normalize_reference_doi(article.get("doi"))),
+        ("AB", article.get("abstract")),
+        *[("KW", tag) for tag in (article.get("tags") or [])],
+    ]
+    for tag, value in fields:
+        cleaned = _clean_bib_value(value)
+        if cleaned:
+            lines.append(f"{tag}  - {cleaned}")
+    lines.extend(["ER  -", ""])
+    return "\n".join(lines)
+
+
+def _article_to_csl_json(article) -> dict:
+    authors = article.get("authors") if isinstance(article.get("authors"), list) else []
+    if not authors:
+        authors = _split_authors(article.get("author", ""))
+    value = {
+        "id": article.get("id"),
+        "type": "article-journal" if (article.get("kind") or "paper") == "paper" else "document",
+        "title": article.get("title") or article.get("source_filename") or article.get("id"),
+        "author": [{"literal": author} for author in authors if _clean_bib_value(author)],
+        "container-title": article.get("venue") or "",
+        "DOI": _normalize_reference_doi(article.get("doi")),
+        "abstract": article.get("abstract") or "",
+        "keyword": ", ".join(article.get("tags") or []),
+    }
+    year = _reference_year(article.get("year"))
+    if year:
+        value["issued"] = {"date-parts": [[int(year)]]}
+    return {key: item for key, item in value.items() if item not in ("", [], None)}
+
+
 def _export_stem(article):
     raw = article.get("title") or article.get("source_filename") or article.get("id") or "kbase_item"
     return sanitize_article_id(raw)[:80] or str(article.get("id") or "kbase_item")
@@ -3059,7 +3727,7 @@ def _unique_archive_name(name, used):
 PACKAGE_DIR = Path(__file__).resolve().parent
 
 
-def _activate_workspace_session(ws, *, heavy: bool = True) -> dict:
+def _activate_workspace_session(ws, *, heavy: bool = True, scan: bool = False) -> dict:
     """Bind workspace root as runtime data root and optionally refresh indexes."""
     from storage import bind_data_root_runtime
 
@@ -3068,6 +3736,11 @@ def _activate_workspace_session(ws, *, heavy: bool = True) -> dict:
         return info
 
     def _bg() -> None:
+        if scan:
+            try:
+                ws.scan(full=True)
+            except Exception:
+                pass
         try:
             from workspace_index import rebuild_index
 
@@ -3101,42 +3774,13 @@ def _bootstrap_workspace() -> None:
 
     try:
         last = get_last_workspace_path()
-        ws_path = Path(last) if last else DATA_ROOT
+        ws_path = Path(last) if last else storage.DATA_ROOT
         if not ws_path.is_dir():
-            ws_path = DATA_ROOT
+            ws_path = storage.DATA_ROOT
         # Bind first without a full filesystem scan so the server can start.
         ws = open_workspace(ws_path, scan=False)
-        _activate_workspace_session(ws, heavy=False)
+        _activate_workspace_session(ws, heavy=True, scan=True)
         print(f" Workspace: {ws.root}")
-
-        def _bg_scan() -> None:
-            try:
-                ws.scan(full=True)
-                print(f" Documents: {len(ws.list_documents())}")
-            except Exception as exc:  # noqa: BLE001
-                print(f" Workspace scan skipped: {exc}")
-            try:
-                from workspace_index import rebuild_index
-
-                idx = rebuild_index(ws)
-                print(f" FTS index: {idx.get('indexed', 0)} files")
-            except Exception as exc:  # noqa: BLE001
-                print(f" FTS index skipped: {exc}")
-            try:
-                from workspace_watch import start_workspace_watcher
-
-                mode = start_workspace_watcher(ws)
-                print(f" Workspace watcher: {mode}")
-            except Exception as exc:  # noqa: BLE001
-                print(f" Workspace watcher skipped: {exc}")
-            try:
-                from workspace_ingest import start_workspace_ingest
-
-                start_workspace_ingest(ws)
-            except Exception:
-                pass
-
-        threading.Thread(target=_bg_scan, daemon=True, name="ws-bootstrap").start()
     except Exception as exc:  # noqa: BLE001
         print(f" Workspace bootstrap skipped: {exc}")
 
@@ -3145,10 +3789,10 @@ def start_server() -> ReusableThreadingTCPServer:
     ensure_directories()
     load_local_env()
     print(" Knowledge Base Server")
-    print(f" Data root: {DATA_ROOT}")
-    print(f" Database:  {DB_PATH}")
     _bootstrap_workspace()
-    articles = scan_articles()
+    print(f" Data root: {storage.DATA_ROOT}")
+    print(f" Database:  {storage.DB_PATH}")
+    articles = get_all_articles()
     notes = get_all_notes()
     print(f" Articles: {len(articles)} (legacy)")
     print(f" Notes:    {len(notes)} (legacy)")

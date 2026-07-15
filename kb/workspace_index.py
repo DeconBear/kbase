@@ -47,7 +47,11 @@ def rebuild_index(ws: Workspace) -> dict[str, Any]:
             title = str(doc.get("title") or "")
             kind = str(doc.get("kind") or "")
             for rel in _readable_paths(ws, doc):
-                abs_path = ws.root / rel
+                try:
+                    abs_path = ws.resolve(rel)
+                except ValueError:
+                    skipped += 1
+                    continue
                 if not abs_path.is_file():
                     continue
                 try:

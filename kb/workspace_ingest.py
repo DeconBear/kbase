@@ -208,11 +208,15 @@ def library_status(ws: Workspace | None = None) -> dict[str, Any]:
     scattered = 0
     pending = 0
     supplements = 0
+    linked = 0
 
     for path in ws.iter_candidate_files():
         if path.suffix.lower() != ".pdf":
             continue
         rel = ws.rel_path(path)
+        if ws.is_readonly_path(rel):
+            linked += 1
+            continue
         cls = classify_pdf(path, rel_path=rel, literature_dir=literature_dir, use_llm="never")
         if cls.get("document_kind") == "supplement":
             supplements += 1
@@ -230,4 +234,5 @@ def library_status(ws: Workspace | None = None) -> dict[str, Any]:
         "indexedArticles": indexed,
         "pendingOrganize": pending,
         "supplements": supplements,
+        "linkedPdfs": linked,
     }

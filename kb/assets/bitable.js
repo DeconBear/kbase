@@ -310,7 +310,7 @@ async function _kbFetchDatabase(dbId, viewId, query) {
   let url = '/api/databases/' + encodeURIComponent(dbId) + '?render=1&ts=' + Date.now();
   if (viewId) url += '&view=' + encodeURIComponent(viewId);
   if (query) url += '&q=' + encodeURIComponent(query);
-  const resp = await fetch(url);
+  const resp = await abortableFetch(url);
   if (!resp.ok) throw new Error(await resp.text());
   const data = await resp.json();
   _kbDbCache.set(dbId, data);
@@ -333,7 +333,7 @@ function kbDbColTypeLabel(type) {
 
 function bitableViewIcon(view) {
   if (!view) return '☰';
-  const icons = { kanban: '▦', gallery: '▣', calendar: '📅', form: '📝' };
+  const icons = { kanban: '▦', gallery: '▣', calendar: '📅', gantt: '▰', dashboard: '📈', form: '📝' };
   return icons[view.type] || '☰';
 }
 
@@ -1089,7 +1089,7 @@ async function loadBitableList(selectId) {
   try {
     let url = '/api/databases?ts=' + Date.now();
     if (bitableSearchQuery) url += '&search=' + encodeURIComponent(bitableSearchQuery);
-    const resp = await fetch(url);
+    const resp = await abortableFetch(url);
     if (!resp.ok) throw new Error(await resp.text());
     const data = await resp.json();
     if (data.results) {
@@ -1111,6 +1111,7 @@ async function loadBitableList(selectId) {
       if (editor) editor.style.display = 'none';
     }
   } catch (e) {
+    if (e?.name === 'AbortError') return;
     toast('加载多维表格失败：' + (e.message || e), 'error');
   }
 }
@@ -1179,6 +1180,7 @@ async function openBitableDatabase(dbId) {
   try {
     _kbInvalidateDb(dbId);
     const data = await _kbFetchDatabase(dbId, null, bitableSearchQuery);
+    if (dbId !== bitableCurrentId) return;
     bitableRenderCache = data;
     if (bitablePageMode === 'kanban') {
       const views = data.views || [data.view].filter(Boolean);
@@ -1190,6 +1192,7 @@ async function openBitableDatabase(dbId) {
     }
     renderBitableEditor(data);
   } catch (e) {
+    if (e?.name === 'AbortError') return;
     if (content) content.innerHTML = '<div class="kb-db-error" style="padding:40px">加载失败: ' + esc(e.message || e) + '</div>';
   }
 }
@@ -1201,7 +1204,7 @@ async function bitableRefreshEditor() {
   const url = '/api/databases/' + encodeURIComponent(bitableCurrentId) + '?render=1' +
     (viewId ? '&view=' + encodeURIComponent(viewId) : '') +
     (bitableSearchQuery ? '&q=' + encodeURIComponent(bitableSearchQuery) : '');
-  const resp = await fetch(url + '&ts=' + Date.now());
+  const resp = await abortableFetch(url + '&ts=' + Date.now());
   if (!resp.ok) throw new Error(await resp.text());
   bitableRenderCache = await resp.json();
   renderBitableEditor(bitableRenderCache);
@@ -1244,6 +1247,8 @@ function renderBitableEditor(data) {
         <div class="bitable-actions-left">
           ${activeView.type === 'kanban' ? '<button class="bitable-toolbar-btn" onclick="bitableConfigureKanbanView()">分组依据</button>' : ''}
           ${activeView.type === 'gallery' ? '<button class="bitable-toolbar-btn" onclick="bitableConfigureGalleryView()">封面字段</button>' : ''}
+          ${activeView.type === 'gantt' ? '<button class="bitable-toolbar-btn" onclick="bitableConfigureGanttView()">日期字段</button>' : ''}
+          ${activeView.type === 'dashboard' ? '<button class="bitable-toolbar-btn" onclick="bitableConfigureDashboardView()">统计字段</button>' : ''}
           <button class="bitable-toolbar-btn" onclick="bitableShowFilterDialog()">筛选</button>
           <button class="bitable-toolbar-btn" onclick="bitableShowSortDialog()">排序</button>
           <button class="bitable-toolbar-btn" onclick="bitableAddColumnPrompt(event)">字段配置</button>
@@ -1341,6 +1346,8 @@ function renderBitableEditor(data) {
   if (vtype === 'kanban') content.appendChild(bitableRenderKanban(data));
   else if (vtype === 'gallery') content.appendChild(bitableRenderGallery(data));
   else if (vtype === 'calendar') content.appendChild(bitableRenderCalendar(data));
+  else if (vtype === 'gantt') content.appendChild(bitableRenderGantt(data));
+  else if (vtype === 'dashboard') content.appendChild(bitableRenderDashboard(data));
   else if (vtype === 'form') content.appendChild(bitableRenderForm(data));
   else content.appendChild(bitableRenderTable(data));
 }
@@ -1757,6 +1764,81 @@ function bitableRenderCalendar(data) {
   return wrap;
 }
 
+function bitableRenderGantt(data) {
+  const wrap = document.createElement('div');
+  wrap.className = 'bitable-gantt';
+  const gantt = data.gantt || { items: [] };
+  const head = document.createElement('div');
+  head.className = 'bitable-gantt-head';
+  head.innerHTML = `<div>记录</div><div class="bitable-gantt-axis"><span>${esc(gantt.start || '开始')}</span><span>${esc(gantt.end || '结束')}</span></div>`;
+  wrap.appendChild(head);
+  (gantt.items || []).forEach(item => {
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'bitable-gantt-row';
+    const left = Math.max(0, Math.min(100, Number(item.leftPct) || 0));
+    const width = Math.max(2, Math.min(100 - left, Number(item.widthPct) || 2));
+    row.innerHTML = `<span class="bitable-gantt-title">${esc(String(item.title || '未命名'))}</span>
+      <span class="bitable-gantt-track"><span class="bitable-gantt-bar" style="left:${left}%;width:${width}%" title="${esc(item.start)} → ${esc(item.end)}"><span>${esc(item.start)} → ${esc(item.end)}</span></span></span>`;
+    row.onclick = () => bitableOpenRowDrawer(data.id, item.row, data.allColumns || data.columns);
+    wrap.appendChild(row);
+  });
+  if (!gantt.items || !gantt.items.length) {
+    wrap.innerHTML = '<div class="bitable-view-empty"><span>▰</span><strong>暂无可排期记录</strong><small>为记录填写日期，或点击「日期字段」选择开始和结束日期。</small></div>';
+  } else if (gantt.undated) {
+    const note = document.createElement('div');
+    note.className = 'bitable-gantt-note';
+    note.textContent = `${gantt.undated} 条记录尚未填写开始日期`;
+    wrap.appendChild(note);
+  }
+  return wrap;
+}
+
+function bitableRenderDashboard(data) {
+  const wrap = document.createElement('div');
+  wrap.className = 'bitable-dashboard';
+  const dashboard = data.dashboard || { total: 0, breakdown: [] };
+  const columns = data.allColumns || data.columns || [];
+  const category = columns.find(c => c.id === dashboard.categoryColumn);
+  const value = columns.find(c => c.id === dashboard.valueColumn);
+  const number = value => value == null ? '—' : new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(value);
+  const cards = document.createElement('div');
+  cards.className = 'bitable-dashboard-cards';
+  const metrics = [
+    ['记录总数', dashboard.total],
+    [value ? `${value.name} · 合计` : '数值合计', dashboard.sum],
+    [value ? `${value.name} · 平均` : '数值平均', dashboard.average],
+    [value ? `${value.name} · 最大` : '数值最大', dashboard.maximum],
+  ];
+  cards.innerHTML = metrics.map(([label, metric]) => `<div class="bitable-metric-card"><span>${esc(label)}</span><strong>${number(metric)}</strong></div>`).join('');
+  wrap.appendChild(cards);
+  const chart = document.createElement('section');
+  chart.className = 'bitable-dashboard-chart';
+  chart.innerHTML = `<header><div><strong>${esc(category?.name || '分类分布')}</strong><small>${dashboard.total || 0} 条记录</small></div><span>点击分类可筛选</span></header>`;
+  const bars = document.createElement('div');
+  bars.className = 'bitable-dashboard-bars';
+  const max = Math.max(1, ...(dashboard.breakdown || []).map(item => Number(item.count) || 0));
+  (dashboard.breakdown || []).forEach(item => {
+    const bar = document.createElement('button');
+    bar.type = 'button';
+    bar.className = 'bitable-dashboard-bar';
+    bar.innerHTML = `<span class="label">${esc(item.label)}</span><span class="track"><i style="width:${Math.max(3, (Number(item.count) || 0) / max * 100)}%"></i></span><strong>${esc(String(item.count))}</strong>`;
+    bar.disabled = !category;
+    bar.onclick = () => {
+      if (!category) return;
+      const op = item.label === '未分类' ? 'empty' : (category.type === 'mselect' ? 'contains' : 'eq');
+      bitableUpdateView({ filters: [{ column: category.id, op, value: item.label === '未分类' ? '' : item.label }] });
+    };
+    bars.appendChild(bar);
+  });
+  if (!dashboard.breakdown || !dashboard.breakdown.length) {
+    bars.innerHTML = '<div class="bitable-view-empty"><span>📈</span><strong>暂无可统计数据</strong><small>添加记录后，仪表盘会自动更新。</small></div>';
+  }
+  chart.appendChild(bars);
+  wrap.appendChild(chart);
+  return wrap;
+}
+
 function bitableRenderForm(data) {
   const wrap = document.createElement('div');
   wrap.className = 'bitable-form';
@@ -1774,8 +1856,9 @@ function bitableRenderForm(data) {
       const ta = document.createElement('textarea');
       ta.rows = 3;
       field.appendChild(ta);
-    } else if (f.type === 'select') {
+    } else if (f.type === 'select' || f.type === 'mselect') {
       const sel = document.createElement('select');
+      sel.multiple = f.type === 'mselect';
       sel.innerHTML = '<option value=""></option>' + (f.options || []).map(o =>
         `<option value="${esc(o.name)}">${esc(o.name)}</option>`
       ).join('');
@@ -1788,9 +1871,17 @@ function bitableRenderForm(data) {
       const inp = document.createElement('input');
       inp.type = f.type === 'datetime' ? 'datetime-local' : 'date';
       field.appendChild(inp);
+    } else if (['number', 'currency', 'percent', 'progress', 'rating'].includes(f.type)) {
+      const inp = document.createElement('input');
+      inp.type = 'number';
+      inp.step = 'any';
+      if (['percent', 'progress', 'rating'].includes(f.type)) inp.min = '0';
+      if (f.type === 'percent') inp.max = '100';
+      if (f.type === 'progress' || f.type === 'rating') inp.max = String(f.max || (f.type === 'rating' ? 5 : 100));
+      field.appendChild(inp);
     } else {
       const inp = document.createElement('input');
-      inp.type = 'text';
+      inp.type = f.type === 'email' ? 'email' : (f.type === 'url' ? 'url' : (f.type === 'phone' ? 'tel' : 'text'));
       field.appendChild(inp);
     }
     fieldsWrap.appendChild(field);
@@ -1808,18 +1899,24 @@ function bitableRenderForm(data) {
       const cb = field.querySelector('input[type="checkbox"]');
       if (cb) { cells[cid] = cb.checked; return; }
       const sel = field.querySelector('select');
-      if (sel) { cells[cid] = sel.value; return; }
+      if (sel) {
+        cells[cid] = sel.multiple
+          ? Array.from(sel.selectedOptions).map(option => option.value).filter(Boolean)
+          : sel.value;
+        return;
+      }
       const ta = field.querySelector('textarea');
       if (ta) { cells[cid] = ta.value; return; }
       const inp = field.querySelector('input');
       if (inp) { cells[cid] = inp.value; return; }
     });
     try {
-      await fetch(`/api/databases/${encodeURIComponent(data.id)}/rows`, {
+      const resp = await fetch(`/api/databases/${encodeURIComponent(data.id)}/rows`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cells }),
       });
+      if (!resp.ok) throw new Error(await resp.text());
       toast('已提交', 'success');
       fieldsWrap.querySelectorAll('input,textarea,select').forEach(el => {
         if (el.type === 'checkbox') el.checked = false;
@@ -1950,6 +2047,57 @@ async function bitableConfigureGalleryView() {
   await bitableUpdateView({ coverColumn: col.id });
 }
 
+async function _bitableChooseColumn(title, columns, currentId) {
+  if (!columns.length) return '';
+  const current = columns.find(c => c.id === currentId);
+  const raw = await uiPrompt(
+    title,
+    columns.map(c => c.name).join(' / '),
+    current?.name || columns[0].name,
+  );
+  if (raw === null) return null;
+  const wanted = raw.trim();
+  const column = columns.find(c => c.id === wanted) || columns.find(c => c.name === wanted);
+  if (!column) {
+    toast('未找到该字段，请输入字段名称或 ID', 'error');
+    return null;
+  }
+  return column.id;
+}
+
+async function bitableConfigureGanttView() {
+  const columns = (bitableRenderCache?.allColumns || []).filter(c => c.type === 'date' || c.type === 'datetime');
+  if (!columns.length) {
+    toast('请先添加日期或日期时间字段', 'info');
+    return;
+  }
+  const view = bitableRenderCache.view;
+  const start = await _bitableChooseColumn('甘特图开始日期字段', columns, view.dateColumn);
+  if (start === null) return;
+  const end = await _bitableChooseColumn('甘特图结束日期字段', columns, view.endDateColumn || start);
+  if (end === null) return;
+  await bitableUpdateView({ dateColumn: start, endDateColumn: end });
+}
+
+async function bitableConfigureDashboardView() {
+  const columns = bitableRenderCache?.allColumns || [];
+  const categories = columns.filter(c => ['select', 'mselect', 'person', 'checkbox', 'text'].includes(c.type));
+  const values = columns.filter(c => ['number', 'currency', 'percent', 'progress', 'rating'].includes(c.type));
+  if (!categories.length) {
+    toast('请先添加可分类字段', 'info');
+    return;
+  }
+  const view = bitableRenderCache.view;
+  const category = await _bitableChooseColumn('仪表盘分类字段', categories, view.categoryColumn);
+  if (category === null) return;
+  let value = '';
+  if (values.length) {
+    value = await _bitableChooseColumn('仪表盘数值字段', values, view.valueColumn);
+    if (value === null) return;
+  }
+  await bitableUpdateView({ categoryColumn: category, valueColumn: value });
+}
+
 async function bitableSwitchView(viewId) {
   if (!bitableCurrentId) return;
   try {
@@ -1975,11 +2123,12 @@ async function bitableAddRow(initialCells) {
     if (view && (view.filters || []).length) {
       await bitableUpdateView({ filters: [] }, true);
     }
-    await fetch(`/api/databases/${encodeURIComponent(bitableCurrentId)}/rows`, {
+    const resp = await fetch(`/api/databases/${encodeURIComponent(bitableCurrentId)}/rows`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ cells: initialCells && typeof initialCells === 'object' ? initialCells : {} }),
     });
+    if (!resp.ok) throw new Error(await resp.text());
     await bitableRefreshEditor();
   } catch (e) {
     toast('添加记录失败', 'error');
@@ -2027,11 +2176,12 @@ async function bitableAddColumnPrompt(e) {
     const extra = await _bitableConfigureColumnExtra(type);
     if (extra === null && ['link', 'lookup', 'rollup', 'formula', 'ai_text'].includes(type)) return;
     try {
-      await fetch(`/api/databases/${encodeURIComponent(bitableCurrentId)}/columns`, {
+      const resp = await fetch(`/api/databases/${encodeURIComponent(bitableCurrentId)}/columns`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: name.trim() || kbDbColTypeLabel(type), type, ...(extra || {}) }),
       });
+      if (!resp.ok) throw new Error(await resp.text());
       await bitableRefreshEditor();
     } catch (err) {
       toast('添加字段失败：' + (err.message || err), 'error');
@@ -2047,6 +2197,8 @@ function bitableAddViewMenu(e) {
     ['☰ 表格视图', () => bitableCreateView('table', '表格')],
     ['▣ 画廊视图', () => bitableCreateView('gallery', '画廊')],
     ['📅 日历视图', () => bitableCreateView('calendar', '日历')],
+    ['▰ 甘特视图', () => bitableCreateView('gantt', '甘特图')],
+    ['📈 仪表盘', () => bitableCreateView('dashboard', '仪表盘')],
     ['📝 表单视图', () => bitableCreateView('form', '表单')],
   ];
   groupCols.forEach(c => {
@@ -2106,11 +2258,12 @@ async function bitableUpdateView(fields, skipRefresh) {
   const viewId = bitableRenderCache?.view?.id;
   if (!viewId) return;
   try {
-    await fetch(`/api/databases/${encodeURIComponent(bitableCurrentId)}/views/${encodeURIComponent(viewId)}`, {
+    const resp = await fetch(`/api/databases/${encodeURIComponent(bitableCurrentId)}/views/${encodeURIComponent(viewId)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(fields),
     });
+    if (!resp.ok) throw new Error(await resp.text());
     if (!skipRefresh) await bitableRefreshEditor();
   } catch (e) {
     toast('更新视图失败', 'error');

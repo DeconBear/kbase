@@ -229,6 +229,10 @@ select option{background:var(--surface-2);color:var(--text)}
 #library-main{flex:1;min-width:480px;display:flex;flex-direction:column;overflow:hidden;background:var(--panel-bg)}
 #library-biblio-toolbar{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0;flex-wrap:wrap}
 #library-biblio-toolbar h2{font-size:14px;font-weight:700;color:var(--text-strong);margin-right:auto}
+.biblio-toolbar-actions,.biblio-saved-search{display:flex;align-items:center;gap:6px}
+.biblio-saved-search select{width:min(180px,22vw);height:30px;padding:4px 26px 4px 9px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-2);color:var(--text);font-size:11px}
+.biblio-saved-search select:focus{outline:2px solid color-mix(in srgb,var(--accent) 35%,transparent);border-color:var(--accent)}
+.biblio-toolbar-actions .btn-outline,.biblio-saved-search .btn-outline{min-height:30px;font-size:11px;white-space:nowrap}
 .biblio-view-toggle{display:flex;gap:2px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:2px}
 .biblio-view-toggle button{border:0;background:transparent;color:var(--text-3);padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px}
 .biblio-view-toggle button.active{background:var(--accent-subtle);color:var(--accent-soft)}
@@ -966,6 +970,39 @@ select option{background:var(--surface-2);color:var(--text)}
 .bitable-gallery-body{padding:10px 12px}
 .bitable-gallery-title{font-weight:600;font-size:13px;color:var(--text-strong);margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bitable-gallery-meta{font-size:11px;color:var(--text-3);line-height:1.5}
+.bitable-view-empty{min-height:260px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--text-3);text-align:center;padding:32px}
+.bitable-view-empty>span{font-size:34px;opacity:.45}
+.bitable-view-empty>strong{font-size:14px;color:var(--text-2)}
+.bitable-view-empty>small{max-width:420px;line-height:1.6}
+.bitable-gantt{flex:1;overflow:auto;padding:16px;background:var(--bt-canvas);min-width:700px}
+.bitable-gantt-head,.bitable-gantt-row{display:grid;grid-template-columns:minmax(180px,260px) minmax(440px,1fr);align-items:center;width:100%;box-sizing:border-box}
+.bitable-gantt-head{position:sticky;top:-16px;z-index:2;height:40px;background:var(--surface);border:1px solid var(--bt-line);border-radius:8px 8px 0 0;color:var(--text-3);font-size:11px;text-align:left}
+.bitable-gantt-head>div:first-child{padding:0 14px;font-weight:600;color:var(--text-2)}
+.bitable-gantt-axis{display:flex;justify-content:space-between;padding:0 10px;border-left:1px solid var(--bt-line)}
+.bitable-gantt-row{min-height:48px;border:1px solid var(--bt-line);border-top:0;background:var(--surface);cursor:pointer;padding:0;text-align:left;color:var(--text);font:inherit}
+.bitable-gantt-row:hover{background:var(--bt-line-soft)}
+.bitable-gantt-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 14px;font-size:12px;font-weight:500}
+.bitable-gantt-track{position:relative;display:block;height:26px;margin:0 10px;border-left:1px solid var(--bt-line);border-right:1px solid var(--bt-line);background:repeating-linear-gradient(90deg,transparent 0,transparent calc(10% - 1px),var(--bt-line-soft) calc(10% - 1px),var(--bt-line-soft) 10%)}
+.bitable-gantt-bar{position:absolute;top:4px;height:18px;min-width:18px;border-radius:5px;background:linear-gradient(90deg,var(--bt-accent),#6AA1FF);box-shadow:0 2px 6px rgba(51,112,255,.22);overflow:hidden;color:#fff;font-size:10px;line-height:18px;padding:0 6px;box-sizing:border-box;white-space:nowrap}
+.bitable-gantt-note{padding:10px 14px;background:var(--surface);border:1px solid var(--bt-line);border-top:0;border-radius:0 0 8px 8px;color:var(--text-3);font-size:11px}
+.bitable-dashboard{flex:1;overflow:auto;padding:18px;background:var(--bt-canvas)}
+.bitable-dashboard-cards{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:12px;margin-bottom:14px}
+.bitable-metric-card{min-height:94px;padding:16px;border:1px solid var(--bt-line);border-radius:10px;background:var(--surface);display:flex;flex-direction:column;justify-content:space-between;box-shadow:0 1px 3px rgba(31,35,41,.04)}
+.bitable-metric-card span{font-size:11px;color:var(--text-3)}
+.bitable-metric-card strong{font-size:25px;line-height:1;color:var(--text-strong);font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis}
+.bitable-dashboard-chart{border:1px solid var(--bt-line);border-radius:10px;background:var(--surface);overflow:hidden}
+.bitable-dashboard-chart>header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--bt-line);color:var(--text-3);font-size:11px}
+.bitable-dashboard-chart>header div{display:flex;align-items:baseline;gap:8px}
+.bitable-dashboard-chart>header strong{font-size:13px;color:var(--text-strong)}
+.bitable-dashboard-bars{padding:10px 16px 16px}
+.bitable-dashboard-bar{width:100%;display:grid;grid-template-columns:minmax(90px,180px) 1fr 48px;align-items:center;gap:12px;min-height:38px;border:0;background:transparent;color:var(--text-2);font:inherit;text-align:left;padding:4px 2px;border-radius:6px;cursor:pointer}
+.bitable-dashboard-bar:hover:not(:disabled){background:var(--bt-line-soft)}
+.bitable-dashboard-bar:disabled{cursor:default}
+.bitable-dashboard-bar .label{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bitable-dashboard-bar .track{height:10px;border-radius:5px;background:var(--bt-line-soft);overflow:hidden}
+.bitable-dashboard-bar .track i{display:block;height:100%;border-radius:5px;background:linear-gradient(90deg,var(--bt-accent),#7AA7FF)}
+.bitable-dashboard-bar strong{text-align:right;font-size:12px;font-variant-numeric:tabular-nums}
+@media(max-width:900px){.bitable-dashboard-cards{grid-template-columns:repeat(2,minmax(140px,1fr))}.bitable-gantt-head,.bitable-gantt-row{grid-template-columns:180px minmax(400px,1fr)}}
 .bitable-field-picker{max-height:320px;overflow-y:auto;min-width:200px}
 .bitable-field-picker button{display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:8px 12px;border:none;background:none;cursor:pointer;font-size:12px;color:var(--text-2)}
 .bitable-field-picker button:hover{background:var(--bt-line-soft,#F2F3F5);color:var(--text-strong)}
@@ -1203,10 +1240,15 @@ body { display: flex !important; flex-direction: column !important; height: 100v
     #pdf-column { width: 100%; height: 50%; border-left: none; border-top: 1px solid var(--border); }
     #md-column { height: 50%; }
     #notes-sidebar { width: 220px; }
+    #library-biblio-toolbar h2 { margin-right: 0; }
+    .biblio-toolbar-actions { width: 100%; overflow-x: auto; padding-bottom: 2px; }
   }
   @media (max-width: 600px) {
     #library-side { width: 100%; max-width: 100vw; position: absolute; z-index: 10; height: 100%; }
     #library-side.collapsed { width: 42px; }
+    #library-main { min-width: 0; }
+    .biblio-saved-search { width: 100%; }
+    .biblio-saved-search select { flex: 1; width: auto; }
     #pdf-column { display: none; }
   }
 </style>
@@ -1257,6 +1299,9 @@ body { display: flex !important; flex-direction: column !important; height: 100v
           <input type="text" id="searchInput" placeholder="🔍 搜索工作空间文件..." oninput="onLibrarySearchInput()" style="flex:1;min-width:0">
         </div>
         <div id="workspace-file-actions" style="display:flex;gap:6px;padding:0 12px 8px;border-bottom:1px solid var(--border);background:var(--surface-2);flex-wrap:wrap">
+          <button class="sidebar-action-btn" onclick="addWorkspaceSource()" title="索引现有文件夹，不移动原文件">
+            <span class="icon">🔗</span> 添加资料源
+          </button>
           <button class="sidebar-action-btn" onclick="createWorkspaceFolderPrompt()" title="在当前目录新建文件夹">
             <span class="icon">📁</span> 新建文件夹
           </button>
@@ -1293,8 +1338,19 @@ body { display: flex !important; flex-direction: column !important; height: 100v
           <button type="button" id="biblioViewTable" onclick="toggleBiblioView('table')" title="表格">≡ 表格</button>
           <button type="button" id="biblioViewCards" onclick="toggleBiblioView('cards')" title="卡片">⊞ 卡片</button>
         </div>
-        <button type="button" class="btn-outline" style="font-size:11px" onclick="promptOrganizeLiterature()" title="整理散落 PDF">📚 整理文献</button>
-        <button type="button" class="btn-outline" style="font-size:11px" onclick="biblioBatchExtract()" title="批量提取元数据">批量提取</button>
+        <div class="biblio-saved-search">
+          <select id="biblioSavedSearchSelect" onchange="applyBiblioSavedSearch(this.value)" aria-label="保存的检索">
+            <option value="">保存的检索</option>
+          </select>
+          <button type="button" class="btn-outline" onclick="saveBiblioSearch()" title="保存当前检索">＋</button>
+          <button type="button" class="btn-outline" onclick="deleteBiblioSavedSearch()" title="删除选中的检索">−</button>
+        </div>
+        <div class="biblio-toolbar-actions">
+          <button type="button" class="btn-outline" onclick="biblioImportReferences()" title="导入 RIS、BibTeX 或 CSL/Zotero JSON">⇧ 导入</button>
+          <button type="button" class="btn-outline" onclick="biblioShowDuplicates()" title="按 DOI 或标题与年份检测重复文献">◫ 重复项</button>
+          <button type="button" class="btn-outline" onclick="promptOrganizeLiterature()" title="整理散落 PDF">📚 整理文献</button>
+          <button type="button" class="btn-outline" onclick="biblioBatchExtract()" title="批量提取元数据">批量提取</button>
+        </div>
       </div>
       <div id="library-biblio-panel">
         <div id="biblio-table-wrap"></div>
@@ -1335,6 +1391,8 @@ body { display: flex !important; flex-direction: column !important; height: 100v
     <div id="library-context-menu">
       <div class="ctx-title" id="ctxSelectionLabel">1 项</div>
       <button onclick="exportContextSelection('bibtex')">导出 BibTeX</button>
+      <button onclick="exportContextSelection('ris')">导出 RIS</button>
+      <button onclick="exportContextSelection('csljson')">导出 CSL JSON</button>
       <button onclick="exportContextSelection('pdf')">导出 PDF</button>
       <button onclick="exportContextSelection('markdown')">导出 Markdown</button>
       <div class="ctx-separator"></div>
@@ -1364,8 +1422,8 @@ body { display: flex !important; flex-direction: column !important; height: 100v
         <div class="settings-sidebar-item active" data-pane="paneGeneral" data-keywords="常规 设备 cpu gpu 主题 theme 外观 对话作用域">
           <span class="icon">⚙️</span><span>常规</span>
         </div>
-        <div class="settings-sidebar-item" data-pane="paneStorage" data-keywords="数据 存储 路径 目录 data storage">
-          <span class="icon">💾</span><span>数据存储</span>
+        <div class="settings-sidebar-item" data-pane="paneStorage" data-keywords="工作空间 资料源 文件 数据 存储 路径 目录 workspace source data storage">
+          <span class="icon">💾</span><span>工作空间与文件</span>
         </div>
         <div class="settings-sidebar-item" data-pane="paneUpdate" data-keywords="更新 版本 upgrade update version">
           <span class="icon">🔄</span><span>软件更新</span>
@@ -1698,15 +1756,16 @@ body { display: flex !important; flex-direction: column !important; height: 100v
 
       <!-- Pane: 数据存储 -->
       <section class="settings-content-pane" data-pane="paneStorage">
-        <h3 class="settings-pane-title">💾 数据存储路径</h3>
-        <p class="settings-pane-desc">数据库、文章、笔记、配置文件均存放于此。修改后需重启生效，已有数据不会被删除。</p>
+        <h3 class="settings-pane-title">💾 工作空间与文件</h3>
+        <p class="settings-pane-desc">工作空间保存 KBase 数据；资料源只索引已有文件夹，默认不会移动、改名或删除原文件。</p>
         <div class="settings-section">
           <div class="settings-section-head">
-            <h4>当前路径</h4>
+            <h4>默认工作空间位置</h4>
             <span id="dataRootStatus" style="font-size:11px;color:var(--text-3)"></span>
           </div>
+          <p style="font-size:11px;color:var(--text-3);line-height:1.6;margin:0 0 8px">首次启动或上次工作空间不可用时使用。修改后需重启，不会自动迁移已有数据。</p>
           <div style="display:flex;gap:6px">
-            <input type="text" id="dataRootInput" placeholder="默认：安装目录下的 data/ 文件夹" style="flex:1;font-size:12px">
+            <input type="text" id="dataRootInput" placeholder="默认：用户 Documents/KBase" style="flex:1;font-size:12px">
             <button class="btn-outline" onclick="browseDataRoot()">浏览</button>
             <button class="btn-emerald" onclick="saveDataRoot()">保存</button>
           </div>
@@ -1714,7 +1773,7 @@ body { display: flex !important; flex-direction: column !important; height: 100v
         </div>
         <div class="settings-section" style="margin-top:18px">
           <div class="settings-section-head">
-            <h4>工作空间（v1）</h4>
+            <h4>工作空间</h4>
             <span id="workspaceStatus" style="font-size:11px;color:var(--text-3)"></span>
           </div>
           <div id="workspaceInfo" style="font-size:12px;color:var(--text-2);line-height:1.6"></div>
@@ -1726,6 +1785,14 @@ body { display: flex !important; flex-direction: column !important; height: 100v
             <button class="btn-outline" onclick="rescanWorkspace()">重新扫描</button>
           </div>
           <div id="workspaceRecentList" style="margin-top:10px;font-size:12px;color:var(--text-2)"></div>
+        </div>
+        <div class="settings-section" style="margin-top:18px">
+          <div class="settings-section-head">
+            <h4>外部资料源</h4>
+            <button class="btn-emerald" type="button" onclick="addWorkspaceSource()">＋ 添加文件夹</button>
+          </div>
+          <p style="font-size:11px;color:var(--text-3);line-height:1.6;margin:0 0 8px">可直接索引用户已有目录。资料源始终只读；需要编辑或整理时，可将单个文件复制到托管区。</p>
+          <div id="workspaceSourcesList"></div>
         </div>
       </section>
 
@@ -2345,7 +2412,12 @@ const TabManager = {
 
     this.activeTabId = id;
     document.querySelectorAll('.tab-item').forEach(el => el.classList.remove('active'));
-    document.querySelectorAll('.iframe-tab').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.iframe-tab').forEach(el => {
+      el.classList.remove('active');
+      // Text tabs use inline display:flex while active. Clear it so the base
+      // .iframe-tab rule can hide the panel when another tab is selected.
+      el.style.display = '';
+    });
     document.body.dataset.tab = id;
     document.body.classList.toggle('tab-home', id === 'home');
     document.body.classList.toggle('tab-active', id !== 'home');
@@ -3504,8 +3576,10 @@ async function loadDataRoot() {
   try {
     const r = await fetch('/api/data-root');
     const d = await r.json();
-    document.getElementById('dataRootInput').value = d.dataRoot || '';
-    const status = d.isOverridden ? '（已自定义）' : '（默认）';
+    document.getElementById('dataRootInput').value = d.defaultDataRoot || d.dataRoot || '';
+    const status = d.isOverridden
+      ? '（已自定义）'
+      : (d.isLegacyInstallRoot ? '（兼容旧版位置）' : (d.isPackaged ? '（默认用户目录）' : '（开发模式默认）'));
     document.getElementById('dataRootStatus').textContent = status;
   } catch (e) {
     document.getElementById('dataRootStatus').textContent = '（获取失败）';
@@ -3530,10 +3604,10 @@ async function saveDataRoot() {
   }
 }
 
-function browseDataRoot() {
+async function browseDataRoot() {
   const el = document.getElementById('dataRootInput');
-  el.focus();
-  el.select();
+  const picked = await pickFolderDialog('选择默认工作空间文件夹', el?.value || '');
+  if (picked && el) el.value = picked;
 }
 
 async function pickFolderDialog(title, defaultDir) {
@@ -3577,6 +3651,10 @@ async function pickAndOpenWorkspace() {
 
 function showDataRootMsg(msg, colorClass) {
   const el = document.getElementById('dataRootMsg');
+  if (!el) {
+    if (typeof toast === 'function') toast(msg, colorClass === 'rose' ? 'error' : 'success');
+    return;
+  }
   el.textContent = msg;
   el.style.color = colorClass === 'rose' ? 'var(--rose)' : 'var(--emerald)';
   el.style.display = 'block';
@@ -3595,20 +3673,112 @@ async function loadWorkspaceInfo() {
       statusEl.textContent = '（未激活）';
       infoEl.textContent = '启动后将自动以数据目录作为默认工作空间，也可手动输入路径打开。';
       if (pathInput && d.legacyDataRoot) pathInput.placeholder = d.legacyDataRoot;
+      workspaceSources = [];
+      renderWorkspaceSources();
       return;
     }
     const ws = d.workspace;
+    workspaceSources = Array.isArray(ws.sources) ? ws.sources : [];
     statusEl.textContent = `（${ws.documentCount || 0} 个文档）`;
     const lines = [ws.name || '工作空间', ws.root || ''];
+    if (workspaceSources.length) lines.push(`外部资料源：${workspaceSources.length} 个（只读）`);
     if (ws.lastScanAt) lines.push('上次扫描：' + ws.lastScanAt);
     infoEl.textContent = lines.join('\n');
     infoEl.style.whiteSpace = 'pre-wrap';
     if (pathInput) pathInput.value = ws.root || '';
+    renderWorkspaceSources();
     await loadRecentWorkspaces();
     await loadWorkspaceTree();
   } catch (e) {
     statusEl.textContent = '（获取失败）';
     infoEl.textContent = '';
+  }
+}
+
+function renderWorkspaceSources() {
+  const el = document.getElementById('workspaceSourcesList');
+  if (!el) return;
+  if (!workspaceSources.length) {
+    el.innerHTML = '<div style="font-size:12px;color:var(--text-3);padding:8px 0">尚未添加资料源。已有散乱文件可以保持原位置。</div>';
+    return;
+  }
+  el.innerHTML = workspaceSources.map((source, index) => `
+    <div style="display:flex;gap:8px;align-items:center;padding:9px 10px;margin-bottom:6px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-2)">
+      <span style="font-size:16px">${source.available === false ? '⚠️' : '🔗'}</span>
+      <div style="min-width:0;flex:1">
+        <div style="font-size:12px;color:var(--text-strong);font-weight:600">${esc(source.name || '资料源')} <span style="font-size:10px;color:var(--text-3);font-weight:400">只读</span></div>
+        <div title="${esc(source.path || '')}" style="font-size:10px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(source.path || '')}</div>
+      </div>
+      <span style="font-size:10px;color:var(--text-3)">已索引 ${Number(source.documentCount || 0)} 项</span>
+      <button type="button" class="btn-outline source-remove-btn" data-source-index="${index}" style="font-size:11px">移除</button>
+    </div>`).join('');
+  el.querySelectorAll('.source-remove-btn').forEach(button => {
+    button.addEventListener('click', () => {
+      const source = workspaceSources[Number(button.dataset.sourceIndex)];
+      if (source) removeWorkspaceSource(source.id, source.name);
+    });
+  });
+}
+
+async function addWorkspaceSource() {
+  const path = await pickFolderDialog('选择要索引的资料文件夹', workspaceMeta?.root || '');
+  if (!path) return;
+  try {
+    const response = await fetch('/api/workspace/sources', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({path}),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.ok === false) throw new Error(data.error || data.message || '添加失败');
+    workspaceSources = data.sources || workspaceSources;
+    renderWorkspaceSources();
+    expandedWorkspaceDirs.add(`@sources/${data.source?.id || ''}`);
+    await loadWorkspaceTree();
+    toast('资料源已添加，正在后台建立索引', 'success');
+  } catch (error) {
+    toast('添加资料源失败：' + (error.message || error), 'error');
+  }
+}
+
+async function removeWorkspaceSource(sourceId, sourceName) {
+  if (!sourceId) return;
+  const ok = await uiConfirm(`从 KBase 移除资料源“${sourceName || sourceId}”？\n\n原文件不会被删除或修改。`, '移除资料源');
+  if (!ok) return;
+  try {
+    const response = await fetch('/api/workspace/sources/remove', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({sourceId}),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.ok === false) throw new Error(data.error || data.message || '移除失败');
+    workspaceSources = data.sources || [];
+    renderWorkspaceSources();
+    await loadWorkspaceTree();
+    toast('资料源已移除，原文件保持不变', 'success');
+  } catch (error) {
+    toast('移除资料源失败：' + (error.message || error), 'error');
+  }
+}
+
+async function importWorkspaceManaged(path) {
+  const norm = String(path || '').replace(/\\/g, '/').replace(/^\//, '');
+  if (!norm) return;
+  try {
+    const response = await fetch('/api/workspace/import-managed', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({path: norm}),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.ok === false) throw new Error(data.error || data.message || '复制失败');
+    expandedWorkspaceDirs.add('managed-files');
+    expandedWorkspaceDirs.add('managed-files/inbox');
+    await loadWorkspaceTree();
+    toast(`已复制到托管区：${data.path || ''}`, 'success');
+  } catch (error) {
+    toast('复制到托管区失败：' + (error.message || error), 'error');
   }
 }
 
@@ -3647,6 +3817,7 @@ let workspaceBookmarks = [];
 let workspaceDocFilter = 'all';
 let workspaceTree = null;
 let workspaceMeta = null;
+let workspaceSources = [];
 let expandedWorkspaceDirs = new Set();
 
 (function loadWorkspaceExpandedState() {
@@ -3699,20 +3870,37 @@ async function renderWorkspaceSwitcherList() {
     const r = await fetch('/api/workspace/recent');
     const d = await r.json();
     const items = d.workspaces || [];
-    const activeRoot = (workspaceMeta?.root || '').replace(/\\/g, '/');
+    const activeRoot = (workspaceMeta?.root || '').replace(/\\/g, '/').toLowerCase();
     if (!items.length) {
       el.innerHTML = '<div style="font-size:11px;color:var(--text-3);padding:4px 2px">暂无最近工作空间</div>';
       return;
     }
-    el.innerHTML = items.map(w => {
-      const active = String(w.path || '').replace(/\\/g, '/') === activeRoot;
+    el.innerHTML = items.map((w, i) => {
+      const p = String(w.path || '');
+      const active = p.replace(/\\/g, '/').toLowerCase() === activeRoot;
       return `<div style="display:flex;gap:4px;align-items:center;margin-bottom:4px">
-        <button type="button" class="sidebar-nav-btn${active ? ' active' : ''}" style="flex:1;justify-content:flex-start;font-size:11px;min-width:0" onclick='switchWorkspace(${JSON.stringify(w.path)})'>
+        <button type="button" class="sidebar-nav-btn${active ? ' active' : ''} ws-switch-item" data-idx="${i}" style="flex:1;justify-content:flex-start;font-size:11px;min-width:0" title="${esc(p)}">
           <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(w.name || w.path)}</span>
         </button>
-        <button type="button" class="icon-btn" title="从列表移除" style="flex-shrink:0;font-size:12px;padding:2px 6px" onclick='event.stopPropagation(); deleteWorkspace(${JSON.stringify(w.path)})'>✕</button>
+        <button type="button" class="icon-btn ws-switch-remove" data-idx="${i}" title="从列表移除" style="flex-shrink:0;font-size:12px;padding:2px 6px">✕</button>
       </div>`;
     }).join('');
+    el.querySelectorAll('.ws-switch-item').forEach(btn => {
+      const w = items[Number(btn.dataset.idx)];
+      if (!w) return;
+      btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        switchWorkspace(w.path);
+      });
+    });
+    el.querySelectorAll('.ws-switch-remove').forEach(btn => {
+      const w = items[Number(btn.dataset.idx)];
+      if (!w) return;
+      btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        deleteWorkspace(w.path);
+      });
+    });
   } catch (_) {
     el.innerHTML = '<div style="font-size:11px;color:var(--rose);padding:4px 2px">加载失败</div>';
   }
@@ -3721,28 +3909,45 @@ async function renderWorkspaceSwitcherList() {
 async function switchWorkspace(path) {
   if (!path) return;
   try {
+    if (typeof toast === 'function') toast('正在切换工作空间…', 'info');
     const r = await fetch('/api/workspace/open', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({path, scan: true, bindData: true}),
     });
-    const d = await r.json();
-    if (!d.ok) throw new Error(d.message || '切换失败');
-    if (d.articles) articles = d.articles;
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) throw new Error(d.error || d.message || '切换失败');
+    if (d.workspace) {
+      workspaceMeta = d.workspace;
+      updateWorkspaceSidebarHeader();
+    }
+    if (Array.isArray(d.articles)) {
+      articles = d.articles;
+    } else {
+      fetch('/api/articles').then(async (resp) => {
+        if (!resp.ok) return;
+        const payload = await resp.json();
+        articles = payload.articles || payload || [];
+        if (typeof renderLibrary === 'function') renderLibrary();
+      }).catch(() => {});
+    }
     workspaceSwitcherOpen = false;
     const panel = document.getElementById('workspace-switcher-panel');
     if (panel) panel.style.display = 'none';
     const caret = document.getElementById('workspace-switcher-caret');
     if (caret) caret.textContent = '▼';
     expandedWorkspaceDirs = new Set(['__root__']);
-    await loadWorkspaceTree();
-    await loadNotebooksAndNotes();
+    // Refresh UI without blocking the switch confirmation on slow trees.
+    loadWorkspaceTree().catch(() => {});
+    loadNotebooksAndNotes().catch(() => {});
     biblioFolderFilter = null;
     startIngestPolling();
     if (typeof renderLibrary === 'function') renderLibrary();
     showDataRootMsg('已切换工作空间', 'emerald');
+    if (typeof toast === 'function') toast('已切换工作空间', 'success');
   } catch (e) {
     showDataRootMsg('切换失败: ' + e.message, 'rose');
+    if (typeof toast === 'function') toast('切换失败: ' + e.message, 'error');
   }
 }
 
@@ -3856,6 +4061,128 @@ let biblioSelectedId = null;
 let biblioFolderFilter = null;
 let libraryStatusCache = null;
 let ingestPollTimer = null;
+
+function _loadBiblioSavedSearches() {
+  try {
+    const value = JSON.parse(localStorage.getItem('kbaseBiblioSavedSearches') || '[]');
+    return Array.isArray(value) ? value.filter(item => item && item.id && item.name) : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+let biblioSavedSearches = _loadBiblioSavedSearches();
+
+function renderBiblioSavedSearches(selectedId = '') {
+  const select = document.getElementById('biblioSavedSearchSelect');
+  if (!select) return;
+  select.replaceChildren();
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = '保存的检索';
+  select.appendChild(placeholder);
+  biblioSavedSearches.forEach(item => {
+    const option = document.createElement('option');
+    option.value = item.id;
+    option.textContent = item.name;
+    select.appendChild(option);
+  });
+  select.value = selectedId;
+}
+
+function _persistBiblioSavedSearches() {
+  try { localStorage.setItem('kbaseBiblioSavedSearches', JSON.stringify(biblioSavedSearches)); } catch (_) {}
+}
+
+async function saveBiblioSearch() {
+  const query = (document.getElementById('searchInput')?.value || '').trim();
+  const name = await uiPrompt('为当前检索命名', query || '新检索', '保存检索');
+  if (name === null || !name.trim()) return;
+  const item = {
+    id: `search_${Date.now().toString(36)}`,
+    name: name.trim().slice(0, 60),
+    query,
+    sortCol: biblioSortCol,
+    sortDir: biblioSortDir,
+    folderFilter: biblioFolderFilter,
+  };
+  biblioSavedSearches.push(item);
+  _persistBiblioSavedSearches();
+  renderBiblioSavedSearches(item.id);
+  toast('检索已保存', 'success');
+}
+
+function applyBiblioSavedSearch(id) {
+  const item = biblioSavedSearches.find(search => search.id === id);
+  if (!item) return;
+  const input = document.getElementById('searchInput');
+  if (input) input.value = item.query || '';
+  biblioSortCol = item.sortCol || 'title';
+  biblioSortDir = item.sortDir === -1 ? -1 : 1;
+  biblioFolderFilter = item.folderFilter || null;
+  onLibrarySearchInput();
+}
+
+async function deleteBiblioSavedSearch() {
+  const select = document.getElementById('biblioSavedSearchSelect');
+  const id = select?.value || '';
+  const item = biblioSavedSearches.find(search => search.id === id);
+  if (!item) { toast('请先选择一个保存的检索', 'info'); return; }
+  if (!await uiConfirm(`删除保存的检索“${item.name}”？`, '删除检索')) return;
+  biblioSavedSearches = biblioSavedSearches.filter(search => search.id !== id);
+  _persistBiblioSavedSearches();
+  renderBiblioSavedSearches();
+  toast('检索已删除', 'success');
+}
+
+function biblioImportReferences() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.ris,.bib,.json,application/json,application/x-research-info-systems,application/x-bibtex';
+  input.onchange = async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const suffix = file.name.toLowerCase().split('.').pop();
+      const format = suffix === 'bib' ? 'bibtex' : (suffix === 'json' ? 'json' : 'ris');
+      const response = await abortableFetch('/api/articles/import', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({text, format, filename: file.name, skipDuplicates: true}),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || data.message || `导入失败 (${response.status})`);
+      await loadArticles();
+      renderFolderTree();
+      renderBiblioPanel();
+      const extra = data.skipped ? `，跳过 ${data.skipped} 个重复项` : '';
+      toast(`已导入 ${data.imported || 0} 篇文献${extra}`, 'success');
+      if (data.errors?.length) await uiAlert(`${data.errors.length} 条记录缺少标题或格式无效`, '部分记录未导入');
+    } catch (error) {
+      if (error?.name !== 'AbortError') toast(error.message || '导入失败', 'error');
+    }
+  };
+  input.click();
+}
+
+async function biblioShowDuplicates() {
+  try {
+    const response = await abortableFetch('/api/articles/duplicates');
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || data.message || `检测失败 (${response.status})`);
+    const groups = data.groups || [];
+    if (!groups.length) { toast('未发现重复文献', 'success'); return; }
+    const lines = groups.slice(0, 20).map((group, index) => {
+      const items = group.items.map(item => `  • ${item.title}${item.year ? ` (${item.year})` : ''}${item.doi ? ` · ${item.doi}` : ''}`);
+      return `${index + 1}. ${(group.reasons || []).join('、')}\n${items.join('\n')}`;
+    });
+    if (groups.length > 20) lines.push(`…另有 ${groups.length - 20} 组`);
+    await uiAlert(lines.join('\n\n'), `发现 ${groups.length} 组重复文献`);
+  } catch (error) {
+    if (error?.name !== 'AbortError') toast(error.message || '重复项检测失败', 'error');
+  }
+}
 
 function toggleBiblioView(mode) {
   biblioViewMode = mode === 'cards' ? 'cards' : 'table';
@@ -4165,6 +4492,8 @@ async function loadWorkspaceTree() {
     const treeData = await treeResp.json();
     workspaceTree = treeData.tree || null;
     workspaceDocuments = treeData.documents || [];
+    workspaceSources = Array.isArray(treeData.sources) ? treeData.sources : workspaceSources;
+    renderWorkspaceSources();
     const ingestEl = document.getElementById('setIngestOnOpen');
     if (ingestEl && workspaceMeta) ingestEl.checked = workspaceMeta.ingestOnOpen !== false;
     _ensureDefaultWorkspaceExpanded();
@@ -4225,16 +4554,38 @@ function _isMarkdownPath(path, kind) {
 let workspaceSelectedDir = '';
 
 function selectWorkspaceDir(path) {
-  workspaceSelectedDir = String(path || '').replace(/\\/g, '/').replace(/^\//, '');
+  const norm = String(path || '').replace(/\\/g, '/').replace(/^\//, '');
+  if (_isExternalSourcePath(norm)) {
+    toast('外部资料源为只读，不能作为新建或保存目录', 'info');
+    return;
+  }
+  workspaceSelectedDir = norm;
+}
+
+function _isExternalSourcePath(path) {
+  return String(path || '').replace(/\\/g, '/').replace(/^\//, '').startsWith('@sources/');
+}
+
+function _workspaceTreeArg(value) {
+  return encodeURIComponent(String(value || '')).replace(/'/g, '%27');
 }
 
 function openWorkspaceTreeEntry(path, docId, kind) {
   const norm = String(path || '').replace(/\\/g, '/').replace(/^\//, '');
   if (kind === 'pdf' || norm.toLowerCase().endsWith('.pdf')) {
+    if (_isExternalSourcePath(norm)) {
+      const url = '/' + norm.split('/').map(encodeURIComponent).join('/');
+      TabManager.openTab('source-pdf-' + norm, 'pdf_direct', '📕 ' + (norm.split('/').pop() || norm), {url}, true);
+      return;
+    }
     openPdfFromWorkspacePath(norm);
     return;
   }
   if (_isMarkdownPath(norm, kind)) {
+    if (_isExternalSourcePath(norm)) {
+      openWorkspaceTextFile(norm);
+      return;
+    }
     openWorkspaceMarkdown(norm);
     return;
   }
@@ -4303,20 +4654,23 @@ function _renderWorkspaceTreeNode(node, depth) {
   const indent = 12 + depth * 14;
   if (node.type === 'dir') {
     const key = node.path || '__root__';
+    const keyArg = _workspaceTreeArg(key);
     const children = (node.children || []).filter(child => _treeNodeMatchesFilter(child));
     const isExpanded = expandedWorkspaceDirs.has(key);
     const canExpand = children.length > 0;
     const litMatch = String(node.path || '').match(/^(?:literature|\.literature|articles)\/([^/]+)\/?$/i);
-    const folderClick = litMatch
+    const folderClick = node.readOnly
+      ? `toggleWorkspaceDir(decodeURIComponent('${keyArg}'))`
+      : litMatch
       ? `event.stopPropagation();biblioFolderFilter='${esc(litMatch[1])}';renderBiblioPanel();`
-      : `selectWorkspaceDir('${esc(key)}');toggleWorkspaceDir('${esc(key)}')`;
+      : `selectWorkspaceDir(decodeURIComponent('${keyArg}'));toggleWorkspaceDir(decodeURIComponent('${keyArg}'))`;
     const ctx = key && key !== '__root__'
-      ? ` oncontextmenu="showWorkspaceFsContextMenu(event,'${esc(key)}','dir','')"`
+      ? ` oncontextmenu="showWorkspaceFsContextMenu(event,decodeURIComponent('${keyArg}'),'dir','')"`
       : '';
     let html = `<div class="folder-tree-item${workspaceSelectedDir === key ? ' active' : ''}" style="padding-left:${indent}px" onclick="${folderClick}"${ctx}>
-      <span class="folder-toggle" onclick="event.stopPropagation();toggleWorkspaceDir('${esc(key)}')">${canExpand ? (isExpanded ? '▼' : '▶') : ''}</span>
-      <span class="folder-icon">📁</span>
-      <span class="folder-name">${esc(node.name || workspaceMeta?.name || '根目录')}</span>
+      <span class="folder-toggle" onclick="event.stopPropagation();toggleWorkspaceDir(decodeURIComponent('${keyArg}'))">${canExpand ? (isExpanded ? '▼' : '▶') : ''}</span>
+      <span class="folder-icon">${node.isSourceRoot ? '🔗' : '📁'}</span>
+      <span class="folder-name">${esc(node.name || workspaceMeta?.name || '根目录')}${node.readOnly ? ' <span style="font-size:9px;color:var(--text-3)">只读</span>' : ''}${node.available === false ? ' <span style="font-size:9px;color:var(--rose)">不可用</span>' : ''}</span>
       ${canExpand ? `<span class="folder-count">${children.length}</span>` : ''}
     </div>`;
     if (isExpanded) {
@@ -4326,12 +4680,15 @@ function _renderWorkspaceTreeNode(node, depth) {
   }
   const icon = _workspaceKindIcon(node.kind);
   const titleFromArticle = node.kind === 'pdf' ? _articleTitleForPath(node.path) : null;
-  const label = titleFromArticle || node.title || node.name || node.path;
+  const label = node.readOnly ? (node.name || node.path) : (titleFromArticle || node.title || node.name || node.path);
   const pending = node.kind === 'pdf' && _isPendingOrganizePath(node.path);
-  return `<div class="folder-tree-item" style="padding-left:${indent}px" onclick="openWorkspaceTreeEntry('${esc(node.path || '')}','${esc(node.docId || '')}','${esc(node.kind || '')}')" oncontextmenu="showWorkspaceFsContextMenu(event,'${esc(node.path || '')}','file','${esc(node.kind || '')}')">
+  const pathArg = _workspaceTreeArg(node.path || '');
+  const docArg = _workspaceTreeArg(node.docId || '');
+  const kindArg = _workspaceTreeArg(node.kind || '');
+  return `<div class="folder-tree-item" style="padding-left:${indent}px" onclick="openWorkspaceTreeEntry(decodeURIComponent('${pathArg}'),decodeURIComponent('${docArg}'),decodeURIComponent('${kindArg}'))" oncontextmenu="showWorkspaceFsContextMenu(event,decodeURIComponent('${pathArg}'),'file',decodeURIComponent('${kindArg}'))">
     <span class="folder-toggle"></span>
     <span class="folder-icon">${icon}</span>
-    <span class="folder-name" title="${esc(node.path || '')}">${esc(label)}${pending ? ' <span style="color:var(--amber);font-size:10px">待整理</span>' : ''}</span>
+    <span class="folder-name" title="${esc(node.path || '')}">${esc(label)}${node.readOnly ? ' <span style="color:var(--text-3);font-size:9px">只读</span>' : ''}${pending ? ' <span style="color:var(--amber);font-size:10px">待整理</span>' : ''}</span>
   </div>`;
 }
 
@@ -4359,11 +4716,16 @@ function renderWorkspaceDocTree() {
       el.innerHTML = html + '<div style="padding:12px;color:var(--text-3);font-size:12px">无匹配文件</div>';
       return;
     }
-    html += files.map(f => `<div class="folder-tree-item" style="padding-left:12px" onclick="openWorkspaceTreeEntry('${esc(f.path || '')}','${esc(f.docId || '')}','${esc(f.kind || '')}')" oncontextmenu="showWorkspaceFsContextMenu(event,'${esc(f.path || '')}','file','${esc(f.kind || '')}')">
+    html += files.map(f => {
+      const pathArg = _workspaceTreeArg(f.path || '');
+      const docArg = _workspaceTreeArg(f.docId || '');
+      const kindArg = _workspaceTreeArg(f.kind || '');
+      return `<div class="folder-tree-item" style="padding-left:12px" onclick="openWorkspaceTreeEntry(decodeURIComponent('${pathArg}'),decodeURIComponent('${docArg}'),decodeURIComponent('${kindArg}'))" oncontextmenu="showWorkspaceFsContextMenu(event,decodeURIComponent('${pathArg}'),'file',decodeURIComponent('${kindArg}'))">
       <span class="folder-toggle"></span>
       <span class="folder-icon">${_workspaceKindIcon(f.kind)}</span>
       <span class="folder-name" title="${esc(f.path || '')}">${esc(f.title || f.name)}</span>
-    </div>`).join('');
+    </div>`;
+    }).join('');
     el.innerHTML = html;
     return;
   }
@@ -4522,17 +4884,72 @@ function showWorkspaceFsContextMenu(event, path, nodeType, kind) {
   const menu = document.getElementById('library-context-menu');
   if (!menu) return;
   const isDir = nodeType === 'dir';
-  const openBtn = isDir
-    ? `<button onclick="hideLibraryContextMenu();selectWorkspaceDir('${esc(norm)}');expandedWorkspaceDirs.add('${esc(norm)}');renderWorkspaceDocTree()">选中目录</button>`
-    : `<button onclick="hideLibraryContextMenu();openWorkspaceTreeEntry('${esc(norm)}','','${esc(kind || '')}')">打开</button>`;
+  const isExternal = _isExternalSourcePath(norm);
+  const sourceRootMatch = norm.match(/^@sources\/(src_[0-9a-f]{12})$/);
+  if (isExternal) {
+    const source = sourceRootMatch ? workspaceSources.find(item => item.id === sourceRootMatch[1]) : null;
+    const action = !isDir
+      ? '<button data-source-action="import">复制到托管区</button>'
+      : sourceRootMatch
+        ? '<button class="danger" data-source-action="remove">移除资料源</button>'
+        : '';
+    menu.innerHTML = `
+      <div class="ctx-title">${esc(norm.split('/').pop() || norm)} <span style="font-size:10px;color:var(--text-3)">只读资料源</span></div>
+      <button data-source-action="open">${isDir ? '展开目录' : '打开'}</button>
+      ${action}
+    `;
+    menu.querySelector('[data-source-action="open"]')?.addEventListener('click', () => {
+      hideLibraryContextMenu();
+      if (isDir) {
+        expandedWorkspaceDirs.add(norm);
+        renderWorkspaceDocTree();
+      } else {
+        openWorkspaceTreeEntry(norm, '', kind || '');
+      }
+    });
+    menu.querySelector('[data-source-action="import"]')?.addEventListener('click', () => {
+      hideLibraryContextMenu();
+      importWorkspaceManaged(norm);
+    });
+    menu.querySelector('[data-source-action="remove"]')?.addEventListener('click', () => {
+      hideLibraryContextMenu();
+      removeWorkspaceSource(sourceRootMatch?.[1], source?.name || sourceRootMatch?.[1]);
+    });
+    menu.style.left = event.clientX + 'px';
+    menu.style.top = event.clientY + 'px';
+    menu.classList.add('visible');
+    return;
+  }
   menu.innerHTML = `
     <div class="ctx-title">${esc(norm.split('/').pop() || norm)}</div>
-    ${openBtn}
-    <button onclick="hideLibraryContextMenu();renameWorkspacePathPrompt('${esc(norm)}')">重命名</button>
-    <button onclick="hideLibraryContextMenu();moveWorkspacePathPrompt('${esc(norm)}')">移动到…</button>
+    <button data-fs-action="open">${isDir ? '选中目录' : '打开'}</button>
+    <button data-fs-action="rename">重命名</button>
+    <button data-fs-action="move">移动到…</button>
     <div class="ctx-separator"></div>
-    <button class="danger" onclick="hideLibraryContextMenu();deleteWorkspacePathPrompt('${esc(norm)}')">删除</button>
+    <button class="danger" data-fs-action="delete">删除</button>
   `;
+  menu.querySelector('[data-fs-action="open"]')?.addEventListener('click', () => {
+    hideLibraryContextMenu();
+    if (isDir) {
+      selectWorkspaceDir(norm);
+      expandedWorkspaceDirs.add(norm);
+      renderWorkspaceDocTree();
+    } else {
+      openWorkspaceTreeEntry(norm, '', kind || '');
+    }
+  });
+  menu.querySelector('[data-fs-action="rename"]')?.addEventListener('click', () => {
+    hideLibraryContextMenu();
+    renameWorkspacePathPrompt(norm);
+  });
+  menu.querySelector('[data-fs-action="move"]')?.addEventListener('click', () => {
+    hideLibraryContextMenu();
+    moveWorkspacePathPrompt(norm);
+  });
+  menu.querySelector('[data-fs-action="delete"]')?.addEventListener('click', () => {
+    hideLibraryContextMenu();
+    deleteWorkspacePathPrompt(norm);
+  });
   menu.style.left = event.clientX + 'px';
   menu.style.top = event.clientY + 'px';
   menu.classList.add('visible');
@@ -4836,20 +5253,23 @@ async function skillsInstall() {
 
 // ===== INIT =====
 async function init() {
+  // Establish navigation before slow data requests finish. Otherwise an early
+  // user click can open a tab and then be reset to Home by the late init call.
+  TabManager.init();
+  window.TabManager = TabManager;
   await loadPersistedSettings();
   await loadLLMConfig();
   await loadArticles();
   await loadArticleFolders();
   applyLibrarySideState();
   applyAiPanelState();
+  renderBiblioSavedSearches();
   toggleBiblioView(biblioViewMode);
   await loadLibrarySessions();
   await loadNotebooksAndNotes();
   loadWorkspaceTree().catch(() => {});
   startIngestPolling();
   setUnifiedFilter('all');
-  TabManager.init();
-  window.TabManager = TabManager;
   setTimeout(() => loadUpdateInfo().catch(() => {}), 3000);
 }
 
@@ -4881,12 +5301,15 @@ window.addEventListener('unhandledrejection', function(e) {
 async function loadArticles() {
   try {
     const resp = await abortableFetch('/api/articles');
+    if (!resp.ok) throw new Error(`加载文献失败 (${resp.status})`);
     const data = await resp.json();
     articles = data.articles || [];
     const liveIds = new Set(articles.map(a => a.id));
     selectedArticleIds = new Set([...selectedArticleIds].filter(id => liveIds.has(id)));
   } catch(e) {
-    articles = [{id:"Thesis_Joris_Lelieveld-3",title:"Applying Deep Reinforcement Learning to the Firefighter Problem",author:"Joris Lelieveld",pages:33,category:"Computer Science",tags:["RL","GNN"],translated:false,summarized:false,pdf_available:true,md_available:true}];
+    if (e?.name === 'AbortError') return;
+    if (!Array.isArray(articles)) articles = [];
+    toast(e.message || '文献加载失败', 'error');
   }
 }
 
@@ -5495,17 +5918,28 @@ async function exportContextSelection(format) {
   
   if (window.pywebview && window.pywebview.api && window.pywebview.api.save_file) {
     try {
-      const resp = await fetch(url);
+      const resp = await abortableFetch(url);
       if (resp.ok) {
-        const text = await resp.text();
-        const ext = format === 'bibtex' ? '.bib' : '.json';
-        await window.pywebview.api.save_file(text, `export_${Date.now()}${ext}`);
+        const disposition = resp.headers.get('Content-Disposition') || '';
+        const headerName = disposition.match(/filename="?([^";]+)"?/i)?.[1] || '';
+        const extensions = {bibtex:'.bib', ris:'.ris', csljson:'.json', pdf:'.zip', markdown:'.zip'};
+        const filename = headerName || `export_${Date.now()}${extensions[format] || '.dat'}`;
+        if (format === 'pdf' || format === 'markdown') {
+          if (!window.pywebview.api.save_file_base64) throw new Error('当前桌面版本不支持二进制导出');
+          const bytes = new Uint8Array(await resp.arrayBuffer());
+          let binary = '';
+          for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+            binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+          }
+          await window.pywebview.api.save_file_base64(btoa(binary), filename);
+        } else {
+          await window.pywebview.api.save_file(await resp.text(), filename);
+        }
       } else {
-        alert('导出失败');
+        toast('导出失败', 'error');
       }
     } catch (e) {
-      console.error(e);
-      alert('导出出错');
+      if (e?.name !== 'AbortError') toast('导出出错: ' + e.message, 'error');
     }
   } else {
     // For normal browsers
@@ -12371,7 +12805,7 @@ async function startConvPolling(articleId) {
   convPollTimer = setInterval(poll, 1500);
 }
 </script>
-<script src="assets/bitable.js?v=20260709-fill"></script>
+<script src="assets/bitable.js?v=20260715-views"></script>
 
 <script>
 // ==================== ATTACHMENTS PANEL ====================

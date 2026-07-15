@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -23,6 +24,8 @@ from storage import _atomic_write_json
 
 WORKSPACE_SPEC_VERSION = 1
 DOC_ID_RE = re.compile(r"^doc_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+SOURCE_ID_RE = re.compile(r"^src_[0-9a-f]{12}$")
+SOURCE_PATH_PREFIX = "@sources"
 
 DEFAULT_IGNORE_GLOBS = (
     "**/.git/**",
@@ -31,6 +34,11 @@ DEFAULT_IGNORE_GLOBS = (
     "**/__pycache__/**",
     "**/.venv/**",
     "**/venv/**",
+    "local.env",
+    "llm_config.json",
+    "low_memory_config.json",
+    "chat_sessions/**",
+    "logs/**",
 )
 
 KIND_BY_EXT: dict[str, str] = {
@@ -159,6 +167,14 @@ def _derivation_basename(source_rel: str) -> str:
     return path.stem
 
 
+def _path_is_within(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
 class Workspace:
     """A user-chosen directory with an initialized ``.kbase/`` metadata tree."""
 
@@ -172,6 +188,8 @@ class Workspace:
         self.bookmarks_dir = self.kbase / "bookmarks"
         self.tasks_dir = self.kbase / "tasks"
         self.logs_dir = self.kbase / "logs"
+        self.managed_files_dir = self.root / "managed-files"
+        self.managed_inbox_dir = self.managed_files_dir / "inbox"
         self._manifest_cache: dict[str, Any] | None = None
 
     @classmethod
@@ -192,6 +210,7 @@ class Workspace:
             self.bookmarks_dir,
             self.tasks_dir,
             self.logs_dir,
+            self.managed_inbox_dir,
         ):
             d.mkdir(parents=True, exist_ok=True)
         if not self.manifest_path.exists():
@@ -213,6 +232,8 @@ class Workspace:
                 "defaultTranslateLang": "zh",
                 "literatureDir": "literature",
                 "literatureLayout": "per-paper-folder",
+                "managedFilesDir": "managed-files",
+                "sources": [],
                 "ingestOnOpen": True,
                 "autoClassifyPdfs": True,
                 "autoExtractMetadata": True,
@@ -249,51 +270,186 @@ class Workspace:
     def rel_path(self, abs_path: Path) -> str:
         # On Windows, Path.resolve() may yield \\?\ extended paths while
         # self.root stays as a normal path — normalize both before relative_to.
-        root = self.root.resolve()
         target = abs_path.resolve()
-        try:
-            return target.relative_to(root).as_posix()
-        except ValueError:
-            root_s = os.path.normcase(os.path.normpath(str(root)))
-            target_s = os.path.normcase(os.path.normpath(str(target)))
-            # Strip Windows extended-length prefix if present.
-            if root_s.startswith("\\\\?\\"):
-                root_s = root_s[4:]
-            if target_s.startswith("\\\\?\\"):
-                target_s = target_s[4:]
-            return Path(target_s).relative_to(Path(root_s)).as_posix()
+        candidates = [(None, self.root), *[(source["id"], Path(source["path"])) for source in self.sources()]]
+        for source_id, candidate_root in candidates:
+            candidate_root = candidate_root.resolve()
+            try:
+                relative = target.relative_to(candidate_root).as_posix()
+            except ValueError:
+                root_s = os.path.normcase(os.path.normpath(str(candidate_root)))
+                target_s = os.path.normcase(os.path.normpath(str(target)))
+                if root_s.startswith("\\\\?\\"):
+                    root_s = root_s[4:]
+                if target_s.startswith("\\\\?\\"):
+                    target_s = target_s[4:]
+                try:
+                    relative = Path(target_s).relative_to(Path(root_s)).as_posix()
+                except ValueError:
+                    continue
+            if source_id:
+                return f"{SOURCE_PATH_PREFIX}/{source_id}/{relative}"
+            return relative
+        raise ValueError("File is outside the workspace and linked sources")
 
     def resolve(self, rel_path: str) -> Path:
         rel = rel_path.replace("\\", "/").lstrip("/")
-        root = self.root.resolve()
-        target = (root / rel).resolve()
+        source_path = self._split_source_path(rel)
+        if source_path:
+            source_id, source_rel = source_path
+            source = self._source_by_id(source_id)
+            if source is None or not source_rel:
+                raise ValueError("Invalid source path")
+            root = Path(source["path"]).resolve()
+            target = (root / source_rel).resolve()
+        else:
+            root = self.root.resolve()
+            target = (root / rel).resolve()
         root_s = os.path.normcase(os.path.normpath(str(root)))
         target_s = os.path.normcase(os.path.normpath(str(target)))
         if root_s.startswith("\\\\?\\"):
             root_s = root_s[4:]
         if target_s.startswith("\\\\?\\"):
             target_s = target_s[4:]
-        if not target_s.startswith(root_s):
+        try:
+            common = os.path.commonpath([root_s, target_s])
+        except ValueError as exc:
+            raise ValueError("Path escapes workspace") from exc
+        if common != root_s:
             raise ValueError("路径越界")
         return target
 
     def ignore_globs(self) -> tuple[str, ...]:
         manifest = self.load_manifest()
-        globs = manifest.get("ignoreGlobs") or list(DEFAULT_IGNORE_GLOBS)
-        return tuple(str(g) for g in globs)
+        globs = [*DEFAULT_IGNORE_GLOBS, *(manifest.get("ignoreGlobs") or [])]
+        return tuple(dict.fromkeys(str(g) for g in globs))
 
     def literature_dir_name(self) -> str:
         return str(self.load_manifest().get("literatureDir") or "articles").strip("/") or "articles"
 
+    def sources(self) -> list[dict[str, Any]]:
+        """Return configured external folders without modifying their contents."""
+        raw_sources = self.load_manifest().get("sources") or []
+        result: list[dict[str, Any]] = []
+        for raw in raw_sources:
+            if not isinstance(raw, dict):
+                continue
+            source_id = str(raw.get("id") or "")
+            path_text = str(raw.get("path") or "").strip()
+            if not SOURCE_ID_RE.match(source_id) or not path_text:
+                continue
+            root = Path(path_text).expanduser().resolve()
+            result.append({
+                **raw,
+                "id": source_id,
+                "name": str(raw.get("name") or root.name or source_id),
+                "path": str(root),
+                "mode": "linked",
+                "readOnly": True,
+                "available": root.is_dir(),
+            })
+        return result
+
+    def _source_by_id(self, source_id: str) -> dict[str, Any] | None:
+        return next((source for source in self.sources() if source["id"] == source_id), None)
+
+    @staticmethod
+    def _split_source_path(rel_path: str) -> tuple[str, str] | None:
+        rel = rel_path.replace("\\", "/").strip("/")
+        parts = rel.split("/", 2)
+        if len(parts) >= 2 and parts[0] == SOURCE_PATH_PREFIX and SOURCE_ID_RE.match(parts[1]):
+            return parts[1], parts[2] if len(parts) == 3 else ""
+        return None
+
+    def is_readonly_path(self, rel_path: str) -> bool:
+        return self._split_source_path(rel_path) is not None
+
+    def add_source(self, path: str | Path, *, name: str | None = None) -> dict[str, Any]:
+        root = Path(path).expanduser().resolve()
+        if not root.is_dir():
+            raise ValueError(f"资料源目录不存在: {root}")
+        if _path_is_within(root, self.root) or _path_is_within(self.root, root):
+            raise ValueError("资料源不能与工作空间互相包含；工作空间内文件已自动管理")
+        root_key = os.path.normcase(os.path.normpath(str(root)))
+        for source in self.sources():
+            if os.path.normcase(os.path.normpath(source["path"])) == root_key:
+                return source
+        source = {
+            "id": f"src_{uuid.uuid4().hex[:12]}",
+            "name": (name or root.name or "资料源").strip(),
+            "path": str(root),
+            "mode": "linked",
+            "readOnly": True,
+            "addedAt": _now_iso(),
+            "documentCount": 0,
+        }
+        manifest = self.load_manifest()
+        manifest["sources"] = [*(manifest.get("sources") or []), source]
+        self.save_manifest(manifest)
+        return {**source, "available": True}
+
+    def remove_source(self, source_id: str) -> dict[str, Any]:
+        if not SOURCE_ID_RE.match(source_id):
+            raise ValueError("无效的资料源 ID")
+        manifest = self.load_manifest()
+        sources = [source for source in (manifest.get("sources") or []) if isinstance(source, dict)]
+        removed = next((source for source in sources if source.get("id") == source_id), None)
+        if removed is None:
+            raise ValueError("资料源不存在")
+        manifest["sources"] = [source for source in sources if source.get("id") != source_id]
+        self.save_manifest(manifest)
+        prefix = f"{SOURCE_PATH_PREFIX}/{source_id}/"
+        removed_docs = 0
+        for doc in self.list_documents():
+            if str(doc.get("path") or "").replace("\\", "/").startswith(prefix):
+                try:
+                    self.sidecar_path(str(doc.get("id") or "")).unlink(missing_ok=True)
+                    removed_docs += 1
+                except (OSError, ValueError):
+                    continue
+        self._refresh_document_count()
+        return {"source": removed, "removedDocuments": removed_docs, "filesDeleted": False}
+
+    def import_managed_file(self, rel_path: str) -> dict[str, Any]:
+        """Atomically copy a linked file into the managed inbox."""
+        if not self.is_readonly_path(rel_path):
+            raise ValueError("只有外部资料源文件需要复制到托管区")
+        source = self.resolve(rel_path)
+        if not source.is_file():
+            raise FileNotFoundError(rel_path)
+        self.managed_inbox_dir.mkdir(parents=True, exist_ok=True)
+        destination = self.managed_inbox_dir / source.name
+        index = 2
+        while destination.exists():
+            destination = self.managed_inbox_dir / f"{source.stem} ({index}){source.suffix}"
+            index += 1
+        tmp = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            shutil.copy2(source, tmp)
+            os.replace(tmp, destination)
+        finally:
+            tmp.unlink(missing_ok=True)
+        rel = self.rel_path(destination)
+        detected = detect_kind(rel)
+        doc = self.register_file(rel, kind=detected) if detected else None
+        if doc:
+            self._refresh_document_count()
+        return {"path": rel, "document": doc, "sourcePath": rel_path, "copied": True}
+
     def iter_candidate_files(self) -> Iterator[Path]:
         globs = self.ignore_globs()
-        for path in self.root.rglob("*"):
-            if not path.is_file():
-                continue
-            rel = self.rel_path(path)
-            if _matches_any_glob(rel, globs):
-                continue
-            yield path
+        roots = [self.root, *(Path(source["path"]) for source in self.sources() if source.get("available"))]
+        for root in roots:
+            for path in root.rglob("*"):
+                if not path.is_file():
+                    continue
+                rel = self.rel_path(path)
+                local_rel = rel.split("/", 2)[-1] if self.is_readonly_path(rel) else rel
+                if ".kbase" in Path(local_rel).parts:
+                    continue
+                if _matches_any_glob(local_rel, globs):
+                    continue
+                yield path
 
     def sidecar_path(self, doc_id: str) -> Path:
         if not DOC_ID_RE.match(doc_id):
@@ -411,6 +567,7 @@ class Workspace:
             raise ValueError(f"无法识别文档类型: {rel}")
         if detected == "markdown" and is_derivation_path(rel):
             detected = "markdown"
+        stat = abs_path.stat()
         now = _now_iso()
         doc_id = doc_id or new_doc_id()
         sidecar: dict[str, Any] = {
@@ -418,6 +575,8 @@ class Workspace:
             "kind": detected,
             "path": rel,
             "contentHash": content_hash(abs_path),
+            "fileSize": stat.st_size,
+            "mtimeNs": stat.st_mtime_ns,
             "title": title or self._title_from_path(rel),
             "createdAt": now,
             "updatedAt": now,
@@ -426,6 +585,10 @@ class Workspace:
             "derivations": {},
             "ui": {"icon": "📄", "pinned": False},
         }
+        source_path = self._split_source_path(rel)
+        if source_path:
+            sidecar["sourceId"] = source_path[0]
+            sidecar["sourceReadOnly"] = True
         self.save_document(sidecar)
         return sidecar
 
@@ -448,7 +611,7 @@ class Workspace:
 
     def scan(self, *, full: bool = False) -> dict[str, Any]:
         """Scan workspace files and reconcile sidecars."""
-        del full  # reserved for future incremental modes
+        del full  # the stat cache is safe for both normal and explicit scans
         by_path = self._index_sidecars_by_path()
         by_hash = self._index_sidecars_by_hash()
         seen_paths: set[str] = set()
@@ -467,12 +630,23 @@ class Workspace:
                     orphans += 1
                 continue
             seen_paths.add(rel)
+            existing = by_path.get(rel)
             try:
+                stat = abs_path.stat()
+                unchanged = bool(
+                    existing
+                    and existing.get("fileSize") == stat.st_size
+                    and existing.get("mtimeNs") == stat.st_mtime_ns
+                )
+                if unchanged:
+                    if existing.get("status") != "active":
+                        existing["status"] = "active"
+                        self.save_document(existing)
+                    continue
                 file_hash = content_hash(abs_path)
             except OSError:
                 continue
 
-            existing = by_path.get(rel)
             if existing:
                 changed = False
                 if existing.get("contentHash") != file_hash:
@@ -480,6 +654,12 @@ class Workspace:
                     changed = True
                 if existing.get("status") != "active":
                     existing["status"] = "active"
+                    changed = True
+                if existing.get("fileSize") != stat.st_size:
+                    existing["fileSize"] = stat.st_size
+                    changed = True
+                if existing.get("mtimeNs") != stat.st_mtime_ns:
+                    existing["mtimeNs"] = stat.st_mtime_ns
                     changed = True
                 if changed:
                     self.save_document(existing)
@@ -489,7 +669,10 @@ class Workspace:
             for candidate in by_hash.get(file_hash, []):
                 old_path = str(candidate.get("path") or "").replace("\\", "/")
                 if old_path and old_path not in seen_paths:
-                    old_abs = self.root / old_path
+                    try:
+                        old_abs = self.resolve(old_path)
+                    except ValueError:
+                        old_abs = self.root / "__missing_source__"
                     if not old_abs.exists():
                         relocated = candidate
                         break
@@ -497,6 +680,8 @@ class Workspace:
             if relocated:
                 relocated["path"] = rel
                 relocated["contentHash"] = file_hash
+                relocated["fileSize"] = stat.st_size
+                relocated["mtimeNs"] = stat.st_mtime_ns
                 relocated["status"] = "active"
                 self.save_document(relocated)
                 by_path[rel] = relocated
@@ -512,7 +697,10 @@ class Workspace:
         for path_key, doc in list(by_path.items()):
             if path_key in seen_paths:
                 continue
-            abs_old = self.root / path_key
+            try:
+                abs_old = self.resolve(path_key)
+            except ValueError:
+                abs_old = self.root / "__missing_source__"
             if abs_old.exists():
                 continue
             if doc.get("status") != "missing":
@@ -520,8 +708,29 @@ class Workspace:
                 self.save_document(doc)
                 missing += 1
 
+        # Count sidecar files by name only — never parse tens of thousands of JSON
+        # docs here (Baidu Sync / large workspaces would block for minutes).
+        try:
+            total = sum(1 for _ in self.documents_dir.glob("doc_*.json")) if self.documents_dir.exists() else 0
+        except OSError:
+            total = 0
         manifest = self.load_manifest()
         manifest["lastScanAt"] = _now_iso()
+        manifest["documentCount"] = total
+        source_counts: dict[str, int] = {}
+        for rel in seen_paths:
+            source_path = self._split_source_path(rel)
+            if source_path:
+                source_counts[source_path[0]] = source_counts.get(source_path[0], 0) + 1
+        updated_sources = []
+        for source in manifest.get("sources") or []:
+            if not isinstance(source, dict):
+                continue
+            item = dict(source)
+            item["documentCount"] = source_counts.get(str(item.get("id") or ""), 0)
+            item["lastScanAt"] = manifest["lastScanAt"]
+            updated_sources.append(item)
+        manifest["sources"] = updated_sources
         self.save_manifest(manifest)
 
         return {
@@ -529,7 +738,7 @@ class Workspace:
             "moved": moved,
             "missing": missing,
             "orphanDerivations": orphans,
-            "total": len(self.list_documents()),
+            "total": total,
         }
 
     def find_document_by_path(self, rel_path: str) -> dict[str, Any] | None:
@@ -555,6 +764,27 @@ class Workspace:
         name = template.replace("{basename}", basename).replace("{lang}", lang)
         return str(Path(source_rel).with_name(name)).replace("\\", "/")
 
+    def document_count(self) -> int:
+        """Fast document count from manifest cache only (never parse/glob sidecars)."""
+        manifest = self.load_manifest()
+        cached = manifest.get("documentCount")
+        if isinstance(cached, bool):
+            return 0
+        if isinstance(cached, (int, float)) and cached >= 0:
+            return int(cached)
+        # Older manifests: avoid blocking on huge Baidu Sync trees; scan() fills this.
+        return 0
+
+    def _refresh_document_count(self) -> int:
+        try:
+            total = sum(1 for _ in self.documents_dir.glob("doc_*.json"))
+        except OSError:
+            total = 0
+        manifest = self.load_manifest()
+        manifest["documentCount"] = total
+        self.save_manifest(manifest)
+        return total
+
     def info(self) -> dict[str, Any]:
         manifest = self.load_manifest()
         return {
@@ -564,11 +794,13 @@ class Workspace:
             "specVersion": manifest.get("specVersion", WORKSPACE_SPEC_VERSION),
             "openedAt": manifest.get("openedAt"),
             "lastScanAt": manifest.get("lastScanAt"),
-            "documentCount": len(self.list_documents()),
+            "documentCount": self.document_count(),
             "literatureDir": manifest.get("literatureDir") or "articles",
             "ingestOnOpen": manifest.get("ingestOnOpen", True),
             "autoClassifyPdfs": manifest.get("autoClassifyPdfs", True),
             "autoExtractMetadata": manifest.get("autoExtractMetadata", True),
+            "managedFilesDir": manifest.get("managedFilesDir") or "managed-files",
+            "sources": self.sources(),
         }
 
     def list_directory_tree(
@@ -589,7 +821,7 @@ class Workspace:
             if not rel:
                 return False
             parts = Path(rel).parts
-            if parts and parts[0] == ".kbase":
+            if ".kbase" in parts:
                 return True
             probe = rel if is_dir else rel
             if _matches_any_glob(probe, globs):
@@ -600,14 +832,25 @@ class Workspace:
                 return True
             return False
 
-        def build_dir(abs_dir: Path, rel: str, depth: int) -> dict[str, Any]:
-            display_name = self.root.name if not rel else abs_dir.name
+        def build_dir(
+            abs_dir: Path,
+            rel: str,
+            depth: int,
+            *,
+            display_name: str | None = None,
+            source_id: str | None = None,
+        ) -> dict[str, Any]:
+            display = display_name or (self.root.name if not rel else abs_dir.name)
             node: dict[str, Any] = {
-                "name": display_name,
+                "name": display,
                 "path": rel.replace("\\", "/"),
                 "type": "dir",
                 "children": [],
+                "readOnly": source_id is not None,
             }
+            if source_id:
+                node["sourceId"] = source_id
+                node["isSourceRoot"] = rel == f"{SOURCE_PATH_PREFIX}/{source_id}"
             if depth >= max_depth:
                 return node
             try:
@@ -623,7 +866,12 @@ class Workspace:
                 if entry.is_dir():
                     if should_skip(entry_rel, is_dir=True):
                         continue
-                    node["children"].append(build_dir(entry, entry_rel, depth + 1))
+                    node["children"].append(build_dir(
+                        entry,
+                        entry_rel,
+                        depth + 1,
+                        source_id=source_id,
+                    ))
                     continue
                 if not entry.is_file() or should_skip(entry_rel, is_dir=False):
                     continue
@@ -634,17 +882,43 @@ class Workspace:
                     "path": entry_rel,
                     "type": "file",
                     "kind": kind,
+                    "readOnly": source_id is not None,
                 }
+                if source_id:
+                    file_node["sourceId"] = source_id
                 if doc:
                     file_node["docId"] = doc.get("id")
                     file_node["title"] = doc.get("title")
                 node["children"].append(file_node)
             return node
 
+        tree = build_dir(self.root, "", 0)
+        for source in self.sources():
+            source_rel = f"{SOURCE_PATH_PREFIX}/{source['id']}"
+            if not source.get("available"):
+                tree["children"].append({
+                    "name": source["name"],
+                    "path": source_rel,
+                    "type": "dir",
+                    "children": [],
+                    "readOnly": True,
+                    "sourceId": source["id"],
+                    "isSourceRoot": True,
+                    "available": False,
+                })
+                continue
+            tree["children"].append(build_dir(
+                Path(source["path"]),
+                source_rel,
+                0,
+                display_name=source["name"],
+                source_id=source["id"],
+            ))
         return {
             "root": str(self.root),
             "name": self.root.name,
-            "tree": build_dir(self.root, "", 0),
+            "tree": tree,
+            "sources": self.sources(),
         }
 
 
