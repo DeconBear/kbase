@@ -1,9 +1,12 @@
 """Feishu Bitable-inspired databases for KBase (standalone + note blocks)."""
 from __future__ import annotations
 
+import ast
 import csv
 import io
 import json
+import math
+import operator
 import re
 import uuid
 from copy import deepcopy
@@ -59,7 +62,7 @@ FIELD_TYPE_LABELS: dict[str, str] = {
     "ai_text": "AI 文本",
 }
 
-VIEW_TYPES = frozenset({"table", "kanban", "gallery", "calendar", "form"})
+VIEW_TYPES = frozenset({"table", "kanban", "gallery", "calendar", "gantt", "dashboard", "form"})
 
 _HISTORY_KEEP = 20
 
@@ -510,22 +513,39 @@ def _apply_sorts(rows: list[dict[str, Any]], sorts: list[dict[str, Any]]) -> lis
         return rows
     out = list(rows)
 
-    def sort_key(row: dict[str, Any]) -> tuple:
-        keys: list[Any] = []
-        cells = row.get("cells") or {}
-        for spec in sorts:
-            col = spec.get("column") or spec.get("id")
-            val = cells.get(col, "")
-            if isinstance(val, list):
-                val = ",".join(str(x) for x in val)
-            asc = (spec.get("order") or "asc").lower() != "desc"
-            keys.append((0, str(val).lower()) if asc else (1, str(val).lower()))
-        return tuple(keys)
+    def sort_value(row: dict[str, Any], col: str) -> tuple[int, Any] | None:
+        val = (row.get("cells") or {}).get(col, "")
+        if val in ("", None) or val == []:
+            return None
+        if isinstance(val, list):
+            val = ",".join(str(x) for x in val)
+        if isinstance(val, bool):
+            return 0, int(val)
+        if isinstance(val, (int, float)):
+            return 0, float(val)
+        text = str(val).strip()
+        try:
+            return 0, float(text)
+        except ValueError:
+            return 1, text.casefold()
 
-    try:
-        out.sort(key=sort_key)
-    except Exception:
-        pass
+    # Stable sorts are applied from the least-significant key to the most-
+    # significant one. Empty values stay at the bottom in both directions.
+    for spec in reversed(sorts):
+        col = str(spec.get("column") or spec.get("id") or "")
+        if not col:
+            continue
+        present: list[tuple[dict[str, Any], tuple[int, Any]]] = []
+        empty: list[dict[str, Any]] = []
+        for row in out:
+            value = sort_value(row, col)
+            if value is None:
+                empty.append(row)
+            else:
+                present.append((row, value))
+        descending = str(spec.get("direction") or spec.get("order") or "asc").lower() == "desc"
+        present.sort(key=lambda item: item[1], reverse=descending)
+        out = [row for row, _ in present] + empty
     return out
 
 
@@ -685,6 +705,104 @@ def _formula_funcs() -> dict[str, Any]:
     return {"IF": IF, "CONCAT": CONCAT, "ABS": abs, "MIN": min, "MAX": max, "ROUND": round}
 
 
+_FORMULA_BIN_OPS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.FloorDiv: operator.floordiv,
+    ast.Mod: operator.mod,
+}
+_FORMULA_COMPARE_OPS = {
+    ast.Eq: operator.eq,
+    ast.NotEq: operator.ne,
+    ast.Lt: operator.lt,
+    ast.LtE: operator.le,
+    ast.Gt: operator.gt,
+    ast.GtE: operator.ge,
+}
+
+
+def _eval_formula_node(node: ast.AST, env: dict[str, Any], depth: int = 0) -> Any:
+    if depth > 32:
+        raise ValueError("Formula is too deeply nested")
+    if isinstance(node, ast.Expression):
+        return _eval_formula_node(node.body, env, depth + 1)
+    if isinstance(node, ast.Constant) and isinstance(node.value, (str, int, float, bool, type(None))):
+        return node.value
+    if isinstance(node, ast.Name):
+        if node.id not in env:
+            raise ValueError("Unknown formula name")
+        return env[node.id]
+    if isinstance(node, ast.BinOp) and type(node.op) in _FORMULA_BIN_OPS:
+        left = _eval_formula_node(node.left, env, depth + 1)
+        right = _eval_formula_node(node.right, env, depth + 1)
+        if isinstance(node.op, ast.Mult) and (isinstance(left, str) or isinstance(right, str)):
+            raise ValueError("String multiplication is not supported")
+        return _FORMULA_BIN_OPS[type(node.op)](left, right)
+    if isinstance(node, ast.UnaryOp):
+        value = _eval_formula_node(node.operand, env, depth + 1)
+        if isinstance(node.op, ast.Not):
+            return not value
+        if isinstance(node.op, ast.UAdd):
+            return +value
+        if isinstance(node.op, ast.USub):
+            return -value
+    if isinstance(node, ast.BoolOp):
+        if isinstance(node.op, ast.And):
+            result: Any = True
+            for value_node in node.values:
+                result = _eval_formula_node(value_node, env, depth + 1)
+                if not result:
+                    return result
+            return result
+        if isinstance(node.op, ast.Or):
+            result = False
+            for value_node in node.values:
+                result = _eval_formula_node(value_node, env, depth + 1)
+                if result:
+                    return result
+            return result
+    if isinstance(node, ast.Compare):
+        left = _eval_formula_node(node.left, env, depth + 1)
+        for op_node, comparator in zip(node.ops, node.comparators):
+            compare = _FORMULA_COMPARE_OPS.get(type(op_node))
+            if compare is None:
+                raise ValueError("Unsupported formula comparison")
+            right = _eval_formula_node(comparator, env, depth + 1)
+            if not compare(left, right):
+                return False
+            left = right
+        return True
+    if isinstance(node, ast.IfExp):
+        condition = _eval_formula_node(node.test, env, depth + 1)
+        branch = node.body if condition else node.orelse
+        return _eval_formula_node(branch, env, depth + 1)
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and not node.keywords:
+        func = env.get(node.func.id)
+        if node.func.id not in _formula_funcs() or not callable(func) or len(node.args) > 32:
+            raise ValueError("Unsupported formula function")
+        args = [_eval_formula_node(arg, env, depth + 1) for arg in node.args]
+        return func(*args)
+    raise ValueError("Unsupported formula syntax")
+
+
+def _evaluate_formula(expression: str, env: dict[str, Any]) -> Any:
+    if len(expression) > 1000:
+        raise ValueError("Formula is too long")
+    tree = ast.parse(expression, mode="eval")
+    if sum(1 for _ in ast.walk(tree)) > 200:
+        raise ValueError("Formula is too complex")
+    result = _eval_formula_node(tree, env)
+    if isinstance(result, float) and not math.isfinite(result):
+        return ""
+    if isinstance(result, str):
+        return result[:10000]
+    if isinstance(result, (int, float, bool, type(None))):
+        return result
+    return ""
+
+
 def _resolve_formula(db: dict[str, Any], col: dict[str, Any], row: dict[str, Any]) -> Any:
     expr = str(col.get("expression") or "").strip()
     if not expr:
@@ -701,8 +819,8 @@ def _resolve_formula(db: dict[str, Any], col: dict[str, Any], row: dict[str, Any
     try:
         if expr.startswith("="):
             expr = expr[1:]
-        return eval(expr, {"__builtins__": {}}, env)  # noqa: S307
-    except Exception:
+        return _evaluate_formula(expr, env)
+    except (ArithmeticError, SyntaxError, TypeError, ValueError):
         return ""
 
 
@@ -966,6 +1084,135 @@ def _render_calendar(
     }
 
 
+def _parse_view_date(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        return parsed.replace(tzinfo=None) if parsed.tzinfo is not None else parsed
+    except ValueError:
+        try:
+            return datetime.strptime(text[:10], "%Y-%m-%d")
+        except ValueError:
+            return None
+
+
+def _render_gantt(
+    db: dict[str, Any], view: dict[str, Any], rows: list[dict[str, Any]]
+) -> dict[str, Any]:
+    start_col = _pick_date_column(db, str(view.get("dateColumn") or ""))
+    end_col = _pick_date_column(db, str(view.get("endDateColumn") or start_col)) or start_col
+    columns = db.get("columns") or []
+    title_col = columns[0]["id"] if columns else ""
+    dated: list[tuple[datetime, datetime, dict[str, Any]]] = []
+    undated = 0
+    for row in rows:
+        cells = _resolve_computed_cells(db, row)
+        start = _parse_view_date(cells.get(start_col))
+        if start is None:
+            undated += 1
+            continue
+        end = _parse_view_date(cells.get(end_col)) or start
+        if end < start:
+            start, end = end, start
+        dated.append((start, end, {**row, "cells": cells}))
+    if not dated:
+        return {
+            "startColumn": start_col,
+            "endColumn": end_col,
+            "start": "",
+            "end": "",
+            "days": 0,
+            "items": [],
+            "undated": undated,
+        }
+    range_start = min(item[0] for item in dated)
+    range_end = max(item[1] for item in dated)
+    total_days = max(1, (range_end.date() - range_start.date()).days + 1)
+    items = []
+    for start, end, row in dated:
+        offset = (start.date() - range_start.date()).days
+        duration = max(1, (end.date() - start.date()).days + 1)
+        items.append({
+            "row": row,
+            "title": (row.get("cells") or {}).get(title_col) or row.get("id") or "未命名",
+            "start": start.strftime("%Y-%m-%d"),
+            "end": end.strftime("%Y-%m-%d"),
+            "leftPct": round(offset / total_days * 100, 4),
+            "widthPct": round(duration / total_days * 100, 4),
+        })
+    return {
+        "startColumn": start_col,
+        "endColumn": end_col,
+        "start": range_start.strftime("%Y-%m-%d"),
+        "end": range_end.strftime("%Y-%m-%d"),
+        "days": total_days,
+        "items": items,
+        "undated": undated,
+    }
+
+
+def _pick_dashboard_column(
+    db: dict[str, Any], requested: str, allowed: frozenset[str]
+) -> str:
+    col_map = _column_map(db)
+    if requested in col_map and col_map[requested].get("type") in allowed:
+        return requested
+    for col in db.get("columns") or []:
+        if col.get("type") in allowed:
+            return str(col.get("id") or "")
+    return ""
+
+
+def _render_dashboard(
+    db: dict[str, Any], view: dict[str, Any], rows: list[dict[str, Any]]
+) -> dict[str, Any]:
+    category_col = _pick_dashboard_column(
+        db,
+        str(view.get("categoryColumn") or ""),
+        frozenset({"select", "mselect", "person", "checkbox", "text"}),
+    )
+    value_col = _pick_dashboard_column(
+        db,
+        str(view.get("valueColumn") or ""),
+        frozenset({"number", "currency", "percent", "progress", "rating"}),
+    )
+    categories: dict[str, int] = {}
+    values: list[float] = []
+    for row in rows:
+        cells = _resolve_computed_cells(db, row)
+        raw_category = cells.get(category_col) if category_col else None
+        labels = raw_category if isinstance(raw_category, list) else [raw_category]
+        labels = [str(label).strip() for label in labels if str(label or "").strip()]
+        if not labels:
+            labels = ["未分类"]
+        for label in labels:
+            categories[label] = categories.get(label, 0) + 1
+        if value_col:
+            try:
+                raw_value = cells.get(value_col)
+                if raw_value not in ("", None):
+                    values.append(float(raw_value))
+            except (TypeError, ValueError):
+                pass
+    breakdown = [
+        {"label": label, "count": count}
+        for label, count in sorted(categories.items(), key=lambda item: (-item[1], item[0]))
+    ]
+    return {
+        "categoryColumn": category_col,
+        "valueColumn": value_col,
+        "total": len(rows),
+        "breakdown": breakdown,
+        "valueCount": len(values),
+        "sum": sum(values) if values else None,
+        "average": sum(values) / len(values) if values else None,
+        "minimum": min(values) if values else None,
+        "maximum": max(values) if values else None,
+    }
+
+
 def _render_form(db: dict[str, Any], view: dict[str, Any]) -> dict[str, Any]:
     col_map = _column_map(db)
     field_ids = view.get("formFields") or [c["id"] for c in db.get("columns") or [] if c.get("id")]
@@ -979,6 +1226,8 @@ def _render_form(db: dict[str, Any], view: dict[str, Any]) -> dict[str, Any]:
             "name": cdef.get("name") or fid,
             "type": cdef.get("type") or "text",
             "options": cdef.get("options") or [],
+            "max": cdef.get("max"),
+            "currency": cdef.get("currency"),
         })
     return {"fields": fields}
 
@@ -1050,6 +1299,10 @@ def render_database(db_id: str, view_id: str | None = None, *, query: str = "") 
         result["gallery"] = _render_gallery(db, view, rows)
     elif vtype == "calendar":
         result["calendar"] = _render_calendar(db, view, rows)
+    elif vtype == "gantt":
+        result["gantt"] = _render_gantt(db, view, rows)
+    elif vtype == "dashboard":
+        result["dashboard"] = _render_dashboard(db, view, rows)
     elif vtype == "form":
         result["form"] = _render_form(db, view)
     else:
@@ -1218,6 +1471,9 @@ def add_view(
     group_column: str = "",
     cover_column: str = "",
     date_column: str = "",
+    end_date_column: str = "",
+    category_column: str = "",
+    value_column: str = "",
 ) -> dict[str, Any]:
     db = load_database(db_id)
     view_type = (view_type or "table").strip().lower()
@@ -1258,6 +1514,20 @@ def add_view(
         view["dateColumn"] = _pick_date_column(db, date_column)
         if not name or name in ("日历", "新视图"):
             view["name"] = "日历"
+    if view_type == "gantt":
+        view["dateColumn"] = _pick_date_column(db, date_column)
+        view["endDateColumn"] = _pick_date_column(db, end_date_column) or view["dateColumn"]
+        if not name or name in ("甘特", "甘特图", "新视图"):
+            view["name"] = "甘特图"
+    if view_type == "dashboard":
+        view["categoryColumn"] = _pick_dashboard_column(
+            db, category_column, frozenset({"select", "mselect", "person", "checkbox", "text"})
+        )
+        view["valueColumn"] = _pick_dashboard_column(
+            db, value_column, frozenset({"number", "currency", "percent", "progress", "rating"})
+        )
+        if not name or name in ("仪表盘", "新视图"):
+            view["name"] = "仪表盘"
     if view_type == "form":
         view["formFields"] = [
             c["id"] for c in columns if c.get("type") not in READONLY_FIELD_TYPES
@@ -1276,7 +1546,8 @@ def update_view(db_id: str, view_id: str, fields: dict[str, Any]) -> dict[str, A
         raise ValueError("Invalid view id")
     col_map = _column_map(db)
     scalar_keys = (
-        "name", "groupColumn", "coverColumn", "dateColumn", "groupBy", "frozenColumns",
+        "name", "groupColumn", "coverColumn", "dateColumn", "endDateColumn",
+        "categoryColumn", "valueColumn", "groupBy", "frozenColumns",
     )
     list_keys = ("filters", "sorts", "cardFields", "hiddenColumns", "columnOrder", "conditionalFormats")
     dict_keys = ("columnWidths", "kanbanOrder")
@@ -1285,9 +1556,12 @@ def update_view(db_id: str, view_id: str, fields: dict[str, Any]) -> dict[str, A
             continue
         for key in scalar_keys:
             if key in fields and fields[key] is not None:
-                if key in ("groupColumn", "coverColumn", "dateColumn", "groupBy"):
+                if key in (
+                    "groupColumn", "coverColumn", "dateColumn", "endDateColumn",
+                    "categoryColumn", "valueColumn", "groupBy",
+                ):
                     val = str(fields.get(key) or "")
-                    if val and val not in col_map and key != "groupBy":
+                    if val and val not in col_map:
                         continue
                     view[key] = val
                 elif key == "frozenColumns":
@@ -1336,10 +1610,12 @@ def add_row(db_id: str, cells: dict[str, Any] | None = None) -> dict[str, Any]:
     row_cells: dict[str, Any] = {}
     for cid, col in cols.items():
         ctype = col.get("type") or "text"
-        if cells and cid in cells:
-            row_cells[cid] = _normalize_cell(col, cells[cid])
-        elif ctype == "autonumber":
+        if ctype == "autonumber":
             row_cells[cid] = _next_autonumber(db, cid)
+        elif ctype in READONLY_FIELD_TYPES:
+            row_cells[cid] = _default_cell_value(ctype)
+        elif cells and cid in cells:
+            row_cells[cid] = _normalize_cell(col, cells[cid])
         else:
             row_cells[cid] = _default_cell_value(ctype)
     row = {
@@ -1366,7 +1642,7 @@ def update_row(db_id: str, row_id: str, cells: dict[str, Any]) -> dict[str, Any]
             if cid not in cols:
                 continue
             col = cols[cid]
-            if col.get("type") in READONLY_FIELD_TYPES and col.get("type") not in ("autonumber",):
+            if col.get("type") in READONLY_FIELD_TYPES:
                 continue
             old_refs = list(merged.get(cid) or []) if col.get("type") == "link" else []
             merged[cid] = _normalize_cell(col, val)

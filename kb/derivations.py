@@ -283,6 +283,8 @@ def preparse_word_document(ws: Workspace, doc_id: str) -> dict[str, Any] | None:
     rel = str(doc.get("path") or "")
     if not rel:
         return None
+    if ws.is_readonly_path(rel):
+        raise ValueError("外部资料源为只读；请先复制到托管区再解析")
     source_abs = ws.resolve(rel)
     if not source_abs.is_file():
         return None

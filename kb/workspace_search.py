@@ -103,7 +103,10 @@ def search_workspace_documents(
             meta_text += " " + " ".join(str(t) for t in tags).lower()
 
         for rel in _readable_paths(ws, doc):
-            abs_path = ws.root / rel
+            try:
+                abs_path = ws.resolve(rel)
+            except ValueError:
+                continue
             if not abs_path.is_file():
                 continue
             try:

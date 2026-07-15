@@ -164,6 +164,8 @@ def _collect_plan(ws: Workspace, lit_dir: str, *, dry_run: bool) -> dict[str, An
         if path.suffix.lower() != ".pdf":
             continue
         rel = ws.rel_path(path)
+        if ws.is_readonly_path(rel):
+            continue
         if _is_organized(rel, literature_dir):
             continue
         cls = classify_pdf(path, rel_path=rel, literature_dir=literature_dir, use_llm="never")

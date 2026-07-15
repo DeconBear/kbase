@@ -49,6 +49,9 @@ class WorkspaceWatcher:
         handler = _Handler()
         observer = Observer()
         observer.schedule(handler, ws_root, recursive=True)
+        for source in self._ws.sources():
+            if source.get("available"):
+                observer.schedule(handler, str(source["path"]), recursive=True)
         observer.start()
         self._observer = observer
         self._thread = threading.Thread(target=self._debounce_loop, daemon=True)
