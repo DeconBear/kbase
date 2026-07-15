@@ -10,12 +10,15 @@ var bitableCurrentId = null;
 var bitableListCache = [];
 var bitableRenderCache = null;
 var bitablePageMode = 'table';
-var bitableSearchQuery = '';
+var bitableCatalogQuery = '';
+var bitableTableQuery = '';
 const bitableSelectedRows = new Set();
 
 const _kbDbCache = new Map();
 let _bitableDrawerRow = null;
 let _bitableDrawerDbId = null;
+let _bitableCatalogSearchTimer = null;
+let _bitableGridResizeObserver = null;
 
 /* Solid accents (legacy / borders / progress). */
 const KB_SELECT_COLORS = {
@@ -139,21 +142,43 @@ const KB_READONLY_TYPES = new Set(
 .bitable-modal-card{background:var(--surface);border:1px solid var(--bt-line,var(--border));border-radius:10px;box-shadow:var(--shadow-xl);width:520px;max-width:94vw;padding:14px 16px}
 /* Feishu chrome */
 #bitable-chrome{display:flex;flex-direction:column;flex-shrink:0;background:var(--surface);border-bottom:1px solid var(--bt-line,var(--border))}
-#bitable-chrome-top{display:flex;align-items:center;gap:8px;padding:8px 12px 0;flex-wrap:nowrap;min-height:40px}
-#bitable-chrome-tabs{display:flex;align-items:flex-end;gap:0;flex:1;min-width:0;overflow-x:auto;padding:0;scrollbar-width:thin}
-#bitable-chrome-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 10px 6px;flex-wrap:nowrap;border-top:1px solid var(--bt-line-soft,#F2F3F5)}
+#bitable-chrome-top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 12px 7px;min-height:46px;box-sizing:border-box}
+.bitable-title-cluster{display:flex;align-items:center;gap:9px;min-width:0}
+.bitable-title-icon{width:28px;height:28px;border-radius:7px;display:grid;place-items:center;background:linear-gradient(145deg,#E8F3FF,#F0ECFF);font-size:17px;flex-shrink:0}
+.bitable-title-copy{display:flex;flex-direction:column;min-width:0;gap:1px}
+.bitable-title-meta{font-size:10px;color:var(--text-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+#bitable-chrome-tabs{display:flex;align-items:flex-end;gap:0;min-width:0;overflow-x:auto;padding:0 8px;border-top:1px solid var(--bt-line-soft,#F2F3F5);scrollbar-width:none}
+#bitable-chrome-tabs::-webkit-scrollbar{display:none}
+#bitable-chrome-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;flex-wrap:nowrap;border-top:1px solid var(--bt-line-soft,#F2F3F5);min-height:40px;box-sizing:border-box}
 #bitable-chrome-actions .bitable-actions-left{display:flex;align-items:center;gap:2px;flex-wrap:wrap;min-width:0}
 #bitable-chrome-actions .bitable-actions-right{display:flex;align-items:center;gap:4px;flex-shrink:0;margin-left:8px}
-#bitable-title-input{border:none;background:transparent;font-size:16px;font-weight:600;color:var(--text-strong);outline:none;min-width:80px;max-width:220px;letter-spacing:-.2px;padding:0}
+#bitable-title-input{border:none;background:transparent;font-size:15px;font-weight:600;color:var(--text-strong);outline:none;min-width:80px;max-width:280px;letter-spacing:-.2px;padding:0}
 .bitable-view-tab{display:inline-flex;align-items:center;gap:4px;padding:7px 10px;margin:0;border:none;border-bottom:2px solid transparent;border-radius:0;background:transparent;color:var(--text-2);font-size:13px;cursor:pointer;white-space:nowrap;font-weight:400}
 .bitable-view-tab:hover{color:var(--text-strong);background:transparent}
 .bitable-view-tab.active{color:var(--bt-accent,#3370FF);border-bottom-color:var(--bt-accent,#3370FF);font-weight:500;background:transparent}
 .bitable-toolbar-btn{background:transparent;border:none;color:var(--text-2);border-radius:4px;padding:4px 8px;font-size:12px;cursor:pointer;line-height:20px}
 .bitable-toolbar-btn:hover{background:var(--bt-line-soft,#F2F3F5);color:var(--text-strong)}
+.bitable-toolbar-btn.active{background:var(--bt-select,#E8F3FF);color:var(--bt-accent,#3370FF)}
+.bitable-action-count{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;margin-left:3px;border-radius:8px;background:rgba(51,112,255,.12);font-size:10px;box-sizing:border-box;font-variant-numeric:tabular-nums}
 .bitable-toolbar-btn.primary{background:var(--bt-accent,#3370FF);border:none;color:#fff;font-weight:500;margin-left:6px}
 .bitable-toolbar-btn.primary:hover{filter:brightness(1.06);background:var(--bt-accent,#3370FF);color:#fff}
-.bitable-toolbar-search{position:relative;min-width:120px;max-width:160px;flex-shrink:0}
-.bitable-toolbar-search input{border:1px solid var(--bt-line,var(--border));border-radius:6px;padding:4px 8px;font-size:12px;background:var(--surface);color:var(--text);width:100%;box-sizing:border-box;height:28px}
+.bitable-current-search{height:28px;display:flex;align-items:center;gap:5px;border:1px solid var(--bt-line,var(--border));border-radius:6px;padding:0 7px;background:var(--surface);color:var(--text-3);box-sizing:border-box}
+.bitable-current-search:focus-within{border-color:var(--bt-accent,#3370FF);box-shadow:0 0 0 2px rgba(51,112,255,.10)}
+.bitable-current-search input{width:132px;border:none;outline:none;background:transparent;color:var(--text);font-size:12px;padding:0}
+.bitable-current-search button{border:none;background:transparent;color:var(--text-3);padding:0;cursor:pointer;font-size:13px}
+.bitable-sidebar-search{display:flex;align-items:center;gap:6px;margin:7px 8px 5px;padding:0 8px;height:30px;border:1px solid transparent;border-radius:6px;background:var(--bt-line-soft,#F2F3F5);color:var(--text-3);flex-shrink:0}
+.bitable-sidebar-search:focus-within{border-color:var(--bt-accent,#3370FF);background:var(--surface)}
+.bitable-sidebar-search input{width:100%;min-width:0;border:none;outline:none;background:transparent;color:var(--text);font-size:12px}
+.bitable-col-head{display:flex;align-items:center;gap:6px;min-width:0;height:100%}
+.bitable-col-icon{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 3px;border-radius:4px;background:rgba(31,35,41,.05);color:var(--text-3);font-size:10px;box-sizing:border-box}
+.bitable-col-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.bitable-col-menu{opacity:0;border:none;background:transparent;color:var(--text-3);padding:1px 2px;cursor:pointer;border-radius:3px;font-size:11px}
+.bitable-grid th:hover .bitable-col-menu,.bitable-col-menu:focus{opacity:1}
+.bitable-row-number{display:inline-block}
+.bitable-row-open{display:none;border:none;background:var(--surface);color:var(--bt-accent,#3370FF);padding:1px 3px;border-radius:3px;cursor:pointer;font-size:10px}
+.bitable-grid tr:hover .bitable-row-number{display:none}
+.bitable-grid tr:hover .bitable-row-open{display:inline-block}
+.kb-db-menu{max-height:min(420px,calc(100vh - 24px));overflow-y:auto}
 .bitable-table-scroll{overflow:auto;flex:1;min-height:0;display:flex;flex-direction:column;background:var(--bt-canvas,#F5F6F7)}
 .bitable-table-scroll .bitable-grid{background:var(--surface,#fff);flex:0 0 auto;min-height:100%}
 .bitable-table-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:4px 8px 4px 12px;background:var(--surface,#fff);border:1px solid #DEE0E3;border-top:none;min-height:34px;flex-shrink:0;width:max-content;min-width:100%;box-sizing:border-box;position:sticky;bottom:0;z-index:2;box-shadow:0 -1px 0 #DEE0E3}
@@ -169,7 +194,7 @@ const KB_READONLY_TYPES = new Set(
 .bitable-list-item .icon{font-size:15px;opacity:.85;width:20px;text-align:center;flex-shrink:0}
 .bitable-list-item .info{flex:1;min-width:0}
 .bitable-list-item .title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bitable-list-item .meta{font-size:11px;color:var(--text-3);margin-top:1px}
+.bitable-list-item .meta{display:flex;align-items:center;gap:7px;font-size:10px;color:var(--text-3);margin-top:2px;font-weight:400}
 .kb-db-pill{display:inline-flex;align-items:center;max-width:100%;padding:1px 8px;border-radius:var(--bt-pill-radius,4px);font-size:12px;line-height:20px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:middle;margin:1px 3px 1px 0;cursor:pointer;border:none;user-select:none}
 .kb-db-pill.empty{background:transparent;color:var(--text-3);font-weight:400;padding-left:0;opacity:.7}
 .kb-db-pill-wrap{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:2px;padding:4px 10px;min-height:36px;box-sizing:border-box;position:relative}
@@ -276,6 +301,9 @@ function _kbShowDbMenu(e, items) {
   menu.style.top = (e.clientY || 0) + 'px';
   document.body.appendChild(menu);
   requestAnimationFrame(() => {
+    const rect = menu.getBoundingClientRect();
+    menu.style.left = Math.max(8, Math.min(e.clientX || 0, window.innerWidth - rect.width - 8)) + 'px';
+    menu.style.top = Math.max(8, Math.min(e.clientY || 0, window.innerHeight - rect.height - 8)) + 'px';
     document.addEventListener('click', function dismiss(ev) {
       if (!menu.contains(ev.target)) { _kbHideDbMenu(); document.removeEventListener('click', dismiss); }
     });
@@ -296,6 +324,9 @@ function _kbShowFieldPickerMenu(e, onPick) {
   menu.style.top = (e.clientY || 120) + 'px';
   document.body.appendChild(menu);
   requestAnimationFrame(() => {
+    const rect = menu.getBoundingClientRect();
+    menu.style.left = Math.max(8, Math.min(e.clientX || window.innerWidth / 2, window.innerWidth - rect.width - 8)) + 'px';
+    menu.style.top = Math.max(8, Math.min(e.clientY || 120, window.innerHeight - rect.height - 8)) + 'px';
     document.addEventListener('click', function dismiss(ev) {
       if (!menu.contains(ev.target)) { _kbHideDbMenu(); document.removeEventListener('click', dismiss); }
     });
@@ -1088,7 +1119,7 @@ function backFromBitableView() {
 async function loadBitableList(selectId) {
   try {
     let url = '/api/databases?ts=' + Date.now();
-    if (bitableSearchQuery) url += '&search=' + encodeURIComponent(bitableSearchQuery);
+    if (bitableCatalogQuery) url += '&search=' + encodeURIComponent(bitableCatalogQuery);
     const resp = await abortableFetch(url);
     if (!resp.ok) throw new Error(await resp.text());
     const data = await resp.json();
@@ -1116,6 +1147,19 @@ async function loadBitableList(selectId) {
   }
 }
 
+function bitableSearchDatabases(value) {
+  bitableCatalogQuery = String(value || '').trim();
+  clearTimeout(_bitableCatalogSearchTimer);
+  _bitableCatalogSearchTimer = setTimeout(() => loadBitableList(), 220);
+}
+
+function _openBitableSearchResult(dbId) {
+  bitableCatalogQuery = '';
+  const input = document.getElementById('bitable-sidebar-search-input');
+  if (input) input.value = '';
+  loadBitableList(dbId);
+}
+
 function _renderCrossSearchResults(results) {
   const host = document.getElementById('bitable-list');
   if (!host) return;
@@ -1124,7 +1168,7 @@ function _renderCrossSearchResults(results) {
     return;
   }
   host.innerHTML = results.map(r => `
-    <div class="bitable-list-item" onclick="openBitableDatabase('${esc(r.database_id)}')">
+    <div class="bitable-list-item" onclick="_openBitableSearchResult('${esc(r.database_id)}')">
       <span class="icon">🔍</span>
       <div class="info">
         <div class="title">${esc(r.database_name || r.database_id)}</div>
@@ -1143,9 +1187,10 @@ function renderBitableList() {
   }
   host.innerHTML = items.map(db => `
     <div class="bitable-list-item${db.id === bitableCurrentId ? ' active' : ''}" onclick="openBitableDatabase('${esc(db.id)}')">
-      <span class="icon">📄</span>
+      <span class="icon">${esc(db.icon || '📊')}</span>
       <div class="info">
         <div class="title">${esc(db.name || 'Untitled')}</div>
+        <div class="meta"><span>${Number(db.row_count || 0)} 条记录</span><span>${Number(db.view_count || 0)} 个视图</span></div>
       </div>
     </div>`).join('');
 }
@@ -1161,7 +1206,9 @@ async function bitableCreateDatabase() {
     });
     if (!resp.ok) throw new Error(await resp.text());
     const db = await resp.json();
-    bitableSearchQuery = '';
+    bitableCatalogQuery = '';
+    const searchInput = document.getElementById('bitable-sidebar-search-input');
+    if (searchInput) searchInput.value = '';
     await loadBitableList(db.id);
     toast('已创建多维表格', 'success');
   } catch (e) {
@@ -1170,6 +1217,7 @@ async function bitableCreateDatabase() {
 }
 
 async function openBitableDatabase(dbId) {
+  if (dbId !== bitableCurrentId) bitableTableQuery = '';
   bitableCurrentId = dbId;
   bitableSelectedRows.clear();
   renderBitableList();
@@ -1179,7 +1227,7 @@ async function openBitableDatabase(dbId) {
   if (content) content.innerHTML = '<div class="kb-db-loading" style="padding:40px;text-align:center">加载中…</div>';
   try {
     _kbInvalidateDb(dbId);
-    const data = await _kbFetchDatabase(dbId, null, bitableSearchQuery);
+    const data = await _kbFetchDatabase(dbId, null, bitableTableQuery);
     if (dbId !== bitableCurrentId) return;
     bitableRenderCache = data;
     if (bitablePageMode === 'kanban') {
@@ -1203,7 +1251,7 @@ async function bitableRefreshEditor() {
   const viewId = bitableRenderCache?.view?.id;
   const url = '/api/databases/' + encodeURIComponent(bitableCurrentId) + '?render=1' +
     (viewId ? '&view=' + encodeURIComponent(viewId) : '') +
-    (bitableSearchQuery ? '&q=' + encodeURIComponent(bitableSearchQuery) : '');
+    (bitableTableQuery ? '&q=' + encodeURIComponent(bitableTableQuery) : '');
   const resp = await abortableFetch(url + '&ts=' + Date.now());
   if (!resp.ok) throw new Error(await resp.text());
   bitableRenderCache = await resp.json();
@@ -1216,6 +1264,8 @@ function _bitableGroupableColumns(data) {
 }
 
 function renderBitableEditor(data) {
+  _kbHideDbMenu();
+  _closeAllPillMenus();
   const toolbar = document.getElementById('bitable-toolbar');
   const filterBar = document.getElementById('bitable-filter-bar');
   const content = document.getElementById('bitable-content');
@@ -1224,43 +1274,51 @@ function renderBitableEditor(data) {
   const views = data.views || [data.view].filter(Boolean);
   const activeView = data.view || views[0];
   const batchCount = bitableSelectedRows.size;
+  const filters = activeView.filters || [];
+  const sorts = activeView.sorts || [];
+  const hiddenCount = (activeView.hiddenColumns || []).length;
+  const visibleRowCount = (data.rows || []).length ||
+    (data.groups || []).reduce((total, group) => total + ((group.rows || []).length), 0);
 
   toolbar.innerHTML = `
     <div id="bitable-chrome">
       <div id="bitable-chrome-top">
-        <span style="font-size:22px;line-height:1">${esc(data.icon || '📊')}</span>
-        <input id="bitable-title-input" value="${esc(data.name || 'Untitled')}" title="表格名称">
-        <div class="bitable-toolbar-search" id="bitable-global-search-wrap">
-          <input id="bitable-global-search" placeholder="搜索…" value="${esc(bitableSearchQuery)}">
-          <div class="bitable-search-results" id="bitable-search-dropdown" style="display:none"></div>
+        <div class="bitable-title-cluster">
+          <span class="bitable-title-icon">${esc(data.icon || '📊')}</span>
+          <div class="bitable-title-copy">
+            <input id="bitable-title-input" value="${esc(data.name || 'Untitled')}" title="点击修改表格名称">
+            <span class="bitable-title-meta">${visibleRowCount} 条记录 · ${(data.allColumns || data.columns || []).length} 个字段</span>
+          </div>
         </div>
-        <div id="bitable-chrome-tabs">${views.map(v => `
-          <span class="bitable-view-tab${v.id === activeView.id ? ' active' : ''}"
+        <button class="bitable-toolbar-btn" onclick="bitableShowDatabaseMenu(event)" title="表格操作" aria-label="表格操作">•••</button>
+      </div>
+      <div id="bitable-chrome-tabs" role="tablist">${views.map(v => `
+          <button class="bitable-view-tab${v.id === activeView.id ? ' active' : ''}"
+            type="button" role="tab" aria-selected="${v.id === activeView.id ? 'true' : 'false'}"
             onclick="bitableSwitchView('${esc(v.id)}')"
             oncontextmenu="bitableShowViewContextMenu(event,'${esc(v.id)}')"
-            title="${esc(v.type || 'table')}">${bitableViewIcon(v)} ${esc(v.name)}</span>
+            title="右键可重命名或删除">${bitableViewIcon(v)} ${esc(v.name)}</button>
         `).join('')}
-          <button type="button" class="bitable-toolbar-btn" onclick="bitableAddViewMenu(event)" title="添加视图">＋</button>
-        </div>
+        <button type="button" class="bitable-toolbar-btn" onclick="bitableAddViewMenu(event)" title="添加视图">＋</button>
       </div>
       <div id="bitable-chrome-actions">
         <div class="bitable-actions-left">
-          ${activeView.type === 'kanban' ? '<button class="bitable-toolbar-btn" onclick="bitableConfigureKanbanView()">分组依据</button>' : ''}
-          ${activeView.type === 'gallery' ? '<button class="bitable-toolbar-btn" onclick="bitableConfigureGalleryView()">封面字段</button>' : ''}
-          ${activeView.type === 'gantt' ? '<button class="bitable-toolbar-btn" onclick="bitableConfigureGanttView()">日期字段</button>' : ''}
-          ${activeView.type === 'dashboard' ? '<button class="bitable-toolbar-btn" onclick="bitableConfigureDashboardView()">统计字段</button>' : ''}
-          <button class="bitable-toolbar-btn" onclick="bitableShowFilterDialog()">筛选</button>
-          <button class="bitable-toolbar-btn" onclick="bitableShowSortDialog()">排序</button>
-          <button class="bitable-toolbar-btn" onclick="bitableAddColumnPrompt(event)">字段配置</button>
-          <button class="bitable-toolbar-btn" onclick="bitableSearch()">表内搜索</button>
-          <button class="bitable-toolbar-btn" onclick="bitableExportCsv()">导出</button>
-          <button class="bitable-toolbar-btn" onclick="bitableImportCsv()">导入</button>
-          <button class="bitable-toolbar-btn" onclick="bitableShowHistory()">历史</button>
-          ${batchCount ? `<button class="bitable-toolbar-btn" style="color:var(--rose)" onclick="bitableBatchDelete()">删除 ${batchCount} 条</button>` : ''}
+          ${activeView.type === 'kanban' ? '<button class="bitable-toolbar-btn" onclick="bitableConfigureKanbanView()">▦ 分组依据</button>' : ''}
+          ${activeView.type === 'gallery' ? '<button class="bitable-toolbar-btn" onclick="bitableConfigureGalleryView()">▣ 封面字段</button>' : ''}
+          ${activeView.type === 'gantt' ? '<button class="bitable-toolbar-btn" onclick="bitableConfigureGanttView()">▰ 日期字段</button>' : ''}
+          ${activeView.type === 'dashboard' ? '<button class="bitable-toolbar-btn" onclick="bitableConfigureDashboardView()">▥ 统计字段</button>' : ''}
+          <button class="bitable-toolbar-btn${filters.length ? ' active' : ''}" onclick="bitableShowFilterDialog()">⌁ 筛选${filters.length ? `<span class="bitable-action-count">${filters.length}</span>` : ''}</button>
+          <button class="bitable-toolbar-btn${sorts.length ? ' active' : ''}" onclick="bitableShowSortDialog()">↕ 排序${sorts.length ? `<span class="bitable-action-count">${sorts.length}</span>` : ''}</button>
+          ${activeView.type === 'table' ? `<button class="bitable-toolbar-btn${activeView.groupBy ? ' active' : ''}" onclick="bitableShowGroupDialog()">☷ 分组${activeView.groupBy ? '<span class="bitable-action-count">1</span>' : ''}</button>` : ''}
+          <button class="bitable-toolbar-btn${hiddenCount ? ' active' : ''}" onclick="bitableShowFieldsMenu(event)">▤ 字段${hiddenCount ? `<span class="bitable-action-count">-${hiddenCount}</span>` : ''}</button>
         </div>
         <div class="bitable-actions-right">
+          <label class="bitable-current-search" title="按 Enter 搜索当前视图">
+            <span>⌕</span>
+            <input id="bitable-table-search" value="${esc(bitableTableQuery)}" aria-label="查找当前视图" placeholder="查找当前视图" onkeydown="bitableHandleTableSearch(event)">
+            ${bitableTableQuery ? '<button type="button" onclick="bitableClearTableSearch(event)" aria-label="清除搜索">×</button>' : ''}
+          </label>
           <button class="bitable-toolbar-btn primary" onclick="bitableAddRow()">＋ 新建记录</button>
-          <button class="bitable-toolbar-btn" onclick="bitableDeleteDatabase()" title="删除表格" style="color:var(--rose)">🗑</button>
         </div>
       </div>
     </div>`;
@@ -1279,40 +1337,6 @@ function renderBitableEditor(data) {
     }
   });
 
-  const searchInp = document.getElementById('bitable-global-search');
-  const searchDrop = document.getElementById('bitable-search-dropdown');
-  let searchTimer = null;
-  searchInp.addEventListener('input', () => {
-    clearTimeout(searchTimer);
-    searchTimer = setTimeout(async () => {
-      const q = searchInp.value.trim();
-      if (!q) { searchDrop.style.display = 'none'; return; }
-      try {
-        const resp = await fetch('/api/databases?search=' + encodeURIComponent(q));
-        const payload = await resp.json();
-        const results = payload.results || [];
-        if (!results.length) {
-          searchDrop.innerHTML = '<div style="padding:10px;color:var(--text-3)">无结果</div>';
-        } else {
-          searchDrop.innerHTML = results.map(r =>
-            `<div data-db="${esc(r.database_id)}" data-row="${esc(r.row_id || '')}">${esc(r.database_name)} — ${esc(r.snippet || '')}</div>`
-          ).join('');
-          searchDrop.querySelectorAll('div[data-db]').forEach(el => {
-            el.onclick = () => {
-              searchDrop.style.display = 'none';
-              openBitableDatabase(el.dataset.db);
-            };
-          });
-        }
-        searchDrop.style.display = 'block';
-      } catch (e) { searchDrop.style.display = 'none'; }
-    }, 300);
-  });
-  document.addEventListener('click', (e) => {
-    if (!e.target.closest('#bitable-global-search-wrap')) searchDrop.style.display = 'none';
-  });
-
-  const filters = activeView.filters || [];
   if (filterBar) {
     if (filters.length) {
       filterBar.style.display = 'flex';
@@ -1353,7 +1377,6 @@ function renderBitableEditor(data) {
 }
 
 function _attachColumnResize(th, dbId, col, view) {
-  th.style.position = 'relative';
   const handle = document.createElement('div');
   handle.className = 'bitable-col-resize';
   th.appendChild(handle);
@@ -1375,6 +1398,7 @@ function _attachColumnResize(th, dbId, col, view) {
     handle.classList.remove('resizing');
     const w = parseInt(th.style.width || th.offsetWidth, 10);
     const widths = { ...(view.columnWidths || {}), [col.id]: w };
+    view.columnWidths = widths;
     await bitableUpdateView({ columnWidths: widths }, true);
   };
   handle.addEventListener('mousedown', (e) => {
@@ -1405,7 +1429,20 @@ function _buildTableRow(data, row, idx, columns, activeView) {
   tr.appendChild(tdCheck);
   const tdIdx = document.createElement('td');
   tdIdx.className = 'row-head';
-  tdIdx.textContent = String(idx + 1);
+  const rowNumber = document.createElement('span');
+  rowNumber.className = 'bitable-row-number';
+  rowNumber.textContent = String(idx + 1);
+  const openButton = document.createElement('button');
+  openButton.type = 'button';
+  openButton.className = 'bitable-row-open';
+  openButton.textContent = '↗';
+  openButton.title = '打开记录详情';
+  openButton.setAttribute('aria-label', `打开第 ${idx + 1} 条记录详情`);
+  openButton.onclick = (event) => {
+    event.stopPropagation();
+    bitableOpenRowDrawer(data.id, row, data.allColumns || data.columns);
+  };
+  tdIdx.append(rowNumber, openButton);
   tr.appendChild(tdIdx);
   const frozenCount = (activeView.frozenColumns || 0) + 1;
   columns.forEach((col, ci) => {
@@ -1435,6 +1472,10 @@ function _buildTableRow(data, row, idx, columns, activeView) {
 }
 
 function bitableRenderTable(data) {
+  if (_bitableGridResizeObserver) {
+    _bitableGridResizeObserver.disconnect();
+    _bitableGridResizeObserver = null;
+  }
   const wrap = document.createElement('div');
   wrap.className = 'bitable-table-scroll';
   const table = document.createElement('table');
@@ -1475,7 +1516,29 @@ function bitableRenderTable(data) {
       th.style.left = leftOffset + 'px';
       leftOffset += w;
     }
-    th.innerHTML = esc(col.name) + `<span class="bitable-col-type-label">${esc(kbDbColTypeLabel(col.type))}</span>`;
+    const fieldType = KB_FIELD_TYPES.find(type => type.id === col.type);
+    const head = document.createElement('div');
+    head.className = 'bitable-col-head';
+    const icon = document.createElement('span');
+    icon.className = 'bitable-col-icon';
+    icon.textContent = fieldType?.icon || 'Aa';
+    const name = document.createElement('span');
+    name.className = 'bitable-col-name';
+    name.textContent = col.name;
+    const menuButton = document.createElement('button');
+    menuButton.type = 'button';
+    menuButton.className = 'bitable-col-menu';
+    menuButton.textContent = '⌄';
+    menuButton.title = '字段操作';
+    menuButton.setAttribute('aria-label', `${col.name} 字段操作`);
+    menuButton.onclick = event => {
+      event.preventDefault();
+      event.stopPropagation();
+      bitableShowColumnMenu(event, col);
+    };
+    head.append(icon, name, menuButton);
+    th.appendChild(head);
+    th.title = `${col.name} · ${kbDbColTypeLabel(col.type)}`;
     th.oncontextmenu = (ev) => { ev.preventDefault(); bitableShowColumnMenu(ev, col); };
     _attachColumnResize(th, data.id, col, activeView);
     hr.appendChild(th);
@@ -1535,11 +1598,11 @@ function bitableRenderTable(data) {
   requestAnimationFrame(() => requestAnimationFrame(syncGhostRows));
   if (typeof ResizeObserver !== 'undefined') {
     let t = 0;
-    const ro = new ResizeObserver(() => {
+    _bitableGridResizeObserver = new ResizeObserver(() => {
       clearTimeout(t);
       t = setTimeout(syncGhostRows, 40);
     });
-    ro.observe(wrap);
+    _bitableGridResizeObserver.observe(wrap);
   }
   return wrap;
 }
@@ -1971,6 +2034,37 @@ function bitableShowViewContextMenu(e, viewId) {
   ]);
 }
 
+function bitableShowDatabaseMenu(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  _kbShowDbMenu(e, [
+    ['⇩ 导出 CSV', () => bitableExportCsv()],
+    ['⇧ 导入 CSV', () => bitableImportCsv()],
+    ['↶ 查看历史版本', () => bitableShowHistory()],
+    ['删除此表格', () => bitableDeleteDatabase(), true],
+  ]);
+}
+
+function bitableShowFieldsMenu(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  const allColumns = bitableRenderCache?.allColumns || [];
+  const hidden = new Set(bitableRenderCache?.view?.hiddenColumns || []);
+  const items = [
+    ['＋ 新增字段', () => setTimeout(() => bitableAddColumnPrompt(e), 0)],
+  ];
+  allColumns.forEach(col => {
+    const isHidden = hidden.has(col.id);
+    items.push([`${isHidden ? '○' : '✓'} ${col.name}`, async () => {
+      const next = new Set(hidden);
+      if (isHidden) next.delete(col.id);
+      else next.add(col.id);
+      await bitableUpdateView({ hiddenColumns: [...next] });
+    }]);
+  });
+  _kbShowDbMenu(e, items);
+}
+
 async function bitableShowColumnMenu(e, col) {
   e.preventDefault();
   const items = [
@@ -2047,6 +2141,30 @@ async function bitableConfigureGalleryView() {
   await bitableUpdateView({ coverColumn: col.id });
 }
 
+async function bitableShowGroupDialog() {
+  if (!bitableRenderCache) return;
+  const columns = bitableRenderCache.allColumns || [];
+  const currentId = bitableRenderCache.view?.groupBy || '';
+  const current = columns.find(col => col.id === currentId);
+  const value = await uiPrompt(
+    '按字段分组',
+    '输入字段名称；留空取消分组',
+    current?.name || '',
+  );
+  if (value === null) return;
+  const wanted = value.trim();
+  if (!wanted) {
+    await bitableUpdateView({ groupBy: '' });
+    return;
+  }
+  const column = columns.find(col => col.id === wanted) || columns.find(col => col.name === wanted);
+  if (!column) {
+    toast('未找到字段「' + wanted + '」', 'error');
+    return;
+  }
+  await bitableUpdateView({ groupBy: column.id });
+}
+
 async function _bitableChooseColumn(title, columns, currentId) {
   if (!columns.length) return '';
   const current = columns.find(c => c.id === currentId);
@@ -2107,7 +2225,7 @@ async function bitableSwitchView(viewId) {
       body: JSON.stringify({ viewID: viewId }),
     });
     _kbInvalidateDb(bitableCurrentId);
-    bitableRenderCache = await _kbFetchDatabase(bitableCurrentId, viewId, bitableSearchQuery);
+    bitableRenderCache = await _kbFetchDatabase(bitableCurrentId, viewId, bitableTableQuery);
     renderBitableEditor(bitableRenderCache);
   } catch (e) {
     toast('切换视图失败', 'error');
@@ -2281,9 +2399,28 @@ async function bitableClearFilters() {
 }
 
 async function bitableSearch() {
-  const q = await uiPrompt('表内搜索', '关键词', bitableSearchQuery || '');
+  const q = await uiPrompt('表内搜索', '关键词', bitableTableQuery || '');
   if (q === null) return;
-  bitableSearchQuery = q.trim();
+  bitableTableQuery = q.trim();
+  await bitableRefreshEditor();
+}
+
+async function bitableHandleTableSearch(e) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    bitableTableQuery = e.currentTarget.value.trim();
+    await bitableRefreshEditor();
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    bitableTableQuery = '';
+    await bitableRefreshEditor();
+  }
+}
+
+async function bitableClearTableSearch(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  bitableTableQuery = '';
   await bitableRefreshEditor();
 }
 

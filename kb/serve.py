@@ -2431,32 +2431,30 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
     # ------------------------------------------------------------------
 
     def handle_apply_update(self) -> None:
-        """POST /api/apply-update — launch a detached PowerShell updater.
-
-        The PS script downloads the update, waits for KBase.exe to exit,
-        applies the update (silent NSIS or portable zip extract), and
-        restarts the app — all independently of the current process.
-
-        The frontend should call pywebview.api.quit_app() after receiving
-        the "ok" response so the updater can proceed.
-        """
-        if not getattr(sys, "frozen", False):
-            self._error(400, "一键更新仅支持打包版 KBase.exe")
+        """POST /api/apply-update — verify the official asset and hand off."""
+        self._read_json()  # Consume legacy request bodies; client URLs are never trusted.
+        update = check_for_update(force=True)
+        if update.get("error"):
+            self._error(502, str(update["error"]))
             return
-        data = self._read_json()
-        asset_url = (data.get("assetUrl") or "").strip()
-        if not asset_url:
-            self._error(400, "assetUrl is required")
+        if not update.get("hasUpdate"):
+            self._error(409, "当前已经是最新版本")
+            return
+        if not update.get("canAutoUpdate") or not update.get("assetUrl"):
+            self._error(400, "当前运行方式不支持一键更新，请手动下载新版本")
             return
 
-        ok = apply_update(asset_url)
-        if not ok:
-            self._error(500, "无法启动更新程序")
+        result = apply_update(
+            str(update["assetUrl"]),
+            expected_sha256=str(update.get("assetSha256") or ""),
+            expected_size=int(update.get("assetSize") or 0),
+        )
+        if not result.get("ok"):
+            self._error(500, str(result.get("message") or "无法启动更新程序"))
             return
-
         self._json({
             "ok": True,
-            "message": "更新程序已启动，窗口即将关闭…",
+            "message": str(result.get("message") or "更新程序已启动，窗口即将关闭…"),
             "closeWindow": True,
         })
 

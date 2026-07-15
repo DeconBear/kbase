@@ -1799,7 +1799,7 @@ body { display: flex !important; flex-direction: column !important; height: 100v
       <!-- Pane: 更新 -->
       <section class="settings-content-pane" data-pane="paneUpdate">
         <h3 class="settings-pane-title">🔄 软件更新</h3>
-        <p class="settings-pane-desc">从 GitHub Releases 检测新版本，安装版可一键升级，绿色版请手动下载。</p>
+        <p class="settings-pane-desc">从 GitHub Releases 检测新版本；Windows 安装版和绿色版可在应用内安全升级，源码运行模式提供手动下载。</p>
         <div class="settings-section" id="updateSection">
           <div class="settings-section-head">
             <h4>当前版本</h4>
@@ -2119,6 +2119,10 @@ body { display: flex !important; flex-direction: column !important; height: 100v
         <span class="title">全部表格</span>
         <button class="sy-btn-primary compact" style="padding:2px 8px;font-size:11px" onclick="bitableCreateDatabase()" title="新建">新建</button>
       </div>
+      <label class="bitable-sidebar-search" title="搜索全部表格及记录">
+        <span>⌕</span>
+        <input id="bitable-sidebar-search-input" type="search" aria-label="搜索表格与记录" placeholder="搜索表格与记录" oninput="bitableSearchDatabases(this.value)">
+      </label>
       <div id="bitable-list"></div>
     </aside>
     <main id="bitable-workspace">
@@ -5082,19 +5086,20 @@ function renderUpdateInfo(data) {
   const manualLink = document.getElementById('updateManualLink');
   const releaseNotesEl = document.getElementById('updateReleaseNotes');
   if (!status || !updateBtn) return;
+  if (manualLink) manualLink.textContent = '手动下载安装包';
 
   if (data.error) {
     status.textContent = '⚠️ ' + data.error;
     updateBtn.style.display = 'none';
     if (manualLink) manualLink.style.display = 'none';
     if (releaseNotesEl) releaseNotesEl.style.display = 'none';
-  } else if (data.hasUpdate && data.assetUrl) {
+  } else if (data.hasUpdate && data.canAutoUpdate && data.assetUrl) {
     status.textContent = `发现新版本 v${data.latest}（当前 v${data.current}）`;
     updateBtn.style.display = 'inline-block';
     updateBtn.disabled = false;
     updateBtn.textContent = `更新到 v${data.latest}`;
     if (manualLink) {
-      manualLink.href = data.assetUrl;
+      manualLink.href = data.manualUrl || data.assetUrl;
       manualLink.style.display = 'inline-block';
     }
     if (releaseNotesEl && data.releaseNotes) {
@@ -5103,11 +5108,11 @@ function renderUpdateInfo(data) {
     } else if (releaseNotesEl) {
       releaseNotesEl.style.display = 'none';
     }
-  } else if (data.latest && data.current && data.latest !== data.current && !data.assetUrl) {
-    status.textContent = `发现新版本 v${data.latest}，但当前安装类型没有可用安装包，请从 GitHub 手动下载。`;
+  } else if (data.hasUpdate) {
+    status.textContent = `发现新版本 v${data.latest}，当前运行方式不支持一键更新，请手动下载。`;
     updateBtn.style.display = 'none';
-    if (manualLink && data.releaseUrl) {
-      manualLink.href = data.releaseUrl;
+    if (manualLink && (data.manualUrl || data.releaseUrl)) {
+      manualLink.href = data.manualUrl || data.releaseUrl;
       manualLink.textContent = '打开 GitHub Release';
       manualLink.style.display = 'inline-block';
     }
@@ -5125,9 +5130,12 @@ function renderUpdateInfo(data) {
 
 async function loadUpdateInfo() {
   try {
-    const r = await fetch('/api/check-update');
-    renderUpdateInfo(await r.json());
+    const r = await abortableFetch('/api/check-update');
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || data.message || `HTTP ${r.status}`);
+    renderUpdateInfo(data);
   } catch (e) {
+    if (e?.name === 'AbortError') return;
     const status = document.getElementById('updateStatus');
     if (status) status.textContent = '无法检查更新: ' + e.message;
   }
@@ -5138,25 +5146,28 @@ async function checkUpdate() {
   document.getElementById('updateBtn').style.display = 'none';
   try {
     const r = await fetch('/api/check-update?force=1');
-    renderUpdateInfo(await r.json());
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || data.message || `HTTP ${r.status}`);
+    renderUpdateInfo(data);
   } catch (e) {
     document.getElementById('updateStatus').textContent = '检查失败: ' + e.message;
   }
 }
 
 async function applyUpdate() {
-  if (!_updateCache || !_updateCache.assetUrl) return;
+  if (!_updateCache || !_updateCache.canAutoUpdate || !_updateCache.assetUrl) return;
   if (!confirm(`确定更新到 v${_updateCache.latest}？更新后应用程序将自动重启。`)) return;
   const progress = document.getElementById('updateProgress');
-  progress.textContent = '正在准备更新…';
+  progress.textContent = '正在下载并校验更新包，请保持应用开启…';
   progress.style.display = 'block';
   document.getElementById('updateBtn').disabled = true;
   try {
     const r = await fetch('/api/apply-update', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({assetUrl: _updateCache.assetUrl})
+      body: '{}'
     });
-    const d = await r.json();
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || d.message || `HTTP ${r.status}`);
     progress.textContent = d.message;
     if (d.ok && d.closeWindow) {
       // The updater PowerShell script is now running independently.
@@ -12805,7 +12816,7 @@ async function startConvPolling(articleId) {
   convPollTimer = setInterval(poll, 1500);
 }
 </script>
-<script src="assets/bitable.js?v=20260715-views"></script>
+<script src="assets/bitable.js?v=20260715-ui2"></script>
 
 <script>
 // ==================== ATTACHMENTS PANEL ====================

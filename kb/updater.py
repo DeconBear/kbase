@@ -1,17 +1,17 @@
-"""GitHub-release update checker and applier for the installed (NSIS) build.
-
-Portable builds do not use this module — they show a "请下载绿色版压缩包
-手动覆盖" message instead.
-"""
+"""GitHub Release update checks and verified Windows update hand-off."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -22,6 +22,8 @@ except ImportError:
 
 GITHUB_API = "https://api.github.com/repos/DeconBear/kbase/releases/latest"
 _UPDATE_CHECK_INTERVAL = 3600  # cache check result for 1 hour
+_SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+_VERSION_TOKEN_RE = r"[0-9A-Za-z][0-9A-Za-z._+-]*"
 
 _last_check: dict | None = None
 _last_check_time: float = 0.0
@@ -38,25 +40,38 @@ def is_installed_build() -> bool:
     flag = _exe_dir() / "installed.flag"
     if flag.exists():
         return True
-    # Also detect via uninstaller presence (NSIS creates uninst.exe)
-    if (_exe_dir() / "uninst.exe").exists():
-        return True
-    return False
+    return (_exe_dir() / "uninst.exe").exists()
+
+
+def can_auto_update() -> bool:
+    """Return whether this process can safely replace its own Windows build."""
+    return sys.platform == "win32" and bool(getattr(sys, "frozen", False))
+
+
+def _build_type() -> str:
+    if not getattr(sys, "frozen", False):
+        return "source"
+    if sys.platform != "win32":
+        return "unsupported"
+    return "installed" if is_installed_build() else "portable"
+
+
+def _asset_digest(asset: dict) -> str:
+    digest = str(asset.get("digest") or "")
+    if digest.lower().startswith("sha256:"):
+        digest = digest.split(":", 1)[1]
+    return digest.lower() if _SHA256_RE.fullmatch(digest) else ""
 
 
 def check_for_update(force: bool = False) -> dict:
-    """Query GitHub for the latest release.
-
-    Returns a dict suitable for the frontend:
-        {current, latest, hasUpdate, releaseUrl, releaseNotes, assetUrl, installedBuild}
-    Caches the result for _UPDATE_CHECK_INTERVAL seconds unless *force* is True.
-    """
+    """Query GitHub for the latest release and select an asset for this build."""
     global _last_check, _last_check_time
 
     now = time.time()
     if not force and _last_check is not None and (now - _last_check_time) < _UPDATE_CHECK_INTERVAL:
         return _last_check
 
+    build_type = _build_type()
     result: dict = {
         "current": VERSION,
         "latest": VERSION,
@@ -64,7 +79,12 @@ def check_for_update(force: bool = False) -> dict:
         "releaseUrl": "",
         "releaseNotes": "",
         "assetUrl": "",
+        "assetSize": 0,
+        "assetSha256": "",
+        "manualUrl": "",
         "installedBuild": is_installed_build(),
+        "buildType": build_type,
+        "canAutoUpdate": can_auto_update(),
     }
 
     try:
@@ -74,235 +94,285 @@ def check_for_update(force: bool = False) -> dict:
         )
         with urllib.request.urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        if e.code == 403:
+    except urllib.error.HTTPError as exc:
+        if exc.code == 403:
             try:
-                body_preview = e.read()[:200].decode(errors="replace").lower()
+                body_preview = exc.read()[:200].decode(errors="replace").lower()
             except Exception:
                 body_preview = ""
             if "rate limit" in body_preview:
-                result["error"] = "GitHub API rate limited — try again later"
+                result["error"] = "GitHub API 请求频率受限，请稍后重试"
             else:
-                result["error"] = f"GitHub returned {e.code}"
+                result["error"] = f"GitHub 返回了 {exc.code}"
         else:
-            result["error"] = f"GitHub returned {e.code}"
+            result["error"] = f"GitHub 返回了 {exc.code}"
         _last_check = result
         _last_check_time = now
         return result
-    except Exception as e:
-        result["error"] = f"无法连接到 GitHub: {e}"
+    except Exception as exc:
+        result["error"] = f"无法连接到 GitHub: {exc}"
         _last_check = result
         _last_check_time = now
         return result
 
-    tag = data.get("tag_name", "")
-    # Strip leading 'v' for comparison
-    latest_version = tag.lstrip("v")
+    tag = str(data.get("tag_name") or "")
+    latest_version = tag[1:] if tag.lower().startswith("v") else tag
     if not latest_version:
-        result["error"] = "GitHub release has no valid tag"
+        result["error"] = "GitHub Release 缺少有效版本号"
         _last_check = result
         _last_check_time = now
         return result
 
     result["latest"] = latest_version
-    result["releaseUrl"] = data.get("html_url", "")
-    result["releaseNotes"] = data.get("body", "")[:4000]
+    result["releaseUrl"] = str(data.get("html_url") or "")
+    result["releaseNotes"] = str(data.get("body") or "")[:4000]
+    result["manualUrl"] = result["releaseUrl"]
 
-    # Find assets. We return BOTH the NSIS installer URL (for installed
-    # builds) and the portable zip URL (for portable builds) so the
-    # frontend / apply_update can pick the right one for the current
-    # build.
-    installer_url = ""
-    portable_url = ""
-    for asset in data.get("assets", []):
-        name = asset.get("name", "")
-        url = asset.get("browser_download_url", "")
-        size = asset.get("size", 0)
-        if name.endswith(".exe") and "Setup" in name:
-            installer_url = url
-            result["installerSize"] = size
-        elif name.endswith(".zip") and "portable" in name.lower():
-            portable_url = url
-            result["portableSize"] = size
-    # assetUrl is whichever the current build wants.
-    if is_installed_build():
-        result["assetUrl"] = installer_url
-    else:
-        result["assetUrl"] = portable_url or installer_url
-    result["installerUrl"] = installer_url
-    result["portableUrl"] = portable_url
+    installer: dict = {}
+    portable: dict = {}
+    for asset in data.get("assets") or []:
+        name = str(asset.get("name") or "")
+        if name.lower().endswith(".exe") and "setup" in name.lower():
+            installer = asset
+        elif name.lower().endswith(".zip") and "portable" in name.lower():
+            portable = asset
 
-    result["hasUpdate"] = _version_greater(latest_version, VERSION) and bool(result["assetUrl"])
+    def publish_asset(prefix: str, asset: dict) -> None:
+        url = str(asset.get("browser_download_url") or "")
+        size = int(asset.get("size") or 0)
+        digest = _asset_digest(asset)
+        result[f"{prefix}Url"] = url
+        result[f"{prefix}Size"] = size
+        result[f"{prefix}Sha256"] = digest
+
+    publish_asset("installer", installer)
+    publish_asset("portable", portable)
+
+    selected = installer if build_type == "installed" else portable if build_type == "portable" else {}
+    if selected and can_auto_update():
+        result["assetUrl"] = str(selected.get("browser_download_url") or "")
+        result["assetSize"] = int(selected.get("size") or 0)
+        result["assetSha256"] = _asset_digest(selected)
+        result["manualUrl"] = result["assetUrl"] or result["releaseUrl"]
+
+    result["hasUpdate"] = _version_greater(latest_version, VERSION)
     _last_check = result
     _last_check_time = now
     return result
 
 
-def apply_update(asset_url: str) -> bool:
-    """Launch a self-contained PowerShell updater that survives parent exit.
-
-    The PowerShell script does everything in order:
-      1. Download the update package to a temp directory.
-      2. Poll-wait for the KBase process to exit (up to 60 s).
-      3. Apply the update (silent NSIS installer or portable zip extract).
-      4. Restart KBase.exe.
-
-    This function returns as soon as the PowerShell process is spawned;
-    the calling server handler should tell the frontend to close the
-    window, which triggers KBase.exe shutdown → the PS script proceeds.
-    """
-    if not asset_url:
+def _validate_asset_url(asset_url: str, installed: bool) -> bool:
+    """Accept only KBase assets hosted on the repository's GitHub Releases path."""
+    try:
+        parsed = urllib.parse.urlsplit(asset_url)
+    except (TypeError, ValueError):
         return False
+    if parsed.scheme != "https" or parsed.hostname != "github.com" or parsed.query or parsed.fragment:
+        return False
+    prefix = r"^/DeconBear/kbase/releases/download/v?" + _VERSION_TOKEN_RE + "/"
+    if installed:
+        filename = r"KBase-Setup-v?" + _VERSION_TOKEN_RE + r"\.exe$"
+    else:
+        filename = r"KBase-v?" + _VERSION_TOKEN_RE + r"-portable\.zip$"
+    return re.fullmatch(prefix + filename, parsed.path) is not None
 
+
+def _download_asset(
+    asset_url: str,
+    target: Path,
+    *,
+    expected_sha256: str = "",
+    expected_size: int = 0,
+) -> None:
+    """Download to a temporary file, verify it, then atomically publish it."""
+    temp_target = target.with_name(f"{target.name}.tmp-{os.getpid()}")
+    digest = hashlib.sha256()
+    size = 0
+    try:
+        req = urllib.request.Request(asset_url, headers={"User-Agent": "KBase-Updater"})
+        with urllib.request.urlopen(req, timeout=600) as resp, temp_target.open("wb") as output:
+            while True:
+                chunk = resp.read(1024 * 1024)
+                if not chunk:
+                    break
+                output.write(chunk)
+                digest.update(chunk)
+                size += len(chunk)
+        if expected_size > 0 and size != expected_size:
+            raise ValueError(f"安装包大小校验失败（期望 {expected_size}，实际 {size}）")
+        if expected_sha256:
+            if not _SHA256_RE.fullmatch(expected_sha256) or digest.hexdigest() != expected_sha256.lower():
+                raise ValueError("安装包 SHA-256 校验失败")
+        if size <= 0:
+            raise ValueError("下载到的安装包为空")
+        os.replace(temp_target, target)
+    finally:
+        temp_target.unlink(missing_ok=True)
+
+
+def _ps_literal(value: str | Path) -> str:
+    """Return a PowerShell single-quoted literal with embedded quotes escaped."""
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def apply_update(
+    asset_url: str,
+    *,
+    expected_sha256: str = "",
+    expected_size: int = 0,
+) -> dict:
+    """Download, verify, then launch a detached updater for the current build."""
     installed = is_installed_build()
-    tmp_dir = Path(tempfile.gettempdir()) / "KBaseUpdate"
-    tmp_dir.mkdir(parents=True, exist_ok=True)
-    install_dir = str(_exe_dir())
-    exe_name = "KBase.exe" if getattr(sys, "frozen", False) else "python.exe"
+    if not can_auto_update():
+        return {"ok": False, "message": "一键更新仅支持 Windows 打包版 KBase.exe"}
+    if not _validate_asset_url(asset_url, installed):
+        return {"ok": False, "message": "更新地址不是受信任的 KBase GitHub Release 资产"}
+
+    update_root = Path(tempfile.gettempdir()) / "KBaseUpdate"
+    update_root.mkdir(parents=True, exist_ok=True)
+    run_dir = Path(tempfile.mkdtemp(prefix=f"run-{os.getpid()}-", dir=update_root))
+    pkg_path = run_dir / ("KBase-Setup.exe" if installed else "KBase-portable.zip")
+    try:
+        _download_asset(
+            asset_url,
+            pkg_path,
+            expected_sha256=expected_sha256,
+            expected_size=expected_size,
+        )
+    except Exception as exc:
+        shutil.rmtree(run_dir, ignore_errors=True)
+        return {"ok": False, "message": f"更新包下载或校验失败：{exc}"}
+
+    install_dir = _exe_dir()
+    parent_pid = os.getpid()
 
     if installed:
-        pkg_path = tmp_dir / "KBase-Setup.exe"
-        # NSIS /D= must NOT be quoted, even with spaces.  We pass the
-        # argument as a single string so Start-Process doesn't split it.
-        apply_block = f"""Write-Host '[3/4] Running silent installer...'
+        apply_block = """Write-Log '[2/3] 正在运行安装程序...'
 $installArgs = "/S /D=$targetDir"
-$p = Start-Process -FilePath $pkg -ArgumentList $installArgs -Wait -PassThru -NoNewWindow
-if ($p.ExitCode -ne 0) {{
-    Write-Host "ERROR: Installer exited with code $($p.ExitCode)"
+try {
+    $p = Start-Process -FilePath $pkg -ArgumentList $installArgs -Wait -PassThru -NoNewWindow
+} catch {
+    Write-Log "ERROR: 无法启动安装程序：$($_.Exception.Message)"
     exit 1
-}}
-Write-Host '[4/4] Installer finished successfully.'"""
+}
+if ($p.ExitCode -ne 0) {
+    Write-Log "ERROR: 安装程序退出码 $($p.ExitCode)"
+    exit 1
+}
+Write-Log '[2/3] 安装程序已完成。'"""
     else:
-        pkg_path = tmp_dir / "KBase-portable.zip"
-        # For portable builds we must replace old application binaries
-        # WITHOUT deleting the user's data/ directory.  Strategy:
-        #   1. Extract new version to a staging dir.
-        #   2. Remove old _internal/ and KBase.exe (they may be locked,
-        #      but KBase has already exited by this point).
-        #   3. Copy new files over, skipping data/ to preserve user data.
-        apply_block = f"""Write-Host '[3/4] Extracting portable update...'
-$stageDir = Join-Path $env:TEMP 'KBaseUpdateStage'
-Remove-Item $stageDir -Recurse -Force -ErrorAction SilentlyContinue
-Expand-Archive -Path $pkg -DestinationPath $stageDir -Force
+        apply_block = """Write-Log '[2/3] 正在解压便携版更新...'
+$stageDir = Join-Path $updateDir 'stage'
+$backupDir = Join-Path $targetDir ('.kbase-update-backup-' + $parentPid)
+Expand-Archive -LiteralPath $pkg -DestinationPath $stageDir -Force
+$newExe = Join-Path $stageDir 'KBase.exe'
+$newInternal = Join-Path $stageDir '_internal'
+if (-not (Test-Path -LiteralPath $newExe -PathType Leaf) -or -not (Test-Path -LiteralPath $newInternal -PathType Container)) {
+    Write-Log 'ERROR: 便携版压缩包结构无效。'
+    exit 1
+}
 
-Write-Host '[4/4] Replacing application files (preserving data/)...'
-# Remove old app files that we are about to replace.
-Remove-Item (Join-Path $targetDir 'KBase.exe') -Force -ErrorAction SilentlyContinue
-Remove-Item (Join-Path $targetDir '_internal') -Recurse -Force -ErrorAction SilentlyContinue
-Start-Sleep 1
-
-# Copy new files; /E copies all subdirectories (including empty ones)
-# but does NOT delete extra files in the destination (protects data/).
-$maxRetry = 3
-$retry = 0
-$robocopyOk = $false
-while ($retry -lt $maxRetry) {{
-    $result = robocopy $stageDir $targetDir /E /R:2 /W:2 /NP /NDL /NFL /XD data
-    if ($LASTEXITCODE -lt 8) {{
-        $robocopyOk = $true
-        break
-    }}
-    $retry++
-    Write-Host "  Retry $retry/$maxRetry (robocopy exit $LASTEXITCODE)..."
-    Start-Sleep 2
-}}
-Remove-Item $stageDir -Recurse -Force -ErrorAction SilentlyContinue
-if (-not $robocopyOk) {{
-    Write-Host "WARNING: Some files could not be overwritten — they will be updated on next launch."
-}}"""
+Remove-Item -LiteralPath $backupDir -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
+$oldExe = Join-Path $targetDir 'KBase.exe'
+$oldInternal = Join-Path $targetDir '_internal'
+try {
+    if (Test-Path -LiteralPath $oldExe) { Move-Item -LiteralPath $oldExe -Destination $backupDir -Force }
+    if (Test-Path -LiteralPath $oldInternal) { Move-Item -LiteralPath $oldInternal -Destination $backupDir -Force }
+    Copy-Item -LiteralPath $newExe -Destination $oldExe -Force
+    $null = robocopy $newInternal $oldInternal /E /R:2 /W:2 /NP /NDL /NFL
+    if ($LASTEXITCODE -ge 8) { throw "robocopy 退出码 $LASTEXITCODE" }
+    Get-ChildItem -LiteralPath $stageDir -File | Where-Object Name -ne 'KBase.exe' |
+        Copy-Item -Destination $targetDir -Force
+} catch {
+    Write-Log "ERROR: 替换应用文件失败，正在回滚：$($_.Exception.Message)"
+    Remove-Item -LiteralPath $oldExe -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $oldInternal -Recurse -Force -ErrorAction SilentlyContinue
+    $backupExe = Join-Path $backupDir 'KBase.exe'
+    $backupInternal = Join-Path $backupDir '_internal'
+    if (Test-Path -LiteralPath $backupExe) { Move-Item -LiteralPath $backupExe -Destination $oldExe -Force }
+    if (Test-Path -LiteralPath $backupInternal) { Move-Item -LiteralPath $backupInternal -Destination $oldInternal -Force }
+    exit 1
+}
+Remove-Item -LiteralPath $backupDir -Recurse -Force -ErrorAction SilentlyContinue
+Write-Log '[2/3] 便携版文件替换完成。'"""
 
     updater_body = f"""$ErrorActionPreference = 'Stop'
-$pkg = '{pkg_path}'
-$targetDir = '{install_dir}'
-$exeName = '{exe_name}'
-$logFile = Join-Path $env:TEMP 'KBaseUpdate\\update.log'
+$pkg = {_ps_literal(pkg_path)}
+$updateDir = {_ps_literal(run_dir)}
+$targetDir = {_ps_literal(install_dir)}
+$parentPid = {parent_pid}
+$logFile = Join-Path $env:TEMP 'KBaseUpdate/update.log'
 
-# Write both to console (visible if debugging) and log file.
 $logDir = Split-Path $logFile -Parent
-if (-not (Test-Path $logDir)) {{ New-Item -ItemType Directory -Path $logDir -Force | Out-Null }}
+if (-not (Test-Path -LiteralPath $logDir)) {{ New-Item -ItemType Directory -Path $logDir -Force | Out-Null }}
 function Write-Log($msg) {{
     $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $msg"
-    Write-Host $line
-    Add-Content -Path $logFile -Value $line -Encoding UTF8
+    Add-Content -LiteralPath $logFile -Value $line -Encoding UTF8
 }}
 
 Write-Log '=== KBase Updater ==='
-Write-Log "  Package  : $pkg"
-Write-Log "  Target   : $targetDir"
-Write-Log "  ExeName  : $exeName"
-Write-Log "  Mode     : {'NSIS installer' if installed else 'Portable zip'}"
-
-# ---- 1. Download ----
-Write-Log '[1/4] Downloading update package...'
-$ProgressPreference = 'SilentlyContinue'
-try {{
-    Invoke-WebRequest -Uri '{asset_url}' -OutFile $pkg -UseBasicParsing -TimeoutSec 600
-}} catch {{
-    Write-Log "ERROR: Download failed: $($_.Exception.Message)"
-    exit 1
-}}
-$pkgSize = [math]::Round((Get-Item $pkg).Length / 1MB, 1)
-Write-Log "  Downloaded $pkgSize MB"
-
-# ---- 2. Wait for the app to exit ----
-$procName = [System.IO.Path]::GetFileNameWithoutExtension($exeName)
-Write-Log "[2/4] Waiting for $procName to exit..."
+Write-Log "  Target: $targetDir"
+Write-Log "  Mode: {'NSIS installer' if installed else 'Portable zip'}"
+Write-Log '[1/3] 更新包已下载并通过校验，等待当前 KBase 实例退出...'
 $timeout = 60
 $elapsed = 0
 while ($elapsed -lt $timeout) {{
-    $proc = Get-Process -Name $procName -ErrorAction SilentlyContinue
-    if (-not $proc) {{
-        Write-Log "  $procName has exited (waited $elapsed s)."
-        break
-    }}
+    $parent = Get-Process -Id $parentPid -ErrorAction SilentlyContinue
+    if (-not $parent) {{ break }}
     Start-Sleep 1
     $elapsed++
 }}
 if ($elapsed -ge $timeout) {{
-    Write-Log "  Timeout waiting for $procName to exit — forcing termination."
-    Get-Process -Name $procName -ErrorAction SilentlyContinue | Stop-Process -Force
+    Write-Log "当前实例退出超时，仅终止 PID $parentPid。"
+    Stop-Process -Id $parentPid -Force -ErrorAction SilentlyContinue
     Start-Sleep 2
 }}
 
-# ---- 3. Apply update ----
 {apply_block}
 
-# ---- 4. Restart ----
-Write-Log 'Restarting KBase...'
+Write-Log '[3/3] 正在重启 KBase...'
 $kbaseExe = Join-Path $targetDir 'KBase.exe'
-if (Test-Path $kbaseExe) {{
-    Write-Log "  Launching: $kbaseExe"
-    Start-Process -FilePath $kbaseExe -WindowStyle Normal
-    Write-Log "  Start-Process returned (process may be running)."
-}} else {{
-    Write-Log "WARNING: KBase.exe not found at $kbaseExe"
+if (-not (Test-Path -LiteralPath $kbaseExe -PathType Leaf)) {{
+    Write-Log "ERROR: 未找到 $kbaseExe"
+    exit 1
 }}
-
-# ---- Cleanup ----
+Start-Process -FilePath $kbaseExe -WindowStyle Normal
+Write-Log '更新完成。'
 Start-Sleep 2
-Remove-Item $pkg -Force -ErrorAction SilentlyContinue
-# Keep the log file for debugging; remove only the PS script.
-Remove-Item $PSCommandPath -Force -ErrorAction SilentlyContinue
-Write-Log 'Updater finished.'
+Remove-Item -LiteralPath $updateDir -Recurse -Force -ErrorAction SilentlyContinue
 """
 
-    updater_ps1 = tmp_dir / "update.ps1"
-    updater_ps1.write_text(updater_body, encoding="utf-8")
+    updater_ps1 = run_dir / "update.ps1"
+    temp_script = run_dir / f"update.ps1.tmp-{parent_pid}"
+    # Windows PowerShell 5.1 treats BOM-less UTF-8 scripts as the active
+    # ANSI code page; multibyte log messages can then corrupt quote parsing.
+    temp_script.write_text(updater_body, encoding="utf-8-sig")
+    os.replace(temp_script, updater_ps1)
 
     try:
         subprocess.Popen(
-            ["powershell.exe", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden",
-             "-File", str(updater_ps1)],
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-WindowStyle",
+                "Hidden",
+                "-File",
+                str(updater_ps1),
+            ],
             creationflags=(
                 subprocess.CREATE_NEW_PROCESS_GROUP
                 | getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
-            ) if sys.platform == "win32" else 0,
+            ),
             close_fds=True,
         )
-    except Exception:
-        return False
+    except Exception as exc:
+        shutil.rmtree(run_dir, ignore_errors=True)
+        return {"ok": False, "message": f"无法启动更新程序：{exc}"}
 
-    return True
+    return {"ok": True, "message": "更新包已下载并校验，正在交接更新程序"}
 
 
 def _version_greater(a: str, b: str) -> bool:
@@ -310,13 +380,10 @@ def _version_greater(a: str, b: str) -> bool:
     try:
         parts_a = [int(x) for x in a.split(".")]
         parts_b = [int(x) for x in b.split(".")]
-        # Pad to same length
         while len(parts_a) < len(parts_b):
             parts_a.append(0)
         while len(parts_b) < len(parts_a):
             parts_b.append(0)
         return parts_a > parts_b
     except (ValueError, AttributeError):
-        # If we can't parse versions, assume no update
-        # (safer than assuming any difference is an update).
         return False
