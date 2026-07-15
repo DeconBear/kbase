@@ -808,13 +808,21 @@ class Workspace:
         *,
         max_depth: int = 48,
         include_derivations: bool = False,
+        include_doc_ids: bool = False,
     ) -> dict[str, Any]:
-        """Return the workspace filesystem as a nested folder/file tree."""
+        """Return the workspace filesystem as a nested folder/file tree.
+
+        By default this does **not** parse every ``doc_*.json`` sidecar
+        (that blocks for minutes on large Baidu Sync trees). Pass
+        ``include_doc_ids=True`` when callers need sidecar titles/ids.
+        """
         globs = self.ignore_globs()
-        doc_by_path = {
-            str(doc.get("path") or "").replace("\\", "/"): doc
-            for doc in self.list_documents()
-        }
+        doc_by_path: dict[str, Any] = {}
+        if include_doc_ids:
+            doc_by_path = {
+                str(doc.get("path") or "").replace("\\", "/"): doc
+                for doc in self.list_documents()
+            }
 
         def should_skip(rel: str, *, is_dir: bool) -> bool:
             rel = rel.replace("\\", "/").strip("/")
@@ -1050,7 +1058,7 @@ def destroy_workspace(path: str | Path, *, delete_files: bool = False) -> dict[s
         set_active_workspace(None)
         fallback = _pick_fallback_workspace(root)
         if fallback is not None:
-            open_workspace(fallback, scan=True)
+            open_workspace(fallback, scan=False)
             switched_to = str(fallback)
             try:
                 from storage import bind_data_root_runtime

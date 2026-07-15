@@ -3387,6 +3387,10 @@ async function saveAndCloseSettings() {
     await saveSettings(s);
     await saveLLMConfigFromForm();
     await saveApiKeys();
+    const dataRootEl = document.getElementById('dataRootInput');
+    if (dataRootEl && dataRootEl.value.trim()) {
+      try { await saveDataRoot({ silent: true }); } catch (_) { /* keep settings close */ }
+    }
     hideSettings();
   } catch(e) {
     setLLMStatus('保存失败：' + e.message, 'error');
@@ -3581,30 +3585,40 @@ async function loadDataRoot() {
     const r = await fetch('/api/data-root');
     const d = await r.json();
     document.getElementById('dataRootInput').value = d.defaultDataRoot || d.dataRoot || '';
-    const status = d.isOverridden
-      ? '（已自定义）'
-      : (d.isLegacyInstallRoot ? '（兼容旧版位置）' : (d.isPackaged ? '（默认用户目录）' : '（开发模式默认）'));
-    document.getElementById('dataRootStatus').textContent = status;
+    const parts = [];
+    if (d.isOverridden) parts.push('已自定义默认路径');
+    else if (d.isLegacyInstallRoot) parts.push('兼容旧版位置');
+    else if (d.isPackaged) parts.push('默认用户目录');
+    else parts.push('开发模式默认');
+    if (d.dataRoot && d.defaultDataRoot && d.dataRoot !== d.defaultDataRoot) {
+      parts.push('当前工作空间：' + d.dataRoot);
+    }
+    document.getElementById('dataRootStatus').textContent = '（' + parts.join(' · ') + '）';
   } catch (e) {
     document.getElementById('dataRootStatus').textContent = '（获取失败）';
   }
 }
 
-async function saveDataRoot() {
+async function saveDataRoot(opts) {
+  const silent = !!(opts && opts.silent);
   const el = document.getElementById('dataRootInput');
   const path = el.value.trim();
-  if (!path) { showDataRootMsg('请输入有效的绝对路径', 'rose'); return; }
+  if (!path) { if (!silent) showDataRootMsg('请输入有效的绝对路径', 'rose'); return; }
   try {
     const r = await fetch('/api/data-root', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({dataRoot: path})
     });
     const d = await r.json();
-    const cls = d.ok ? 'emerald' : 'rose';
-    showDataRootMsg(d.message, cls);
+    if (!silent) {
+      const cls = d.ok ? 'emerald' : 'rose';
+      showDataRootMsg(d.message, cls);
+    }
     if (d.ok) loadDataRoot();
+    if (!d.ok) throw new Error(d.message || '保存失败');
   } catch (e) {
-    showDataRootMsg('请求失败: ' + e.message, 'rose');
+    if (!silent) showDataRootMsg('请求失败: ' + e.message, 'rose');
+    throw e;
   }
 }
 
@@ -4555,6 +4569,12 @@ function _isMarkdownPath(path, kind) {
   return lower.endsWith('.md') || lower.endsWith('.markdown');
 }
 
+function _isMarkdownOrHtmlPath(path, kind) {
+  if (kind === 'html') return true;
+  const lower = String(path || '').toLowerCase();
+  return _isMarkdownPath(path, kind) || lower.endsWith('.html') || lower.endsWith('.htm');
+}
+
 let workspaceSelectedDir = '';
 
 function selectWorkspaceDir(path) {
@@ -4666,7 +4686,7 @@ function _renderWorkspaceTreeNode(node, depth) {
     const folderClick = node.readOnly
       ? `toggleWorkspaceDir(decodeURIComponent('${keyArg}'))`
       : litMatch
-      ? `event.stopPropagation();biblioFolderFilter='${esc(litMatch[1])}';renderBiblioPanel();`
+      ? `event.stopPropagation();selectWorkspaceDir(decodeURIComponent('${keyArg}'));toggleWorkspaceDir(decodeURIComponent('${keyArg}'));biblioFolderFilter='${esc(litMatch[1])}';renderBiblioPanel();`
       : `selectWorkspaceDir(decodeURIComponent('${keyArg}'));toggleWorkspaceDir(decodeURIComponent('${keyArg}'))`;
     const ctx = key && key !== '__root__'
       ? ` oncontextmenu="showWorkspaceFsContextMenu(event,decodeURIComponent('${keyArg}'),'dir','')"`
@@ -4785,24 +4805,33 @@ async function _loadWorkspaceMarkdownText(norm) {
 }
 
 async function openPdfFromWorkspacePath(path) {
-  const norm = String(path || '').replace(/\\/g, '/');
+  const norm = String(path || '').replace(/\\/g, '/').replace(/^\//, '');
   const m = norm.match(/^(?:articles|literature|\.literature)\/([^/]+)\//i);
   if (!m) {
-    showDataRootMsg('无法打开 PDF: ' + (path || ''), 'rose');
+    // Any workspace PDF (inbox, root, managed-files, etc.) via direct embed.
+    const url = '/' + norm.split('/').map(encodeURIComponent).join('/');
+    const name = norm.split('/').pop() || norm;
+    TabManager.openTab('ws-pdf-' + norm, 'pdf_direct', '📕 ' + name, {url}, true);
     return;
   }
   const articleId = m[1];
   if (!articles.find(a => a.id === articleId)) await loadArticles();
   if (!articles.find(a => a.id === articleId)) {
+    const fileName = norm.split('/').pop() || 'original.pdf';
     articles.push({
       id: articleId,
       title: articleId,
       pdf_available: true,
+      pdf_file: fileName.toLowerCase().endsWith('.pdf') ? fileName : 'original.pdf',
       md_available: false,
       translated: false,
       summarized: false,
       tags: [],
     });
+  } else {
+    const art = articles.find(a => a.id === articleId);
+    const fileName = norm.split('/').pop() || '';
+    if (fileName.toLowerCase().endsWith('.pdf')) art.pdf_file = fileName;
   }
   await openReader(articleId);
 }
@@ -4864,7 +4893,7 @@ async function createWorkspaceFolderPrompt() {
   const name = await uiPrompt('新建文件夹名称');
   if (!name || !name.trim()) return;
   const parent = workspaceSelectedDir && workspaceSelectedDir !== '__root__' ? workspaceSelectedDir : '';
-  const rel = parent ? (parent + '/' + name.trim()) : name.trim();
+  const rel = (parent ? (parent + '/' + name.trim()) : name.trim()).replace(/\\/g, '/');
   try {
     const resp = await fetch('/api/workspace/mkdir', {
       method: 'POST',
@@ -4873,8 +4902,10 @@ async function createWorkspaceFolderPrompt() {
     });
     if (!resp.ok) throw new Error(await resp.text());
     if (parent) expandedWorkspaceDirs.add(parent);
+    expandedWorkspaceDirs.add(rel);
+    selectWorkspaceDir(rel);
     await loadWorkspaceTree();
-    toast('文件夹已创建', 'success');
+    toast('文件夹已创建：' + rel, 'success');
   } catch (e) {
     toast('创建文件夹失败：' + (e.message || e), 'error');
   }
@@ -5049,8 +5080,16 @@ function openWorkspaceDocument(docId) {
     return;
   }
   if (path && _isMarkdownOrHtmlPath(path, doc.kind)) {
+    if (doc.kind === 'html' || /\.html?$/i.test(path)) {
+      openWorkspaceTextFile(path);
+      return;
+    }
     openWorkspaceMarkdown(path, doc.title || path.split('/').pop() || path, docId);
     return;
+  }
+  // Path-only open when sidecar id is missing (tree no longer loads all docs).
+  if (path) {
+    openWorkspaceTreeEntry(path, '', doc.kind || '');
   }
 }
 
@@ -5063,9 +5102,9 @@ async function rescanWorkspace() {
     });
     const d = await r.json();
     if (!d.ok) throw new Error(d.message || '扫描失败');
+    showDataRootMsg(d.scanPending ? '已开始后台扫描…' : '扫描完成', 'emerald');
     await loadWorkspaceInfo();
     await loadWorkspaceTree();
-    showDataRootMsg(`扫描完成：${d.stats?.total ?? 0} 个文档`, 'emerald');
   } catch (e) {
     showDataRootMsg('工作空间扫描失败: ' + e.message, 'rose');
   }
@@ -6589,7 +6628,8 @@ function activateArticlePdf(article, options={}) {
     frame.dataset.articleId = article.id;
   }
 
-  const pdfUrl = `articles/${article.id}/original.pdf`;
+  const pdfName = encodeURIComponent(article.pdf_file || 'original.pdf');
+  const pdfUrl = `articles/${article.id}/${pdfName}`;
   if (frame.getAttribute('src') !== pdfUrl) frame.src = pdfUrl;
   frame.classList.add('active');
   frame.style.display = 'block';
@@ -12816,7 +12856,7 @@ async function startConvPolling(articleId) {
   convPollTimer = setInterval(poll, 1500);
 }
 </script>
-<script src="assets/bitable.js?v=20260715-ui2"></script>
+<script src="assets/bitable.js?v=20260715-fix42"></script>
 
 <script>
 // ==================== ATTACHMENTS PANEL ====================

@@ -138,8 +138,8 @@ def bind_data_root_runtime(root: Path, *, literature_dir: str | None = None) -> 
     NOTES_DIR = DATA_ROOT / "notes"
     KBASE_DIR = DATA_ROOT / ".kbase"
     DB_PATH = KBASE_DIR / "index.db"
-    LOGS_DIR = DATA_ROOT / "logs"
-    CHAT_SESSIONS_DIR = DATA_ROOT / "chat_sessions"
+    LOGS_DIR = KBASE_DIR / "logs"
+    CHAT_SESSIONS_DIR = KBASE_DIR / "chat_sessions"
     CHAT_SESSIONS_INDEX = KBASE_DIR / "chat_sessions_index.json"
     LOCAL_ENV = DATA_ROOT / "local.env"
     LLM_CONFIG_FILE = DATA_ROOT / "llm_config.json"
@@ -277,7 +277,7 @@ def get_data_root_info() -> dict:
         "installRoot": str(REPO_ROOT),
         "isPackaged": bool(getattr(sys, "frozen", False)),
         "isOverridden": _DATA_ROOT_OVERRIDE is not None,
-        "isDefaultActive": DATA_ROOT == default_data_root(),
+        "isDefaultActive": DATA_ROOT.resolve() == default_data_root().resolve(),
         "isLegacyInstallRoot": bool(
             _DATA_ROOT_OVERRIDE is None
             and getattr(sys, "frozen", False)

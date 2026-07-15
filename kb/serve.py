@@ -427,14 +427,19 @@ def scan_articles() -> list[dict]:
             article = existing.pop(aid, None)
 
             pdf_candidates = [p for p in folder.iterdir() if p.is_file() and p.suffix.lower() == ".pdf"]
-            pdf_path = pdf_candidates[0] if pdf_candidates else folder / "original.pdf"
+            pdf_path = (
+                folder / "original.pdf"
+                if (folder / "original.pdf").exists()
+                else (pdf_candidates[0] if pdf_candidates else folder / "original.pdf")
+            )
             parsed_exists = adjacent_parsed_md_path(folder, pdf_path, aid).exists()
             trans_exists = (
                 adjacent_zh_md_path(folder, pdf_path, aid).exists()
                 or (folder / f"{aid}_translated.md").exists()
             )
             summary_exists = (folder / f"{aid}_summary.md").exists()
-            pdf_exists = (folder / "original.pdf").exists() or bool(pdf_candidates)
+            pdf_exists = pdf_path.exists()
+            pdf_file = pdf_path.name if pdf_exists else "original.pdf"
             md_exists = parsed_exists or (folder / f"{aid}.md").exists()
 
             meta = _read_json_file(folder / f"{aid}_meta.json")
@@ -462,6 +467,7 @@ def scan_articles() -> list[dict]:
                     "translated": trans_exists,
                     "summarized": summary_exists,
                     "pdf_available": pdf_exists,
+                    "pdf_file": pdf_file,
                     "md_available": md_exists,
                     "file_available": file_available,
                     "source_filename": source_filename,
@@ -481,6 +487,7 @@ def scan_articles() -> list[dict]:
                 article["translated"] = trans_exists
                 article["summarized"] = summary_exists
                 article["pdf_available"] = pdf_exists
+                article["pdf_file"] = pdf_file
                 article["md_available"] = md_exists
                 article["file_available"] = file_available
                 article["has_old_translation"] = (folder / f"{aid}_translated_old.md").exists()
@@ -493,6 +500,7 @@ def scan_articles() -> list[dict]:
                 article["kind"] = "paper"
             if not article.get("source_filename") and source_filename:
                 article["source_filename"] = source_filename
+            article["pdf_file"] = pdf_file
 
             if isinstance(info, dict) and info:
                 article["metadata_extracted"] = True
@@ -2555,8 +2563,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         if ws is not None:
             payload["workspace"] = ws.info()
             if result.get("wasActive"):
-                payload["dataRoot"] = _activate_workspace_session(ws)
-                payload["articles"] = scan_articles()
+                payload["dataRoot"] = _activate_workspace_session(ws, heavy=False)
+                payload["articlesPending"] = True
         else:
             payload["workspace"] = None
             payload["articles"] = []
@@ -2654,7 +2662,7 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         self._json({"ok": True, **result})
 
     def handle_workspace_scan(self) -> None:
-        """POST /api/workspace/scan — reconcile sidecars with disk."""
+        """POST /api/workspace/scan — reconcile sidecars with disk (background)."""
         data = self._read_json() if self.headers.get("Content-Length") else {}
         full = bool((data or {}).get("full", True))
         try:
@@ -2662,15 +2670,22 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         except RuntimeError as exc:
             self._error(400, str(exc))
             return
-        stats = ws.scan(full=full)
-        if full:
-            try:
-                from workspace_ingest import start_workspace_ingest
 
-                start_workspace_ingest(ws)
+        def _bg() -> None:
+            try:
+                ws.scan(full=full)
+                if full:
+                    try:
+                        from workspace_ingest import start_workspace_ingest
+
+                        start_workspace_ingest(ws)
+                    except Exception:
+                        pass
             except Exception:
                 pass
-        self._json({"ok": True, "stats": stats, "workspace": ws.info()})
+
+        threading.Thread(target=_bg, daemon=True, name="ws-scan").start()
+        self._json({"ok": True, "scanPending": True, "workspace": ws.info()})
 
     def handle_workspace_documents_get(self) -> None:
         """GET /api/workspace/documents — list workspace documents."""
@@ -2695,7 +2710,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
         include_derivations = (qs.get("derivations", ["0"])[0] or "0").strip() in ("1", "true", "yes")
         payload = ws.list_directory_tree(include_derivations=include_derivations)
-        payload["documents"] = ws.list_documents()
+        # Tree nodes already carry path/kind; skip parsing every doc_*.json here.
+        payload["documents"] = []
         self._json(payload)
 
     def handle_workspace_search(self) -> None:

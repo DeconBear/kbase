@@ -197,10 +197,12 @@ const KB_READONLY_TYPES = new Set(
 .bitable-list-item .meta{display:flex;align-items:center;gap:7px;font-size:10px;color:var(--text-3);margin-top:2px;font-weight:400}
 .kb-db-pill{display:inline-flex;align-items:center;max-width:100%;padding:1px 8px;border-radius:var(--bt-pill-radius,4px);font-size:12px;line-height:20px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:middle;margin:1px 3px 1px 0;cursor:pointer;border:none;user-select:none}
 .kb-db-pill.empty{background:transparent;color:var(--text-3);font-weight:400;padding-left:0;opacity:.7}
-.kb-db-pill-wrap{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:2px;padding:4px 10px;min-height:36px;box-sizing:border-box;position:relative}
-.kb-db-pill-menu{position:absolute;left:8px;top:calc(100% - 2px);z-index:40;min-width:140px;max-width:240px;background:var(--surface);border:1px solid var(--bt-line,var(--border));border-radius:8px;box-shadow:0 8px 24px rgba(31,35,41,.12);padding:4px;max-height:220px;overflow-y:auto}
-.kb-db-pill-menu button{display:flex;width:100%;align-items:center;gap:8px;border:none;background:transparent;padding:6px 8px;border-radius:4px;cursor:pointer;font-size:12px;color:var(--text);text-align:left}
+.kb-db-pill-wrap{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:2px;padding:4px 10px;min-height:36px;box-sizing:border-box;position:relative;overflow:visible}
+.kb-db-pill-menu{position:fixed;z-index:10050;min-width:168px;max-width:280px;width:max-content;height:auto;max-height:min(280px,calc(100vh - 24px));overflow-x:hidden;overflow-y:auto;background:var(--surface,#fff);border:1px solid var(--bt-line,var(--border));border-radius:8px;box-shadow:0 8px 24px rgba(31,35,41,.16);padding:4px;box-sizing:border-box}
+.kb-db-pill-menu button{display:flex;align-items:center;justify-content:flex-start;gap:8px;width:100%;min-height:32px;height:32px;flex:0 0 auto;border:none;background:transparent;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px;color:var(--text);text-align:left;box-sizing:border-box}
 .kb-db-pill-menu button:hover{background:var(--bt-line-soft,#F2F3F5)}
+.kb-db-pill-menu .kb-db-pill{margin:0;flex:1;min-width:0}
+.kb-db-pill-menu .kb-db-pill-check{margin-left:auto;flex-shrink:0;color:var(--bt-accent,#3370FF);font-size:12px;line-height:1}
 .kb-db-progress{display:flex;align-items:center;gap:8px;min-width:80px}
 .kb-db-progress-track{flex:1;height:6px;background:var(--bt-line-soft,#F2F3F5);border-radius:999px;overflow:hidden;min-width:48px}
 .kb-db-progress-track>span{display:block;height:100%;background:var(--bt-accent,#3370FF);border-radius:999px;transition:width .15s}
@@ -437,23 +439,40 @@ function _openPillMenu(anchorWrap, options, { multi, selected, onPick }) {
     btn.appendChild(pill);
     if (isOn) {
       const check = document.createElement('span');
+      check.className = 'kb-db-pill-check';
       check.textContent = '✓';
-      check.style.cssText = 'margin-left:auto;color:var(--bt-accent,#3370FF);font-size:12px';
       btn.appendChild(check);
     }
     btn.onclick = (e) => {
       e.stopPropagation();
       onPick(label, opt);
-      if (!multi) menu.remove();
+      if (!multi) {
+        menu.remove();
+        document.removeEventListener('mousedown', dismiss, true);
+      }
     };
     menu.appendChild(btn);
   };
   if (!multi) addBtn('（空）', null, !sel);
   (options || []).forEach(o => {
+    if (!o || !o.name) return;
     const on = multi ? sel.includes(o.name) : sel === o.name;
     addBtn(o.name, o, on);
   });
-  anchorWrap.appendChild(menu);
+  document.body.appendChild(menu);
+  const place = () => {
+    const rect = anchorWrap.getBoundingClientRect();
+    const mw = menu.offsetWidth || 168;
+    const mh = menu.offsetHeight || 32;
+    let left = rect.left;
+    let top = rect.bottom + 2;
+    if (left + mw > window.innerWidth - 8) left = Math.max(8, window.innerWidth - mw - 8);
+    if (top + mh > window.innerHeight - 8) top = Math.max(8, rect.top - mh - 2);
+    menu.style.left = left + 'px';
+    menu.style.top = top + 'px';
+  };
+  place();
+  requestAnimationFrame(place);
   const dismiss = (ev) => {
     if (!menu.contains(ev.target) && ev.target !== anchorWrap && !anchorWrap.contains(ev.target)) {
       menu.remove();
