@@ -476,6 +476,22 @@ select option{background:var(--surface-2);color:var(--text)}
 #ui-dialog-btns { display: flex; justify-content: flex-end; gap: 8px; }
 #ui-dialog-btns .btn-primary { background: var(--accent); color: white; padding: 6px 16px; border: none; border-radius: var(--radius-sm); cursor: pointer; }
 #ui-dialog-btns .btn-primary:hover { background: var(--accent-hover); }
+#organize-modal-overlay{display:none;position:fixed;inset:0;z-index:10000;background:rgba(15,23,42,.45);align-items:center;justify-content:center;backdrop-filter:blur(3px)}
+#organize-modal-overlay.active{display:flex}
+#organize-modal{width:min(560px,92vw);max-height:min(78vh,720px);background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow-xl);display:flex;flex-direction:column;overflow:hidden}
+#organize-modal-head{padding:16px 18px 10px;border-bottom:1px solid var(--border)}
+#organize-modal-head h3{margin:0;font-size:16px;font-weight:650;color:var(--text-strong)}
+#organize-modal-head p{margin:6px 0 0;font-size:12px;color:var(--text-3);line-height:1.5}
+#organize-modal-list{flex:1;min-height:120px;overflow:auto;padding:8px 12px;background:var(--surface-2)}
+#organize-modal-list .org-row{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:start;padding:7px 8px;border-radius:6px;font-size:12px;color:var(--text-2)}
+#organize-modal-list .org-row:nth-child(odd){background:rgba(0,0,0,.02)}
+#organize-modal-list .org-from,#organize-modal-list .org-to{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#organize-modal-list .org-arrow{color:var(--text-3);padding-top:1px}
+#organize-modal-progress{display:none;padding:12px 18px 0}
+#organize-modal-progress .bar{height:8px;border-radius:999px;background:var(--bt-line-soft,#F2F3F5);overflow:hidden}
+#organize-modal-progress .bar>i{display:block;height:100%;width:0;background:var(--bt-accent,#3370FF);transition:width .2s}
+#organize-modal-progress .meta{margin-top:8px;font-size:12px;color:var(--text-3)}
+#organize-modal-foot{display:flex;justify-content:flex-end;gap:8px;padding:14px 18px;border-top:1px solid var(--border)}
 .drop-zone .icon{font-size:3em;margin-bottom:10px;opacity:.7;filter:grayscale(.4)}
 .drop-zone:hover .icon{opacity:1;filter:none}
 .drop-zone input{display:none}
@@ -2181,6 +2197,24 @@ body { display: flex !important; flex-direction: column !important; height: 100v
     <div id="ui-dialog-btns">
       <button id="ui-dialog-cancel" class="ctrl-btn">取消</button>
       <button id="ui-dialog-ok" class="btn-primary">确定</button>
+    </div>
+  </div>
+</div>
+
+<div id="organize-modal-overlay" onclick="if(event.target===this && !organizeModalBusy) closeOrganizeModal(false)">
+  <div id="organize-modal" role="dialog" aria-modal="true" aria-labelledby="organize-modal-title">
+    <div id="organize-modal-head">
+      <h3 id="organize-modal-title">整理文献</h3>
+      <p id="organize-modal-desc"></p>
+    </div>
+    <div id="organize-modal-list"></div>
+    <div id="organize-modal-progress">
+      <div class="bar"><i id="organize-modal-bar"></i></div>
+      <div class="meta" id="organize-modal-meta">准备中…</div>
+    </div>
+    <div id="organize-modal-foot">
+      <button type="button" class="ctrl-btn" id="organize-modal-cancel" onclick="closeOrganizeModal(false)">取消</button>
+      <button type="button" class="btn-primary" id="organize-modal-ok">开始整理</button>
     </div>
   </div>
 </div>
@@ -4264,11 +4298,11 @@ function sortBiblioColumn(col) {
 }
 
 function renderBiblioPanel() {
-  const stats = document.getElementById('biblio-stats');
   const list = getFilteredBiblioArticles();
-  if (stats) {
-    const pending = libraryStatusCache?.pendingOrganize;
-    stats.textContent = `${list.length} 篇` + (pending ? ` · ${pending} 待整理` : '');
+  if (libraryStatusCache) _renderOrganizeProgress(libraryStatusCache, list.length);
+  else {
+    const stats = document.getElementById('biblio-stats');
+    if (stats) stats.textContent = `${list.length} 篇`;
   }
   if (biblioViewMode === 'cards') renderBiblioCards(list);
   else renderBiblioTable(list);
@@ -4354,6 +4388,31 @@ async function refreshLibraryStatus() {
     if (r.ok) libraryStatusCache = await r.json();
   } catch (_) {}
   renderBiblioPanel();
+  _renderOrganizeProgress(libraryStatusCache);
+}
+
+function _renderOrganizeProgress(st, articleCount) {
+  const stats = document.getElementById('biblio-stats');
+  if (!stats || !st) return;
+  const phase = st.scanPhase || st.phase || '';
+  if (phase === 'scanning' || phase === 'organizing') {
+    const pct = st.scanPercent ?? st.percent ?? 0;
+    const done = st.done != null ? st.done : '';
+    const total = st.total != null ? st.total : '';
+    const msg = st.scanMessage || st.message || (phase === 'organizing' ? '整理中' : '扫描中');
+    const frac = (total !== '' && total !== undefined) ? ` ${done}/${total}` : '';
+    stats.innerHTML = `<span style="color:var(--bt-accent,#3370FF)">${esc(msg)}${esc(String(frac))} · ${esc(String(pct))}%</span>`;
+    return;
+  }
+  const pending = st.pendingOrganize || (st.summary && st.summary.mainCount) || 0;
+  const skip = st.skippedKnownId || (st.summary && st.summary.skippedKnownId) || 0;
+  const n = (articleCount != null)
+    ? articleCount
+    : (typeof getFilteredBiblioArticles === 'function' ? getFilteredBiblioArticles().length : (st.indexedArticles || 0));
+  let extra = '';
+  if (pending) extra += ` · ${pending} 待整理`;
+  if (skip) extra += ` · 已跳过 ${skip} 个已有 ID`;
+  stats.textContent = `${n} 篇` + extra;
 }
 
 async function pollIngestStatus() {
@@ -4363,7 +4422,10 @@ async function pollIngestStatus() {
     const st = await r.json();
     if (st.phase && st.phase !== 'idle' && st.phase !== 'done') {
       const stats = document.getElementById('biblio-stats');
-      if (stats) stats.textContent = `识别中 ${st.done || 0}/${st.total || 0}…`;
+      if (stats) {
+        const skip = st.skippedKnownId ? ` · 跳过 ${st.skippedKnownId} 已有 ID` : '';
+        stats.textContent = `识别中 ${st.done || 0}/${st.total || 0}…${skip}`;
+      }
     } else if (st.phase === 'done') {
       await loadArticles();
       renderBiblioPanel();
@@ -4372,10 +4434,67 @@ async function pollIngestStatus() {
   } catch (_) {}
 }
 
+let organizePollTimer = null;
+
+async function pollOrganizeStatus() {
+  try {
+    const r = await fetch('/api/workspace/organize-status');
+    if (!r.ok) return null;
+    const st = await r.json();
+    libraryStatusCache = {
+      ...(libraryStatusCache || {}),
+      scanPhase: st.phase,
+      scanPercent: st.percent,
+      scanMessage: st.message,
+      pendingOrganize: (st.summary && st.summary.mainCount) || 0,
+      skippedKnownId: st.skippedKnownId || (st.summary && st.summary.skippedKnownId) || 0,
+      phase: st.phase,
+      percent: st.percent,
+      message: st.message,
+      done: st.done,
+      total: st.total,
+      summary: st.summary,
+      moves: st.moves,
+    };
+    _renderOrganizeProgress(st);
+    return st;
+  } catch (_) {
+    return null;
+  }
+}
+
+function _waitOrganizePhase(wantPhases, { timeoutMs = 600000, intervalMs = 800 } = {}) {
+  const want = new Set(wantPhases);
+  return new Promise((resolve, reject) => {
+    const t0 = Date.now();
+    const tick = async () => {
+      const st = await pollOrganizeStatus();
+      if (st && want.has(st.phase)) {
+        if (organizePollTimer) { clearInterval(organizePollTimer); organizePollTimer = null; }
+        resolve(st);
+        return;
+      }
+      if (st && st.phase === 'error') {
+        if (organizePollTimer) { clearInterval(organizePollTimer); organizePollTimer = null; }
+        reject(new Error(st.message || '扫描失败'));
+        return;
+      }
+      if (Date.now() - t0 > timeoutMs) {
+        if (organizePollTimer) { clearInterval(organizePollTimer); organizePollTimer = null; }
+        reject(new Error('扫描超时'));
+      }
+    };
+    if (organizePollTimer) clearInterval(organizePollTimer);
+    organizePollTimer = setInterval(tick, intervalMs);
+    tick();
+  });
+}
+
 function startIngestPolling() {
   if (ingestPollTimer) clearInterval(ingestPollTimer);
   ingestPollTimer = setInterval(async () => {
     await pollIngestStatus();
+    await pollOrganizeStatus();
   }, 2500);
   pollIngestStatus();
   refreshLibraryStatus();
@@ -4393,27 +4512,163 @@ async function onWorkspaceIngestSettingChange() {
   } catch (_) {}
 }
 
+let organizeModalBusy = false;
+let _organizeModalResolver = null;
+
+function closeOrganizeModal(ok) {
+  const overlay = document.getElementById('organize-modal-overlay');
+  if (overlay) overlay.classList.remove('active');
+  if (_organizeModalResolver) {
+    const resolve = _organizeModalResolver;
+    _organizeModalResolver = null;
+    resolve(!!ok);
+  }
+}
+
+function openOrganizeConfirmModal(plan) {
+  const moves = plan.moves || [];
+  const mainCount = plan.summary?.mainCount || moves.filter(m => m.kind === 'main').length;
+  const skipped = plan.skippedKnownId || plan.summary?.skippedKnownId || 0;
+  const target = plan.targetDir || 'literature';
+  const desc = document.getElementById('organize-modal-desc');
+  const list = document.getElementById('organize-modal-list');
+  const prog = document.getElementById('organize-modal-progress');
+  const okBtn = document.getElementById('organize-modal-ok');
+  const cancelBtn = document.getElementById('organize-modal-cancel');
+  const titleEl = document.getElementById('organize-modal-title');
+  if (titleEl) titleEl.textContent = '整理文献';
+  if (desc) {
+    desc.textContent = `将 ${mainCount} 篇主文献移入 ${target}/`
+      + (skipped ? `（已跳过 ${skipped} 个已有 ID）` : '')
+      + `，共 ${moves.length} 项文件操作。`;
+  }
+  if (list) {
+    const preview = moves.slice(0, 80);
+    list.innerHTML = preview.map(m => `
+      <div class="org-row" title="${esc(m.from)} → ${esc(m.to)}">
+        <span class="org-from">${esc(m.from)}</span>
+        <span class="org-arrow">→</span>
+        <span class="org-to">${esc(m.to)}</span>
+      </div>`).join('')
+      + (moves.length > 80
+        ? `<div class="org-row" style="justify-content:center;color:var(--text-3)">… 另有 ${moves.length - 80} 项未列出</div>`
+        : '');
+  }
+  if (prog) prog.style.display = 'none';
+  if (okBtn) {
+    okBtn.disabled = false;
+    okBtn.textContent = '开始整理';
+    okBtn.onclick = () => closeOrganizeModal(true);
+  }
+  if (cancelBtn) {
+    cancelBtn.style.display = '';
+    cancelBtn.disabled = false;
+  }
+  organizeModalBusy = false;
+  document.getElementById('organize-modal-overlay')?.classList.add('active');
+  return new Promise(resolve => { _organizeModalResolver = resolve; });
+}
+
+function _setOrganizeModalProgress(st) {
+  const prog = document.getElementById('organize-modal-progress');
+  const bar = document.getElementById('organize-modal-bar');
+  const meta = document.getElementById('organize-modal-meta');
+  const okBtn = document.getElementById('organize-modal-ok');
+  const cancelBtn = document.getElementById('organize-modal-cancel');
+  if (prog) prog.style.display = 'block';
+  const pct = st.percent || 0;
+  if (bar) bar.style.width = pct + '%';
+  if (meta) {
+    const frac = (st.total != null) ? ` ${st.done || 0}/${st.total}` : '';
+    meta.textContent = (st.message || '处理中…') + frac + ` · ${pct}%`;
+  }
+  if (okBtn) { okBtn.disabled = true; okBtn.textContent = '整理中…'; }
+  if (cancelBtn) cancelBtn.style.display = 'none';
+  organizeModalBusy = true;
+}
+
 async function promptOrganizeLiterature() {
   try {
-    const prev = await fetch('/api/workspace/organize-preview');
-    const plan = await prev.json();
-    const n = (plan.moves || []).length;
-    if (!n) { showDataRootMsg('没有需要整理的散落文献', 'amber'); return; }
-    const lines = (plan.moves || []).slice(0, 12).map(m => `• ${m.from} → ${m.to}`).join('\n');
-    const more = n > 12 ? `\n… 共 ${n} 项` : '';
-  if (!confirm(`将 ${plan.summary?.mainCount || n} 篇主文献移入 ${plan.targetDir || 'literature'}/。\n\n${lines}${more}\n\n是否继续？`)) return;
+    showDataRootMsg('正在后台扫描散落文献（已有 ID 的 PDF 会跳过）…', 'emerald');
+    const prev = await fetch('/api/workspace/organize-preview?force=1');
+    if (!prev.ok) throw new Error(await prev.text());
+    let plan = await prev.json();
+    if (plan.phase === 'scanning' || plan.phase === 'idle' || plan.scanPending) {
+      plan = await _waitOrganizePhase(['ready', 'done', 'error']);
+    }
+    if (plan.phase === 'error') throw new Error(plan.message || '扫描失败');
+    const moves = plan.moves || [];
+    const n = moves.length;
+    const skipped = plan.skippedKnownId || plan.summary?.skippedKnownId || 0;
+    if (!n) {
+      showDataRootMsg(
+        skipped ? `没有需要整理的散落文献（已跳过 ${skipped} 个已有 ID）` : '没有需要整理的散落文献',
+        'amber',
+      );
+      await refreshLibraryStatus();
+      return;
+    }
+    const ok = await openOrganizeConfirmModal(plan);
+    if (!ok) {
+      await refreshLibraryStatus();
+      return;
+    }
+    _setOrganizeModalProgress({ percent: 0, message: '正在启动整理…', done: 0, total: n });
     const r = await fetch('/api/workspace/organize-literature', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({dryRun: false, move: true}),
     });
-    const data = await r.json();
-    if (!data.ok) throw new Error(data.message || '整理失败');
-    articles = data.articles || articles;
+    if (!r.ok) throw new Error(await r.text());
+    let data = await r.json();
+    if (data.phase === 'organizing' || data.scanPending) {
+      data = await new Promise((resolve, reject) => {
+        const t0 = Date.now();
+        const tick = async () => {
+          const st = await pollOrganizeStatus();
+          if (st) _setOrganizeModalProgress(st);
+          if (st && st.phase === 'done') return resolve(st);
+          if (st && st.phase === 'error') return reject(new Error(st.message || '整理失败'));
+          if (Date.now() - t0 > 900000) return reject(new Error('整理超时'));
+          setTimeout(tick, 700);
+        };
+        tick();
+      });
+    }
+    if (data.phase === 'error') throw new Error(data.message || '整理失败');
+    await loadArticles();
+    await loadArticleFolders();
     await loadWorkspaceTree();
-    renderBiblioPanel();
-    showDataRootMsg(`已整理 ${(data.moved || []).length} 个文件`, 'emerald');
+    await refreshLibraryStatus();
+    renderLibrary();
+    const movedN = (data.moved || []).length || data.summary?.movedCount || 0;
+    const artsN = data.articlesCount || data.summary?.articlesCount || articles.length;
+    const errN = (data.errors || []).length || data.summary?.errorCount || 0;
+    const doneMsg = data.message || `已整理 ${movedN} 个文件，文献库 ${artsN} 篇` + (errN ? `（${errN} 失败）` : '');
+    showDataRootMsg(doneMsg, errN ? 'amber' : 'emerald');
+    const titleEl = document.getElementById('organize-modal-title');
+    const desc = document.getElementById('organize-modal-desc');
+    const meta = document.getElementById('organize-modal-meta');
+    const bar = document.getElementById('organize-modal-bar');
+    const okBtn = document.getElementById('organize-modal-ok');
+    const cancelBtn = document.getElementById('organize-modal-cancel');
+    if (titleEl) titleEl.textContent = errN ? '整理完成（有失败项）' : '整理完成';
+    if (desc) {
+      desc.textContent = `文献库现有 ${artsN} 篇；本次移动 ${movedN} 个文件`
+        + (errN ? `，失败 ${errN} 项（详见下方）` : '。');
+    }
+    if (bar) bar.style.width = '100%';
+    if (meta) meta.textContent = doneMsg;
+    if (okBtn) {
+      okBtn.disabled = false;
+      okBtn.textContent = '完成';
+      okBtn.onclick = () => closeOrganizeModal(false);
+    }
+    if (cancelBtn) cancelBtn.style.display = 'none';
+    organizeModalBusy = false;
   } catch (e) {
+    organizeModalBusy = false;
+    closeOrganizeModal(false);
     showDataRootMsg('整理失败: ' + e.message, 'rose');
   }
 }
@@ -4430,9 +4685,10 @@ function _articleTitleForPath(path) {
 
 function _isPendingOrganizePath(path) {
   if (!libraryStatusCache?.pendingOrganize) return false;
-  const norm = String(path || '').replace(/\\/g, '/').toLowerCase();
-  if (norm.match(/^(articles|literature|\.literature)\/[^/]+\/original\.pdf$/)) return false;
-  return norm.endsWith('.pdf');
+  const norm = String(path || '').replace(/\\/g, '/');
+  // Already under articles/<id>/… — not pending.
+  if (/^(articles|literature|\.literature)\/[^/]+\//i.test(norm)) return false;
+  return /\.pdf$/i.test(norm);
 }
 
 async function loadWorkspaceBookmarks() {
