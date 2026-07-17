@@ -205,7 +205,21 @@ def _database_path_parts(request_path: str) -> tuple[str, str | None, str | None
 
 
 def sanitize_article_id(value: str) -> str:
-    base = Path(value or "upload").stem or "upload"
+    """Sanitize a filename or stem into a safe article folder id.
+
+    Only strips a single well-known file extension. Do **not** use
+    ``Path(...).stem`` on already-extensionless names — dotted DOI stems
+    like ``1-s2.0-S0022…-main`` would incorrectly collapse to ``1-s2``.
+    """
+    base = Path(value or "upload").name or "upload"
+    lower = base.lower()
+    for ext in (
+        ".pdf", ".md", ".markdown", ".txt", ".html", ".htm",
+        ".doc", ".docx", ".ppt", ".pptx", ".epub", ".zip",
+    ):
+        if lower.endswith(ext):
+            base = base[: -len(ext)]
+            break
     article_id = re.sub(r"[\s.]+", "_", base.strip())
     article_id = "".join(
         "_" if ch in INVALID_ARTICLE_CHARS or ord(ch) < 32 else ch
@@ -410,6 +424,50 @@ def _versioned_markdown_files(article_id: str) -> list[Path]:
     return files
 
 
+def _iter_article_library_folders() -> list[Path]:
+    """Yield article folders under the bound literature dir and common aliases.
+
+    Organize may write into ``literature/`` while an older session still had
+    ``ARTICLES_DIR`` pointing at ``articles/``. Scanning both (preferring the
+    bound dir on id collisions) keeps the library complete after organize.
+    """
+    roots: list[Path] = []
+    seen_roots: set[Path] = set()
+    for candidate in (
+        storage.ARTICLES_DIR,
+        storage.DATA_ROOT / "literature",
+        storage.DATA_ROOT / "articles",
+        storage.DATA_ROOT / ".literature",
+    ):
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            continue
+        if resolved in seen_roots or not candidate.is_dir():
+            continue
+        seen_roots.add(resolved)
+        roots.append(candidate)
+
+    folders: list[Path] = []
+    seen_ids: set[str] = set()
+    for root in roots:
+        try:
+            children = sorted(root.iterdir())
+        except OSError:
+            continue
+        for folder in children:
+            if not folder.is_dir():
+                continue
+            aid = folder.name
+            if not aid or aid.startswith("."):
+                continue
+            if aid in seen_ids:
+                continue
+            seen_ids.add(aid)
+            folders.append(folder)
+    return folders
+
+
 def scan_articles() -> list[dict]:
     """Reconcile the filesystem with SQLite, returning the full article list."""
     from workspace_paths import adjacent_parsed_md_path, adjacent_zh_md_path
@@ -420,9 +478,10 @@ def scan_articles() -> list[dict]:
             for row in conn.execute("SELECT * FROM articles").fetchall()
         }
 
-        for folder in sorted(storage.ARTICLES_DIR.iterdir()) if storage.ARTICLES_DIR.exists() else []:
-            if not folder.is_dir():
-                continue
+        library_folders = _iter_article_library_folders()
+        live_dirs = {f.name: f for f in library_folders}
+
+        for folder in library_folders:
             aid = folder.name
             article = existing.pop(aid, None)
 
@@ -527,7 +586,7 @@ def scan_articles() -> list[dict]:
 
         # Any leftover rows whose article folder is gone: drop them.
         for aid in list(existing.keys()):
-            if not (storage.ARTICLES_DIR / aid).exists():
+            if aid not in live_dirs:
                 delete_article(aid)
 
     return get_all_articles()
@@ -1033,6 +1092,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_workspace_library_status()
             elif path == "/api/workspace/organize-preview":
                 self.handle_workspace_organize_preview()
+            elif path == "/api/workspace/organize-status":
+                self.handle_workspace_organize_status()
             elif path.startswith("/api/workspace/documents/"):
                 doc_id = path.split("/api/workspace/documents/", 1)[1].strip("/")
                 self.handle_workspace_document_get(doc_id)
@@ -2864,39 +2925,64 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         started = start_workspace_ingest(ws, force=force)
         self._json({"ok": True, "started": started})
 
+    def handle_workspace_organize_status(self) -> None:
+        """GET /api/workspace/organize-status — background organize scan/apply progress."""
+        from literature_organize import organize_status
+
+        self._json(organize_status())
+
     def handle_workspace_organize_preview(self) -> None:
-        """GET /api/workspace/organize-preview — dry-run organize plan."""
-        from literature_organize import organize_preview
+        """GET /api/workspace/organize-preview — start background dry-run scan."""
+        from literature_organize import organize_status, start_organize_scan
 
         qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
         target_dir = (qs.get("targetDir", [""])[0] or "").strip() or None
+        force = (qs.get("force", ["0"])[0] or "0").strip() in ("1", "true", "yes")
         try:
-            require_active_workspace()
-            plan = organize_preview(target_dir=target_dir)
+            ws = require_active_workspace()
+            status = start_organize_scan(ws, target_dir=target_dir, force=force)
         except (RuntimeError, ValueError) as exc:
             self._error(400, str(exc))
             return
-        self._json(plan)
+        # Keep response shape familiar while scan runs asynchronously.
+        payload = dict(status)
+        payload["ok"] = True
+        payload["scanPending"] = payload.get("phase") in ("scanning", "organizing")
+        if payload.get("phase") == "ready":
+            cur = organize_status()
+            payload["moves"] = cur.get("moves") or []
+            payload["summary"] = cur.get("summary") or {}
+            payload["skippedKnownId"] = cur.get("skippedKnownId") or 0
+        self._json(payload)
 
     def handle_workspace_organize_literature(self) -> None:
-        """POST /api/workspace/organize-literature — move PDFs into literature/."""
-        from literature_organize import organize_literature
+        """POST /api/workspace/organize-literature — apply organize plan in background."""
+        from literature_organize import start_organize_apply, start_organize_scan
 
         data = self._read_json()
         dry_run = bool(data.get("dryRun", False))
         move = bool(data.get("move", True))
         target_dir = (data.get("targetDir") or "").strip() or None
+        force = bool(data.get("force", False))
         try:
-            require_active_workspace()
-            report = organize_literature(dry_run=dry_run, target_dir=target_dir, move=move)
+            ws = require_active_workspace()
+            if dry_run:
+                status = start_organize_scan(ws, target_dir=target_dir, force=force)
+            else:
+                status = start_organize_apply(ws, move=move, target_dir=target_dir)
         except (RuntimeError, ValueError) as exc:
             self._error(400, str(exc))
             return
-        if not dry_run:
-            payload: dict = {"ok": True, **report, "articles": scan_articles()}
-            self._json(payload)
-        else:
-            self._json(report)
+        payload = dict(status)
+        payload["ok"] = True
+        payload["scanPending"] = payload.get("phase") in ("scanning", "organizing")
+        # Avoid blocking response on scan_articles — client refreshes later.
+        if payload.get("phase") == "done":
+            try:
+                payload["articles"] = scan_articles()
+            except Exception:
+                payload["articlesPending"] = True
+        self._json(payload)
 
     def handle_workspace_settings_save(self) -> None:
         """POST /api/workspace/settings — update workspace.json flags."""

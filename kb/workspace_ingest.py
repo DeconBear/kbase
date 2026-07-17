@@ -17,6 +17,7 @@ _ingest_status: dict[str, Any] = {
     "total": 0,
     "done": 0,
     "errors": [],
+    "skippedKnownId": 0,
     "startedAt": "",
     "finishedAt": "",
 }
@@ -108,27 +109,34 @@ def run_workspace_ingest(ws: Workspace | None = None, *, force: bool = False) ->
         from document_info import quick_parse_pdf
         from serve import _start_extract_info, scan_articles
 
-        errors: list[str] = []
-        pdfs: list[tuple[str, Path]] = []
-        literature_dir = flags["literatureDir"]
+        from literature_organize import article_id_from_rel, iter_loose_pdfs
 
-        for path in ws.iter_candidate_files():
-            if path.suffix.lower() != ".pdf":
-                continue
-            rel = ws.rel_path(path)
-            pdfs.append((rel, path))
+        errors: list[str] = []
+        literature_dir = flags["literatureDir"]
+        # Loose PDFs only — already-ID'd trees are skipped (no classify/open).
+        pdfs: list[tuple[str, Path]] = []
+        skipped_known = 0
+        for rel, path, delta in iter_loose_pdfs(ws, literature_dir):
+            skipped_known += delta
+            if rel:
+                pdfs.append((rel, path))
 
         _set_status(
             phase="scanning",
             total=len(pdfs),
             done=0,
             errors=[],
+            skippedKnownId=skipped_known,
             startedAt=time.strftime("%Y-%m-%d %H:%M:%S"),
             finishedAt="",
         )
 
         for idx, (rel, path) in enumerate(pdfs):
             try:
+                # Defensive: never re-scan PDFs that already have an article id.
+                if article_id_from_rel(rel, literature_dir):
+                    _set_status(done=idx + 1, errors=errors)
+                    continue
                 if not flags["autoClassifyPdfs"]:
                     classification = {
                         "is_literature": True,
@@ -196,43 +204,51 @@ def start_workspace_ingest(ws: Workspace | None = None, *, force: bool = False) 
 
 
 def library_status(ws: Workspace | None = None) -> dict[str, Any]:
-    """Counts for scattered PDFs, indexed articles, pending organize."""
+    """Fast library counters — never walks/classifies the whole tree.
+
+    Pending counts come from the latest organize scan cache when available;
+    otherwise ``pendingOrganize`` is 0 until a background scan finishes.
+    """
     import storage
+    from literature_organize import organize_status
 
     ws = ws or get_active_workspace()
     if ws is None:
-        return {"scatteredPdfs": 0, "indexedArticles": 0, "pendingOrganize": 0, "supplements": 0}
+        return {
+            "scatteredPdfs": 0,
+            "indexedArticles": 0,
+            "pendingOrganize": 0,
+            "supplements": 0,
+            "linkedPdfs": 0,
+            "scanPhase": "idle",
+        }
 
-    flags = _manifest_flags(ws)
-    literature_dir = flags["literatureDir"]
-    scattered = 0
+    indexed = 0
+    try:
+        indexed = len(storage.get_all_articles())
+    except Exception:
+        indexed = 0
+
+    org = organize_status()
+    phase = org.get("phase") or "idle"
+    summary = org.get("summary") or {}
+    moves = org.get("moves") or []
     pending = 0
     supplements = 0
-    linked = 0
+    if phase in ("ready", "organizing", "done", "scanning"):
+        pending = int(summary.get("mainCount") or 0)
+        if phase == "ready" and not pending and moves:
+            pending = sum(1 for m in moves if m.get("kind") == "main")
+        supplements = int(summary.get("supplementCount") or 0)
 
-    for path in ws.iter_candidate_files():
-        if path.suffix.lower() != ".pdf":
-            continue
-        rel = ws.rel_path(path)
-        if ws.is_readonly_path(rel):
-            linked += 1
-            continue
-        cls = classify_pdf(path, rel_path=rel, literature_dir=literature_dir, use_llm="never")
-        if cls.get("document_kind") == "supplement":
-            supplements += 1
-            continue
-        if not cls.get("is_literature") or not cls.get("is_main"):
-            continue
-        if _is_in_literature_folder(rel, literature_dir):
-            continue
-        scattered += 1
-        pending += 1
-
-    indexed = len(storage.get_all_articles()) if storage.ARTICLES_DIR.exists() else 0
     return {
-        "scatteredPdfs": scattered,
+        "scatteredPdfs": pending,
         "indexedArticles": indexed,
         "pendingOrganize": pending,
         "supplements": supplements,
-        "linkedPdfs": linked,
+        "linkedPdfs": 0,
+        "scanPhase": phase,
+        "scanPercent": org.get("percent") or 0,
+        "scanMessage": org.get("message") or "",
+        "skippedKnownId": org.get("skippedKnownId") or summary.get("skippedKnownId") or 0,
     }

@@ -454,7 +454,9 @@ CREATE TABLE IF NOT EXISTS articles (
     metadata_extracted_at TEXT,
     metadata_source TEXT,
     parser TEXT,
-    preparse_error TEXT
+    preparse_error TEXT,
+    folder_id TEXT,
+    pdf_file TEXT
 );
 
 CREATE TABLE IF NOT EXISTS notes (
@@ -672,6 +674,8 @@ def init_db() -> None:
             }
             if "folder_id" not in art_cols:
                 conn.execute("ALTER TABLE articles ADD COLUMN folder_id TEXT")
+            if "pdf_file" not in art_cols:
+                conn.execute("ALTER TABLE articles ADD COLUMN pdf_file TEXT")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_articles_folder ON articles(folder_id)")
         finally:
             conn.close()
@@ -707,6 +711,37 @@ def _row_to_article(row: sqlite3.Row) -> dict[str, Any]:
     return art
 
 
+_ARTICLE_DB_COLUMNS = {
+    "id",
+    "title",
+    "author",
+    "authors_json",
+    "pages",
+    "date_added",
+    "category",
+    "doi",
+    "year",
+    "venue",
+    "abstract",
+    "translated",
+    "has_old_translation",
+    "summarized",
+    "pdf_available",
+    "md_available",
+    "file_available",
+    "converting",
+    "source_filename",
+    "kind",
+    "metadata_extracted",
+    "metadata_extracted_at",
+    "metadata_source",
+    "parser",
+    "preparse_error",
+    "folder_id",
+    "pdf_file",
+}
+
+
 def _article_to_values(article: dict[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = {}
     authors = article.get("authors")
@@ -715,7 +750,9 @@ def _article_to_values(article: dict[str, Any]) -> dict[str, Any]:
     else:
         out["authors_json"] = "[]"
     for k, v in article.items():
-        if k == "authors":
+        if k in {"authors", "tags"}:
+            continue
+        if k not in _ARTICLE_DB_COLUMNS:
             continue
         if k in _BOOL_FIELDS:
             out[k] = 1 if v else 0
@@ -821,6 +858,7 @@ def update_article_fields(article_id: str, updates: dict[str, Any]) -> None:
             "preparse_error",
             "has_old_translation",
             "folder_id",
+            "pdf_file",
         }
     }
     if column_updates:
