@@ -1,4 +1,4 @@
-"""Single source of truth for the KBase application version."""
+﻿"""Single source of truth for the KBase application version."""
 from __future__ import annotations
 
-VERSION = "0.4.2"
+VERSION = "0.4.3"
