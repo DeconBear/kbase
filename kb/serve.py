@@ -247,7 +247,7 @@ def validate_article_id(article_id: str) -> str:
 def article_dir_for(article_id: str) -> Path:
     article_id = validate_article_id(article_id)
     base = storage.ARTICLES_DIR.resolve()
-    target = (storage.ARTICLES_DIR / article_id).resolve()
+    target = storage.resolve_article_dir(article_id).resolve()
     if target == base or not _is_inside(target, base):
         raise ValueError("Invalid article path")
     return target
@@ -424,20 +424,39 @@ def _versioned_markdown_files(article_id: str) -> list[Path]:
     return files
 
 
+def _is_article_library_folder(folder: Path) -> bool:
+    """True when ``folder`` looks like a per-paper literature directory."""
+    aid = folder.name
+    if not aid or aid.startswith("."):
+        return False
+    try:
+        if (folder / "original.pdf").is_file():
+            return True
+        if (folder / f"{aid}_meta.json").is_file() or (folder / f"{aid}_info.json").is_file():
+            return True
+        if (folder / f"{aid}.md").is_file():
+            return True
+        for child in folder.iterdir():
+            if child.is_file() and child.suffix.lower() == ".pdf":
+                return True
+    except OSError:
+        return False
+    return False
+
+
 def _iter_article_library_folders() -> list[Path]:
     """Yield article folders under the bound literature dir and common aliases.
 
-    Organize may write into ``literature/`` while an older session still had
-    ``ARTICLES_DIR`` pointing at ``articles/``. Scanning both (preferring the
-    bound dir on id collisions) keeps the library complete after organize.
+    Supports flat (``lit/<id>/``) and structure-preserving
+    (``lit/<mirrored dirs>/<id>/``) layouts. Prefer the bound dir on id collisions.
     """
     roots: list[Path] = []
     seen_roots: set[Path] = set()
     for candidate in (
         storage.ARTICLES_DIR,
+        storage.DATA_ROOT / ".literature",
         storage.DATA_ROOT / "literature",
         storage.DATA_ROOT / "articles",
-        storage.DATA_ROOT / ".literature",
     ):
         try:
             resolved = candidate.resolve()
@@ -450,21 +469,42 @@ def _iter_article_library_folders() -> list[Path]:
 
     folders: list[Path] = []
     seen_ids: set[str] = set()
+    path_map: dict[str, str] = {}
     for root in roots:
         try:
-            children = sorted(root.iterdir())
+            for dirpath, dirnames, _filenames in os.walk(root):
+                folder = Path(dirpath)
+                # Skip hidden / meta trees inside the lit root.
+                try:
+                    rel_parts = folder.relative_to(root).parts
+                except ValueError:
+                    dirnames[:] = []
+                    continue
+                if any(p.startswith(".") for p in rel_parts):
+                    dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+                    continue
+                if not _is_article_library_folder(folder):
+                    dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+                    continue
+                aid = folder.name
+                if aid in seen_ids:
+                    dirnames[:] = []
+                    continue
+                seen_ids.add(aid)
+                folders.append(folder)
+                try:
+                    rel = folder.resolve().relative_to(storage.ARTICLES_DIR.resolve()).as_posix()
+                except (OSError, ValueError):
+                    rel = aid
+                path_map[aid] = "" if rel == aid else rel
+                dirnames[:] = []  # article folders are leaves
         except OSError:
             continue
-        for folder in children:
-            if not folder.is_dir():
-                continue
-            aid = folder.name
-            if not aid or aid.startswith("."):
-                continue
-            if aid in seen_ids:
-                continue
-            seen_ids.add(aid)
-            folders.append(folder)
+    if path_map:
+        try:
+            storage.save_article_dir_cache(path_map)
+        except Exception:
+            pass
     return folders
 
 
@@ -1366,7 +1406,7 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                     if ".." in safe_name or "/" in safe_name or "\\" in safe_name:
                         self._error(400, "Invalid asset path")
                         return
-                    target = storage.ARTICLES_DIR / aid / safe_name
+                    target = storage.resolve_article_dir(aid) / safe_name
                 else:
                     self._error(404, "Asset not found")
                     return
@@ -1552,6 +1592,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_workspace_ingest_run()
             elif path == "/api/workspace/organize-literature":
                 self.handle_workspace_organize_literature()
+            elif path == "/api/workspace/organize-restore":
+                self.handle_workspace_organize_restore()
             elif path == "/api/workspace/settings":
                 self.handle_workspace_settings_save()
             elif path == "/api/workspace/file":
@@ -3322,7 +3364,9 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
 
         data = self._read_json()
         dry_run = bool(data.get("dryRun", False))
-        move = bool(data.get("move", True))
+        move = data.get("move", None)
+        if move is not None:
+            move = bool(move)
         target_dir = (data.get("targetDir") or "").strip() or None
         force = bool(data.get("force", False))
         try:
@@ -3345,6 +3389,23 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 payload["articlesPending"] = True
         self._json(payload)
 
+    def handle_workspace_organize_restore(self) -> None:
+        """POST /api/workspace/organize-restore — copy organized files back to original paths."""
+        from literature_organize import restore_from_organize_log
+
+        data = self._read_json()
+        log_name = (data.get("log") or data.get("logFile") or "").strip() or None
+        keep_library = bool(data.get("keepLibrary", True))
+        try:
+            ws = require_active_workspace()
+            result = restore_from_organize_log(
+                ws, log_name=log_name, keep_library=keep_library,
+            )
+        except (RuntimeError, ValueError) as exc:
+            self._error(400, str(exc))
+            return
+        self._json(result)
+
     def handle_workspace_settings_save(self) -> None:
         """POST /api/workspace/settings — update workspace.json flags."""
         data = self._read_json()
@@ -3354,6 +3415,7 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             self._error(400, str(exc))
             return
         manifest = ws.load_manifest()
+        lit_changed = False
         for key in (
             "ingestOnOpen",
             "autoClassifyPdfs",
@@ -3361,15 +3423,46 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             "classifyUseLlm",
             "literatureDir",
             "articleFolderAutoMode",
+            "organizeMode",
+            "organizePreserveStructure",
         ):
-            if key in data:
-                if key == "articleFolderAutoMode":
-                    from article_folder_classify import normalize_mode
+            if key not in data:
+                continue
+            if key == "articleFolderAutoMode":
+                from article_folder_classify import normalize_mode
 
-                    manifest[key] = normalize_mode(str(data[key]))
-                else:
-                    manifest[key] = data[key]
+                manifest[key] = normalize_mode(str(data[key]))
+            elif key == "organizeMode":
+                mode = str(data[key] or "copy").strip().lower()
+                manifest[key] = mode if mode in {"copy", "move"} else "copy"
+            elif key == "organizePreserveStructure":
+                manifest[key] = bool(data[key])
+            elif key == "literatureDir":
+                lit = str(data[key] or ".literature").strip().strip("/") or ".literature"
+                if any(p in lit for p in ("..", "\\")) or "/" in lit:
+                    # Only allow a single path segment under workspace root.
+                    self._error(400, "literatureDir must be a single folder name")
+                    return
+                if lit != str(manifest.get("literatureDir") or ""):
+                    lit_changed = True
+                manifest[key] = lit
+            else:
+                manifest[key] = data[key]
         ws.save_manifest(manifest)
+        if lit_changed:
+            try:
+                from literature_organize import migrate_literature_dir_name
+
+                migrate_literature_dir_name(ws, manifest["literatureDir"])
+            except Exception as exc:  # noqa: BLE001
+                self._error(400, f"无法迁移文献库目录: {exc}")
+                return
+            try:
+                from storage import bind_data_root_runtime
+
+                bind_data_root_runtime(ws.root, literature_dir=manifest["literatureDir"])
+            except Exception:
+                pass
         self._json({"ok": True, "workspace": ws.info()})
 
     def handle_workspace_file_read(self) -> None:

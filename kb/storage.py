@@ -110,31 +110,146 @@ LOW_MEMORY_CONFIG: Path = DATA_ROOT / "low_memory_config.json"
 
 
 def resolve_literature_dir(root: Path) -> str:
-    """Read ``literatureDir`` from workspace manifest, default ``articles``."""
+    """Read ``literatureDir`` from workspace manifest, default ``.literature``."""
     manifest = root / ".kbase" / "workspace.json"
     if manifest.exists():
         try:
             import json
 
             data = json.loads(manifest.read_text(encoding="utf-8"))
-            lit = str(data.get("literatureDir") or "articles").strip("/") or "articles"
-            return lit
+            lit = str(data.get("literatureDir") or "").strip("/")
+            if lit:
+                return lit
         except (OSError, json.JSONDecodeError, ValueError):
             pass
+    if (root / ".literature").is_dir():
+        return ".literature"
     if (root / "literature").is_dir():
         return "literature"
-    return "articles"
+    if (root / "articles").is_dir():
+        return "articles"
+    return ".literature"
+
+
+# aid → path relative to ARTICLES_DIR ("" means flat ARTICLES_DIR/<aid>)
+_ARTICLE_DIR_RELS: dict[str, str] = {}
+
+
+def _article_dirs_cache_path() -> Path:
+    return KBASE_DIR / "article_dirs.json"
+
+
+def load_article_dir_cache() -> dict[str, str]:
+    """Load persisted article-dir relative paths (supports nested lit layout)."""
+    global _ARTICLE_DIR_RELS
+    path = _article_dirs_cache_path()
+    if not path.exists():
+        return dict(_ARTICLE_DIR_RELS)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            _ARTICLE_DIR_RELS = {
+                str(k): str(v).replace("\\", "/").strip("/")
+                for k, v in data.items()
+                if k and isinstance(v, str)
+            }
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        pass
+    return dict(_ARTICLE_DIR_RELS)
+
+
+def save_article_dir_cache(mapping: dict[str, str] | None = None) -> None:
+    """Persist article-dir map atomically."""
+    global _ARTICLE_DIR_RELS
+    if mapping is not None:
+        _ARTICLE_DIR_RELS = {
+            str(k): str(v).replace("\\", "/").strip("/")
+            for k, v in mapping.items()
+            if k and isinstance(v, str)
+        }
+    try:
+        KBASE_DIR.mkdir(parents=True, exist_ok=True)
+        _atomic_write_json(_article_dirs_cache_path(), _ARTICLE_DIR_RELS)
+    except Exception:
+        pass
+
+
+def register_article_dir(article_id: str, folder: Path) -> None:
+    """Remember where an article folder lives under ARTICLES_DIR."""
+    aid = str(article_id or "").strip()
+    if not aid:
+        return
+    try:
+        base = ARTICLES_DIR.resolve()
+        folder_r = folder.resolve()
+        rel = folder_r.relative_to(base).as_posix()
+    except (OSError, ValueError):
+        rel = aid
+    _ARTICLE_DIR_RELS[aid] = "" if rel == aid else rel
+
+
+def resolve_article_dir(article_id: str, *, create: bool = False) -> Path:
+    """Resolve article folder under ARTICLES_DIR (flat or nested)."""
+    aid = str(article_id or "").strip()
+    if not aid or aid in {".", ".."} or "/" in aid or "\\" in aid:
+        raise ValueError("Invalid article id")
+
+    if not _ARTICLE_DIR_RELS:
+        load_article_dir_cache()
+
+    rel = _ARTICLE_DIR_RELS.get(aid)
+    if rel is not None:
+        target = ARTICLES_DIR / rel if rel else ARTICLES_DIR / aid
+        if target.is_dir() or create:
+            if create:
+                target.mkdir(parents=True, exist_ok=True)
+            return target
+
+    flat = ARTICLES_DIR / aid
+    if flat.is_dir():
+        register_article_dir(aid, flat)
+        return flat
+
+    # Slow fallback: walk once for nested layout.
+    try:
+        if ARTICLES_DIR.is_dir():
+            for dirpath, dirnames, filenames in os.walk(ARTICLES_DIR):
+                name = Path(dirpath).name
+                if name != aid:
+                    continue
+                folder = Path(dirpath)
+                if (
+                    (folder / "original.pdf").exists()
+                    or any(f.lower().endswith(".pdf") for f in filenames)
+                    or (folder / f"{aid}_meta.json").exists()
+                    or (folder / f"{aid}.md").exists()
+                ):
+                    register_article_dir(aid, folder)
+                    save_article_dir_cache()
+                    return folder
+                # Don't descend into a matched-name folder further.
+                dirnames[:] = []
+    except OSError:
+        pass
+
+    if create:
+        flat.mkdir(parents=True, exist_ok=True)
+        register_article_dir(aid, flat)
+        return flat
+    return flat
 
 
 def bind_data_root_runtime(root: Path, *, literature_dir: str | None = None) -> dict:
     """Switch the in-process data root (used when changing workspace)."""
     global DATA_ROOT, ARTICLES_DIR, NOTES_DIR, KBASE_DIR, DB_PATH, LOGS_DIR
     global CHAT_SESSIONS_DIR, CHAT_SESSIONS_INDEX, LOCAL_ENV, LLM_CONFIG_FILE, LOW_MEMORY_CONFIG
+    global _ARTICLE_DIR_RELS
 
     resolved = Path(root).resolve()
     DATA_ROOT = resolved
-    lit_name = (literature_dir or resolve_literature_dir(resolved)).strip("/") or "articles"
+    lit_name = (literature_dir or resolve_literature_dir(resolved)).strip("/") or ".literature"
     ARTICLES_DIR = DATA_ROOT / lit_name
+    _ARTICLE_DIR_RELS = {}
     NOTES_DIR = DATA_ROOT / "notes"
     KBASE_DIR = DATA_ROOT / ".kbase"
     DB_PATH = KBASE_DIR / "index.db"
@@ -147,6 +262,7 @@ def bind_data_root_runtime(root: Path, *, literature_dir: str | None = None) -> 
     ensure_directories()
     init_db()
     load_local_env()
+    load_article_dir_cache()
     try:
         import engines._paths as engine_paths
 

@@ -1523,6 +1523,28 @@ body { display: flex !important; flex-direction: column !important; height: 100v
             </select>
             <span>文献库自动分类（元数据提取后归入文件夹；也可在文献库点「自动分类」）</span>
           </label>
+          <div style="margin-top:10px;padding:10px 12px;background:var(--surface-2);border-radius:var(--radius-sm);font-size:12px;color:var(--text-2)">
+            <div style="font-weight:600;margin-bottom:8px;color:var(--text)">📚 整理文献入库</div>
+            <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer">
+              <select id="setOrganizeMode" onchange="onOrganizeSettingsChange()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:2px 6px;min-width:160px">
+                <option value="copy">复制（保留原位）</option>
+                <option value="move">移动（从原路径移除）</option>
+              </select>
+              <span>整理时复制还是移动</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer">
+              <input type="checkbox" id="setOrganizePreserveStructure" onchange="onOrganizeSettingsChange()" style="accent-color:var(--accent)" checked>
+              <span>保持原有目录结构（推荐：已分类文件夹会镜像进文献库）</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+              <select id="setLiteratureDir" onchange="onOrganizeSettingsChange()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:2px 6px;min-width:160px">
+                <option value=".literature">.literature（推荐，隐藏目录）</option>
+                <option value="literature">literature</option>
+                <option value="articles">articles（旧版）</option>
+              </select>
+              <span>文献库文件夹名</span>
+            </label>
+          </div>
           <label style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:8px 12px;background:var(--surface-2);border-radius:var(--radius-sm);cursor:pointer;font-size:12px;color:var(--text-2)">
             <select id="chatScopeSetting" onchange="onSettingChange()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:2px 6px;">
                <option value="local">当前内容优先</option>
@@ -3419,6 +3441,22 @@ async function showSettings() {
   }
   const ingestEl = document.getElementById('setIngestOnOpen');
   if (ingestEl && workspaceMeta) ingestEl.checked = workspaceMeta.ingestOnOpen !== false;
+  const orgModeEl = document.getElementById('setOrganizeMode');
+  if (orgModeEl && workspaceMeta) orgModeEl.value = workspaceMeta.organizeMode === 'move' ? 'move' : 'copy';
+  const orgPreserveEl = document.getElementById('setOrganizePreserveStructure');
+  if (orgPreserveEl && workspaceMeta) {
+    orgPreserveEl.checked = workspaceMeta.organizePreserveStructure !== false;
+  }
+  const litDirEl = document.getElementById('setLiteratureDir');
+  if (litDirEl && workspaceMeta?.literatureDir) {
+    const lit = workspaceMeta.literatureDir;
+    if (![...litDirEl.options].some(o => o.value === lit)) {
+      const opt = document.createElement('option');
+      opt.value = lit; opt.textContent = lit;
+      litDirEl.appendChild(opt);
+    }
+    litDirEl.value = lit;
+  }
   updateRadioCards();
   updateThemeCards();
   // Wire sidebar navigation (idempotent — re-bind on every open so newly
@@ -4610,6 +4648,30 @@ async function onArticleFolderAutoModeChange() {
   }
 }
 
+async function onOrganizeSettingsChange() {
+  const modeEl = document.getElementById('setOrganizeMode');
+  const preserveEl = document.getElementById('setOrganizePreserveStructure');
+  const litEl = document.getElementById('setLiteratureDir');
+  const payload = {
+    organizeMode: modeEl?.value === 'move' ? 'move' : 'copy',
+    organizePreserveStructure: !!(preserveEl && preserveEl.checked),
+    literatureDir: (litEl?.value || '.literature').trim() || '.literature',
+  };
+  try {
+    const r = await fetch('/api/workspace/settings', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || d.message || '保存失败');
+    if (d.workspace) workspaceMeta = d.workspace;
+    toast('整理文献设置已保存', 'success');
+  } catch (e) {
+    toast('保存失败: ' + (e.message || e), 'error');
+  }
+}
+
 async function runArticleAutoClassify(forceAll = false) {
   const modeEl = document.getElementById('setArticleFolderAutoMode');
   const mode = modeEl?.value || workspaceMeta?.articleFolderAutoMode || 'off';
@@ -4687,7 +4749,15 @@ function openOrganizeConfirmModal(plan) {
   const moves = plan.moves || [];
   const mainCount = plan.summary?.mainCount || moves.filter(m => m.kind === 'main').length;
   const skipped = plan.skippedKnownId || plan.summary?.skippedKnownId || 0;
-  const target = plan.targetDir || 'literature';
+  const target = plan.targetDir || workspaceMeta?.literatureDir || '.literature';
+  const mode = plan.organizeMode || plan.summary?.organizeMode
+    || (workspaceMeta?.organizeMode === 'move' ? 'move' : 'copy');
+  const preserve = plan.preserveStructure != null
+    ? !!plan.preserveStructure
+    : (plan.summary?.preserveStructure != null
+      ? !!plan.summary.preserveStructure
+      : workspaceMeta?.organizePreserveStructure !== false);
+  const action = mode === 'move' ? '移动' : '复制（保留原位）';
   const desc = document.getElementById('organize-modal-desc');
   const list = document.getElementById('organize-modal-list');
   const prog = document.getElementById('organize-modal-progress');
@@ -4696,9 +4766,10 @@ function openOrganizeConfirmModal(plan) {
   const titleEl = document.getElementById('organize-modal-title');
   if (titleEl) titleEl.textContent = '整理文献';
   if (desc) {
-    desc.textContent = `将 ${mainCount} 篇主文献移入 ${target}/`
-      + (skipped ? `（已跳过 ${skipped} 个已有 ID）` : '')
-      + `，共 ${moves.length} 项文件操作。`;
+    desc.textContent = `将 ${mainCount} 篇主文献${action}到 ${target}/`
+      + (preserve ? '，并保持原有目录结构' : '（扁平：每篇一个文件夹）')
+      + (skipped ? `；已跳过 ${skipped} 个已有 ID` : '')
+      + `，共 ${moves.length} 项文件操作。可在设置 → 常规 中更改复制/移动与目录结构。`;
   }
   if (list) {
     const preview = moves.slice(0, 80);
@@ -4771,11 +4842,18 @@ async function promptOrganizeLiterature() {
       await refreshLibraryStatus();
       return;
     }
-    _setOrganizeModalProgress({ percent: 0, message: '正在启动整理…', done: 0, total: n });
+    const orgMode = plan.organizeMode || plan.summary?.organizeMode
+      || (workspaceMeta?.organizeMode === 'move' ? 'move' : 'copy');
+    _setOrganizeModalProgress({
+      percent: 0,
+      message: orgMode === 'move' ? '正在启动整理（移动）…' : '正在启动整理（复制保留原位）…',
+      done: 0,
+      total: n,
+    });
     const r = await fetch('/api/workspace/organize-literature', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({dryRun: false, move: true}),
+      body: JSON.stringify({dryRun: false, move: orgMode === 'move'}),
     });
     if (!r.ok) throw new Error(await r.text());
     let data = await r.json();
@@ -4812,7 +4890,7 @@ async function promptOrganizeLiterature() {
     const cancelBtn = document.getElementById('organize-modal-cancel');
     if (titleEl) titleEl.textContent = errN ? '整理完成（有失败项）' : '整理完成';
     if (desc) {
-      desc.textContent = `文献库现有 ${artsN} 篇；本次移动 ${movedN} 个文件`
+      desc.textContent = `文献库现有 ${artsN} 篇；本次${orgMode === 'move' ? '移动' : '复制'} ${movedN} 个文件`
         + (errN ? `，失败 ${errN} 项（详见下方）` : '。');
     }
     if (bar) bar.style.width = '100%';
@@ -4833,7 +4911,9 @@ async function promptOrganizeLiterature() {
 
 function _articleTitleForPath(path) {
   const norm = String(path || '').replace(/\\/g, '/');
-  const m = norm.match(/^(?:articles|literature|\.literature)\/([^/]+)\//i);
+  // Flat lit/<id>/… or nested lit/.../<id>/original.pdf
+  let m = norm.match(/^(?:articles|literature|\.literature)\/(?:.*\/)?([^/]+)\/(?:original\.pdf|[^/]+\.pdf)$/i);
+  if (!m) m = norm.match(/^(?:articles|literature|\.literature)\/([^/]+)\//i);
   if (m) {
     const a = articles.find(x => x.id === m[1]);
     if (a?.title) return a.title.length > 42 ? a.title.slice(0, 40) + '…' : a.title;
@@ -4844,8 +4924,8 @@ function _articleTitleForPath(path) {
 function _isPendingOrganizePath(path) {
   if (!libraryStatusCache?.pendingOrganize) return false;
   const norm = String(path || '').replace(/\\/g, '/');
-  // Already under articles/<id>/… — not pending.
-  if (/^(articles|literature|\.literature)\/[^/]+\//i.test(norm)) return false;
+  // Already under lit tree (flat or nested article folder) — not pending.
+  if (/^(articles|literature|\.literature)\//i.test(norm)) return false;
   return /\.pdf$/i.test(norm);
 }
 
@@ -4931,6 +5011,22 @@ async function loadWorkspaceTree() {
     const modeEl = document.getElementById('setArticleFolderAutoMode');
     if (modeEl && workspaceMeta?.articleFolderAutoMode) {
       modeEl.value = workspaceMeta.articleFolderAutoMode;
+    }
+    const orgModeEl = document.getElementById('setOrganizeMode');
+    if (orgModeEl && workspaceMeta) orgModeEl.value = workspaceMeta.organizeMode === 'move' ? 'move' : 'copy';
+    const orgPreserveEl = document.getElementById('setOrganizePreserveStructure');
+    if (orgPreserveEl && workspaceMeta) {
+      orgPreserveEl.checked = workspaceMeta.organizePreserveStructure !== false;
+    }
+    const litDirEl = document.getElementById('setLiteratureDir');
+    if (litDirEl && workspaceMeta?.literatureDir) {
+      const lit = workspaceMeta.literatureDir;
+      if (![...litDirEl.options].some(o => o.value === lit)) {
+        const opt = document.createElement('option');
+        opt.value = lit; opt.textContent = lit;
+        litDirEl.appendChild(opt);
+      }
+      litDirEl.value = lit;
     }
     _ensureDefaultWorkspaceExpanded();
     renderWorkspaceDocTree();

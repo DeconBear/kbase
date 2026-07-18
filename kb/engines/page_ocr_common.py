@@ -25,7 +25,12 @@ class ConversionCancelled(Exception):
 
 
 def article_dir(article_id: str) -> Path:
-    return ARTICLES_DIR / article_id
+    try:
+        from storage import resolve_article_dir
+
+        return resolve_article_dir(article_id)
+    except Exception:
+        return ARTICLES_DIR / article_id
 
 
 def pages_dir(article_id: str) -> Path:

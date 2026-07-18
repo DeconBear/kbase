@@ -230,8 +230,10 @@ class Workspace:
                 "derivationStorage": "adjacent",
                 "defaultParseEngine": "marker",
                 "defaultTranslateLang": "zh",
-                "literatureDir": "literature",
+                "literatureDir": ".literature",
                 "literatureLayout": "per-paper-folder",
+                "organizeMode": "copy",
+                "organizePreserveStructure": True,
                 "managedFilesDir": "managed-files",
                 "sources": [],
                 "ingestOnOpen": True,
@@ -327,7 +329,7 @@ class Workspace:
         return tuple(dict.fromkeys(str(g) for g in globs))
 
     def literature_dir_name(self) -> str:
-        return str(self.load_manifest().get("literatureDir") or "articles").strip("/") or "articles"
+        return str(self.load_manifest().get("literatureDir") or ".literature").strip("/") or ".literature"
 
     def sources(self) -> list[dict[str, Any]]:
         """Return configured external folders without modifying their contents."""
@@ -797,7 +799,16 @@ class Workspace:
             "openedAt": manifest.get("openedAt"),
             "lastScanAt": manifest.get("lastScanAt"),
             "documentCount": self.document_count(),
-            "literatureDir": manifest.get("literatureDir") or "articles",
+            "literatureDir": manifest.get("literatureDir") or ".literature",
+            "organizeMode": (
+                str(manifest.get("organizeMode") or "copy").strip().lower()
+                if str(manifest.get("organizeMode") or "copy").strip().lower() in {"copy", "move"}
+                else "copy"
+            ),
+            "organizePreserveStructure": bool(
+                True if manifest.get("organizePreserveStructure") is None
+                else manifest.get("organizePreserveStructure")
+            ),
             "ingestOnOpen": manifest.get("ingestOnOpen", True),
             "autoClassifyPdfs": manifest.get("autoClassifyPdfs", True),
             "autoExtractMetadata": manifest.get("autoExtractMetadata", True),

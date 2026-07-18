@@ -18,7 +18,7 @@ TEXT_EXTS = {
 
 
 def _article_dir(article_id: str) -> Path:
-    return storage.ARTICLES_DIR / article_id
+    return storage.resolve_article_dir(article_id)
 
 
 def _preferred_markdown(article_id: str) -> Path | None:
