@@ -188,7 +188,7 @@ class CloudOcrEngine:
 
             def process_page(page_num: int) -> str:
                 page = doc.load_page(page_num - 1)
-                pix = page.get_pixmap(matrix=fitz.Matrix(2, 0), alpha=False)
+                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
                 png_bytes = pix.tobytes("png")
                 try:
                     if cfg["provider_type"] == "qwen":
