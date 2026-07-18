@@ -468,6 +468,43 @@ def _iter_article_library_folders() -> list[Path]:
     return folders
 
 
+_articles_scan_lock = threading.Lock()
+_articles_scan_thread: threading.Thread | None = None
+_articles_last_scan_at: float = 0.0
+
+
+def schedule_scan_articles(*, force: bool = False) -> bool:
+    """Run ``scan_articles`` in a daemon thread (deduped). Returns True if started."""
+    global _articles_scan_thread, _articles_last_scan_at
+    with _articles_scan_lock:
+        if _articles_scan_thread is not None and _articles_scan_thread.is_alive():
+            return False
+        if not force and _articles_last_scan_at and (time.time() - _articles_last_scan_at) < 30:
+            return False
+
+        def _run() -> None:
+            global _articles_last_scan_at
+            try:
+                scan_articles()
+            except Exception as exc:  # noqa: BLE001
+                print(f" background scan_articles failed: {exc}")
+            finally:
+                _articles_last_scan_at = time.time()
+
+        _articles_scan_thread = threading.Thread(
+            target=_run, daemon=True, name="scan-articles",
+        )
+        _articles_scan_thread.start()
+        return True
+
+
+def list_articles_quick() -> list[dict]:
+    """Return SQLite catalog immediately (no filesystem reconcile)."""
+    from legacy_bridge import enrich_articles
+
+    return enrich_articles(get_all_articles())
+
+
 def scan_articles() -> list[dict]:
     """Reconcile the filesystem with SQLite, returning the full article list."""
     from workspace_paths import adjacent_parsed_md_path, adjacent_zh_md_path
@@ -1147,9 +1184,25 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         path = urllib.parse.urlsplit(self.path).path
         try:
             if path == "/api/articles":
-                from legacy_bridge import enrich_articles
+                # Full FS reconcile on WPS/Baidu sync can take minutes and used to
+                # leave the library empty (client timeout). Serve SQLite first;
+                # reconcile in the background unless ?reconcile=1 is requested.
+                qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                want_reconcile = (qs.get("reconcile") or ["0"])[0] in ("1", "true", "yes")
+                if want_reconcile:
+                    from legacy_bridge import enrich_articles
 
-                self._json({"articles": enrich_articles(scan_articles())})
+                    arts = enrich_articles(scan_articles())
+                    self._json({"articles": arts, "reconciled": True})
+                else:
+                    schedule_scan_articles()
+                    self._json({
+                        "articles": list_articles_quick(),
+                        "reconciled": False,
+                        "scanning": True,
+                    })
+            elif path == "/api/articles/resolve-by-path":
+                self.handle_resolve_article_by_path()
             elif path == "/api/settings":
                 self._json(self._collect_settings())
             elif path == "/api/llm-config":
@@ -1452,6 +1505,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_create_article_folder()
             elif path == "/api/article-folders/move-articles":
                 self.handle_move_articles_to_folder()
+            elif path == "/api/article-folders/auto-classify":
+                self.handle_auto_classify_articles()
             elif path == "/api/notes":
                 self.handle_create_note()
             elif path.startswith("/api/convert/") and path.endswith("/cancel"):
@@ -2449,6 +2504,65 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         move_articles_to_folder(article_ids, folder_id)
         self._json({"status": "ok"})
 
+    def handle_auto_classify_articles(self):
+        """POST /api/article-folders/auto-classify — file articles by configured mode."""
+        from article_folder_classify import classify_all_articles, normalize_mode
+
+        body = self._read_json()
+        mode = body.get("mode")
+        if mode is None:
+            try:
+                ws = require_active_workspace()
+                mode = ws.load_manifest().get("articleFolderAutoMode") or "off"
+            except RuntimeError:
+                mode = "off"
+        mode = normalize_mode(str(mode))
+        only_uncategorized = body.get("only_uncategorized", True)
+        if isinstance(only_uncategorized, str):
+            only_uncategorized = only_uncategorized.lower() not in ("0", "false", "no")
+        article_ids = body.get("article_ids")
+        if article_ids is not None and not isinstance(article_ids, list):
+            self._error(400, "article_ids must be a list")
+            return
+        # Persist mode when caller supplies one (settings sync).
+        if "mode" in body:
+            try:
+                ws = require_active_workspace()
+                manifest = ws.load_manifest()
+                manifest["articleFolderAutoMode"] = mode
+                ws.save_manifest(manifest)
+            except RuntimeError:
+                pass
+        result = classify_all_articles(
+            mode,
+            only_uncategorized=bool(only_uncategorized),
+            article_ids=article_ids,
+        )
+        result["folders_catalog"] = list_article_folders()
+        self._json({"ok": True, **result})
+
+    def handle_resolve_article_by_path(self):
+        """GET /api/articles/resolve-by-path?path=... — map workspace PDF → article."""
+        from article_folder_classify import resolve_article_id_for_path
+        from legacy_bridge import enrich_articles
+
+        qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        rel = (qs.get("path") or [""])[0].strip()
+        if not rel:
+            self._error(400, "path required")
+            return
+        art = resolve_article_id_for_path(urllib.parse.unquote(rel))
+        if not art:
+            self._json({"found": False, "path": rel})
+            return
+        enriched = enrich_articles([art])
+        self._json({
+            "found": True,
+            "path": rel,
+            "article": enriched[0] if enriched else art,
+            "id": art.get("id"),
+        })
+
     def handle_note_backlinks(self):
         parts = urllib.parse.urlsplit(self.path).path.rstrip("/").split("/")
         if len(parts) < 5:
@@ -3246,9 +3360,15 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             "autoExtractMetadata",
             "classifyUseLlm",
             "literatureDir",
+            "articleFolderAutoMode",
         ):
             if key in data:
-                manifest[key] = data[key]
+                if key == "articleFolderAutoMode":
+                    from article_folder_classify import normalize_mode
+
+                    manifest[key] = normalize_mode(str(data[key]))
+                else:
+                    manifest[key] = data[key]
         ws.save_manifest(manifest)
         self._json({"ok": True, "workspace": ws.info()})
 

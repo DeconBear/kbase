@@ -66,6 +66,7 @@ if getattr(sys, "frozen", False):
         ("kb.literature_classify", "literature_classify"),
         ("kb.workspace_ingest", "workspace_ingest"),
         ("kb.literature_organize", "literature_organize"),
+        ("kb.article_folder_classify", "article_folder_classify"),
         ("kb.cli", "cli"),
     ]
     for _fq_name, _alias in _aliases:

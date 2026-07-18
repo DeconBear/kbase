@@ -238,6 +238,8 @@ class Workspace:
                 "autoClassifyPdfs": True,
                 "autoExtractMetadata": True,
                 "classifyUseLlm": "uncertain_only",
+                # Article-folder auto classify: off|year|venue|category|first_tag
+                "articleFolderAutoMode": "off",
             }
             self.save_manifest(manifest)
         if not self.links_path.exists():
@@ -799,6 +801,7 @@ class Workspace:
             "ingestOnOpen": manifest.get("ingestOnOpen", True),
             "autoClassifyPdfs": manifest.get("autoClassifyPdfs", True),
             "autoExtractMetadata": manifest.get("autoExtractMetadata", True),
+            "articleFolderAutoMode": manifest.get("articleFolderAutoMode") or "off",
             "managedFilesDir": manifest.get("managedFilesDir") or "managed-files",
             "sources": self.sources(),
         }

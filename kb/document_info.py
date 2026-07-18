@@ -374,4 +374,19 @@ Content:
     if tags:
         storage.replace_article_tags(article_id, tags[:8])
     log("Metadata extraction complete")
+    # Optional: auto-file into article folders after metadata lands.
+    try:
+        from article_folder_classify import classify_article, normalize_mode
+        from workspace import get_active_workspace
+
+        ws = get_active_workspace()
+        mode = normalize_mode(
+            (ws.load_manifest().get("articleFolderAutoMode") if ws else None)
+        )
+        if mode != "off":
+            result = classify_article(article_id, mode, only_uncategorized=True)
+            if result.get("moved"):
+                log(f"Auto-classified → folder «{result.get('folder_name')}» ({mode})")
+    except Exception as exc:  # noqa: BLE001
+        log(f"Auto-classify skipped: {exc}")
     return {"info": info, "updates": update}
