@@ -1,28 +1,21 @@
-"""LLM-based PDF parser.
-
-Renders each PDF page to PNG via PyMuPDF and asks the user's already-
-configured LLM (the one wired into /api/llm-config — DeepSeek, OpenAI,
-Moonshot, etc.) to extract the page contents as Markdown.
-
-Unlike the older VisionOcrEngine which reads a separate vision_providers
-list out of low_memory_config.json, this engine reuses the SAME
-provider / model / api_key the user has already configured for chat.
-This means enabling "LLM 视觉解析" requires zero extra config: the
-provider that's already in llm_config.json is used.
-"""
+"""LLM-based PDF parser — page-by-page, range/resume aware."""
 from __future__ import annotations
 
 import base64
 import json
 import urllib.error
 import urllib.request
-from pathlib import Path
 
 import fitz  # PyMuPDF
 
 from engines._paths import ARTICLES_DIR
-from llm_config import load_llm_config, public_llm_config, resolve_llm_settings
-import storage
+from engines.page_ocr_common import (
+    ConversionCancelled,
+    clear_checkpoint,
+    publish_stitched,
+    run_page_loop,
+)
+from llm_config import load_llm_config, resolve_llm_settings
 
 
 _PROMPT = (
@@ -56,7 +49,6 @@ def _build_payload(api_type: str, model: str, base64_img: str, width: int, heigh
                 ],
             }],
         }
-    # OpenAI-compatible (DeepSeek, Moonshot, OpenAI, SiliconFlow, custom)
     return {
         "model": model,
         "messages": [{
@@ -78,27 +70,27 @@ def _extract_text(api_type: str, res_json: dict) -> str:
 
 
 class LlmVisionEngine:
-    """Parse a PDF by sending each page as an image to the configured
-    LLM (DeepSeek, OpenAI, etc.) and stitching the per-page Markdown
-    responses together.
-
-    Config:
-      - Reads the *active* provider from storage.LLM_CONFIG_FILE
-        (the same one /api/llm-config and the chat use).
-      - Falls back to env-derived LLM settings if the config file
-        has no providers yet (so the engine still works on a fresh
-        install where the user only set LLM_API_KEY in local.env).
-    """
     name = "llm_vision"
 
-    def run(self, pdf_path: str, article_id: str, log_callback=None):
+    def run(
+        self,
+        pdf_path: str,
+        article_id: str,
+        log_callback=None,
+        *,
+        page_from: int | None = None,
+        page_to: int | None = None,
+        resume: bool = False,
+        progress_callback=None,
+        should_cancel=None,
+        **_kwargs,
+    ):
         def log(msg: str) -> None:
             if log_callback:
                 log_callback(msg)
             else:
                 print(msg)
 
-        # Resolve the active provider.
         api_type = "openai"
         api_url = ""
         api_key = ""
@@ -119,9 +111,6 @@ class LlmVisionEngine:
         except Exception as e:
             log(f"WARN: failed to read llm_config: {e}")
 
-        # If the UI config is empty (no provider, no key) fall back to
-        # env-driven settings. This is what makes "just set
-        # LLM_API_KEY in local.env" work.
         if not (api_url and api_key and model_name):
             try:
                 env = resolve_llm_settings()
@@ -133,7 +122,6 @@ class LlmVisionEngine:
             except Exception as e:
                 log(f"WARN: env-fallback failed: {e}")
 
-        # Normalize the endpoint URL
         api_url = (api_url or "").strip().rstrip("/")
         if api_type == "anthropic" and not api_url.endswith("/messages"):
             api_url = f"{api_url}/v1/messages" if api_url else ""
@@ -151,19 +139,15 @@ class LlmVisionEngine:
             total_pages = len(doc)
             log(f"Total pages: {total_pages}")
 
-            headers = {
-                "Content-Type": "application/json",
-            }
+            headers = {"Content-Type": "application/json"}
             if api_type == "anthropic":
                 headers["x-api-key"] = api_key
                 headers["anthropic-version"] = "2023-06-01"
             else:
                 headers["Authorization"] = f"Bearer {api_key}"
 
-            markdown_pages: list[str] = []
-            for page_num in range(total_pages):
-                log(f"Page {page_num + 1}/{total_pages} → LLM")
-                page = doc.load_page(page_num)
+            def process_page(page_num: int) -> str:
+                page = doc.load_page(page_num - 1)
                 b64, w, h = _page_to_base64_png(page)
                 payload = _build_payload(api_type, model_name, b64, w, h)
                 req = urllib.request.Request(
@@ -177,25 +161,35 @@ class LlmVisionEngine:
                         res = json.loads(resp.read().decode("utf-8"))
                 except urllib.error.HTTPError as e:
                     body = ""
-                    try: body = e.read().decode("utf-8", errors="replace")
-                    except Exception: pass
-                    log(f"ERROR: LLM returned HTTP {e.code}: {body[:300]}")
-                    return False
+                    try:
+                        body = e.read().decode("utf-8", errors="replace")
+                    except Exception:
+                        pass
+                    raise RuntimeError(f"LLM HTTP {e.code}: {body[:300]}") from e
                 text = _extract_text(api_type, res).strip()
                 if not text:
-                    log(f"WARN: page {page_num + 1} returned empty content")
-                    text = f"<!-- empty page {page_num + 1} -->"
-                markdown_pages.append(text)
+                    log(f"WARN: page {page_num} returned empty content")
+                return text
 
-            from workspace_paths import publish_engine_markdown
+            status, start, end = run_page_loop(
+                article_id=article_id,
+                engine=self.name,
+                total_pages=total_pages,
+                page_from=page_from,
+                page_to=page_to,
+                resume=resume,
+                should_cancel=should_cancel,
+                progress_callback=progress_callback,
+                process_page=process_page,
+                log=log,
+            )
+            if status != "done":
+                return False
 
-            final = "\n\n---\n\n".join(markdown_pages).strip() + "\n"
-            article_dir = ARTICLES_DIR / article_id
-            article_dir.mkdir(parents=True, exist_ok=True)
-            publish_engine_markdown(article_dir, article_id, pdf_path, md_text=final)
+            publish_stitched(article_id, pdf_path, start, end, total_pages)
+            clear_checkpoint(article_id, remove_pages=True)
 
-            # Update parser metadata.
-            meta_path = article_dir / f"{article_id}_meta.json"
+            meta_path = ARTICLES_DIR / article_id / f"{article_id}_meta.json"
             meta = {}
             if meta_path.exists():
                 try:
@@ -207,10 +201,13 @@ class LlmVisionEngine:
                 "vision_provider": provider_label,
                 "vision_model": model_name,
                 "pages": total_pages,
+                "ocr_range": f"{start}-{end}",
             })
             meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
-            log(f"LLM vision parsing done → {article_id}.md ({len(final)} chars)")
+            log(f"LLM vision parsing done → pages {start}-{end} / {total_pages}")
             return True
+        except ConversionCancelled:
+            raise
         except Exception as e:
             log(f"ERROR: LLM vision parsing failed: {e}")
             return False

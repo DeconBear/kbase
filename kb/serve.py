@@ -599,27 +599,51 @@ def scan_articles() -> list[dict]:
 
 _conv_status: dict[str, dict] = {}
 _conv_lock = threading.Lock()
+_conv_cancel: set[str] = set()
 _translation_threads: dict[str, threading.Thread] = {}
 _translation_lock = threading.Lock()
 _metadata_threads: dict[str, threading.Thread] = {}
 _metadata_lock = threading.Lock()
 
+_PAGE_OCR_ENGINES = frozenset({"ocr", "vision", "llm_vision"})
 
-def set_conv_status(article_id: str, task: str, status: str, message: str = "", log: str = "") -> None:
+
+def set_conv_status(article_id: str, task: str, status: str, message: str = "", log: str = "", **extra) -> None:
     with _conv_lock:
         bucket = _conv_status.setdefault(article_id, {})
-        bucket[task] = {
+        entry = bucket.get(task) or {}
+        entry.update({
             "status": status,
             "message": message,
-            "log": log,
             "updated": time.time(),
-        }
+        })
+        if log:
+            entry["log"] = log
+        for k, v in extra.items():
+            if v is not None:
+                entry[k] = v
+        bucket[task] = entry
 
 
 def get_conv_status(article_id: str, task: str) -> dict | None:
     with _conv_lock:
         bucket = _conv_status.get(article_id, {})
         return dict(bucket.get(task, {})) or None
+
+
+def request_cancel_conversion(article_id: str) -> None:
+    with _conv_lock:
+        _conv_cancel.add(article_id)
+
+
+def clear_cancel_conversion(article_id: str) -> None:
+    with _conv_lock:
+        _conv_cancel.discard(article_id)
+
+
+def is_conversion_cancelled(article_id: str) -> bool:
+    with _conv_lock:
+        return article_id in _conv_cancel
 
 
 def _log_path(article_id: str, task: str) -> Path:
@@ -646,8 +670,18 @@ def _write_log(path: Path, msg: str) -> None:
             pass
 
 
-def run_conversion(pdf_path: str, article_id: str, engine_name: str = "marker", docparser_engine: str | None = None) -> None:
+def run_conversion(
+    pdf_path: str,
+    article_id: str,
+    engine_name: str = "ocr",
+    docparser_engine: str | None = None,
+    *,
+    page_from: int | None = None,
+    page_to: int | None = None,
+    resume: bool = False,
+) -> None:
     log_path = _log_path(article_id, "conversion")
+    clear_cancel_conversion(article_id)
 
     def log(msg: str) -> None:
         _write_log(log_path, msg)
@@ -656,26 +690,87 @@ def run_conversion(pdf_path: str, article_id: str, engine_name: str = "marker", 
                 "status": "running", "message": "", "log": "", "updated": time.time()
             })
             entry["log"] = (entry.get("log", "") + msg + "\n")[-200000:]
+            entry["message"] = msg[:200]
             entry["updated"] = time.time()
+
+    def progress(done: int, total: int, page: int) -> None:
+        pct = int(round(100.0 * done / total)) if total else 0
+        with _conv_lock:
+            entry = _conv_status.setdefault(article_id, {}).setdefault("conversion", {
+                "status": "running", "message": "", "log": "", "updated": time.time()
+            })
+            entry.update({
+                "done": done,
+                "total": total,
+                "percent": pct,
+                "current_page": page,
+                "message": f"OCR 中 {done}/{total}（{pct}%）· 第 {page} 页",
+                "updated": time.time(),
+            })
 
     try:
         log(f"=== Conversion started at {time.strftime('%H:%M:%S')} ===")
         log(f"Engine: {engine_name}")
         log(f"PDF: {pdf_path}")
-        set_conv_status(article_id, "conversion", "running", f"启动 {engine_name} 引擎...")
+        if page_from or page_to:
+            log(f"Page range: {page_from or 1}-{page_to or 'end'}" + (" (resume)" if resume else ""))
+        set_conv_status(
+            article_id,
+            "conversion",
+            "running",
+            f"启动 {engine_name} 引擎...",
+            engine=engine_name,
+            page_from=page_from,
+            page_to=page_to,
+            done=0,
+            total=0,
+            percent=0,
+        )
 
         from engines import get_engine
-        engine = get_engine(engine_name)
+        from engines.page_ocr_common import ConversionCancelled
 
+        engine = get_engine(engine_name)
+        run_kwargs: dict = {"log_callback": log}
         if engine_name == "docparser" and docparser_engine:
-            success = engine.run(pdf_path, article_id, log_callback=log, engine=docparser_engine)
-        else:
-            success = engine.run(pdf_path, article_id, log_callback=log)
+            run_kwargs["engine"] = docparser_engine
+        if engine_name in _PAGE_OCR_ENGINES:
+            run_kwargs.update({
+                "page_from": page_from,
+                "page_to": page_to,
+                "resume": resume,
+                "progress_callback": progress,
+                "should_cancel": lambda: is_conversion_cancelled(article_id),
+            })
+
+        try:
+            success = engine.run(pdf_path, article_id, **run_kwargs)
+        except ConversionCancelled:
+            log("=== Conversion CANCELLED ===")
+            record_conversion(article_id, engine_name, "fail")
+            set_conv_status(
+                article_id,
+                "conversion",
+                "cancelled",
+                "已取消，可从断点续跑",
+                engine=engine_name,
+                page_from=page_from,
+                page_to=page_to,
+            )
+            update_article_fields(article_id, {"converting": False})
+            return
+
+        if is_conversion_cancelled(article_id) and not success:
+            log("=== Conversion CANCELLED ===")
+            set_conv_status(article_id, "conversion", "cancelled", "已取消，可从断点续跑", engine=engine_name)
+            update_article_fields(article_id, {"converting": False})
+            return
 
         if not success:
             log("=== Conversion FAILED ===")
             record_conversion(article_id, engine_name, "fail")
             set_conv_status(article_id, "conversion", "error", "解析失败，查看日志了解详情")
+            update_article_fields(article_id, {"converting": False})
             return
 
         # Snapshot versioned copy (prefer workspace-adjacent .parsed.md)
@@ -719,10 +814,11 @@ def run_conversion(pdf_path: str, article_id: str, engine_name: str = "marker", 
                 log(f"Failed to handle {derived}: {exc}")
 
         record_conversion(article_id, engine_name, "success")
-        set_conv_status(article_id, "conversion", "done", "解析完成")
+        set_conv_status(article_id, "conversion", "done", "解析完成", percent=100)
         update_article_fields(article_id, {
             "md_available": adjacent.exists() or legacy.exists(),
             "parser": engine_name,
+            "converting": False,
         })
         try:
             from derivations import sync_legacy_parse
@@ -739,6 +835,9 @@ def run_conversion(pdf_path: str, article_id: str, engine_name: str = "marker", 
         log(f"FATAL ERROR: {exc}")
         log(traceback.format_exc())
         set_conv_status(article_id, "conversion", "error", f"系统错误: {exc}")
+        update_article_fields(article_id, {"converting": False})
+    finally:
+        clear_cancel_conversion(article_id)
 
 
 def record_article_history_safe(article_id: str, engine: str, file_path: Path) -> None:
@@ -1033,6 +1132,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                     engine = entry["engine"]
                     versions.append({"engine": engine, "file": p.name})
                 self._json({"history": history, "versions": versions})
+            elif path.startswith("/api/articles/") and path.endswith("/ocr-checkpoint"):
+                self.handle_ocr_checkpoint()
             elif path.startswith("/api/articles/") and path.endswith("/attachments"):
                 self.handle_get_attachments()
             elif path.startswith("/api/articles/") and path.endswith("/notes"):
@@ -1307,6 +1408,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_move_articles_to_folder()
             elif path == "/api/notes":
                 self.handle_create_note()
+            elif path.startswith("/api/convert/") and path.endswith("/cancel"):
+                self.handle_convert_cancel()
             elif path.startswith("/api/convert/"):
                 self.handle_convert()
             elif path.startswith("/api/calibrate/"):
@@ -1775,21 +1878,93 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
     def handle_convert(self):
         body = self._read_json()
         article_id = validate_article_id(body.get("id", ""))
-        engine = body.get("engine", "marker")
+        engine = (body.get("engine") or "ocr").strip() or "ocr"
         docparser_engine = body.get("docparser_engine", "").strip()
+        resume = bool(body.get("resume"))
+        page_from = body.get("page_from")
+        page_to = body.get("page_to")
+        try:
+            page_from_i = int(page_from) if page_from is not None and page_from != "" else None
+            page_to_i = int(page_to) if page_to is not None and page_to != "" else None
+        except (TypeError, ValueError):
+            self._error(400, "page_from / page_to must be integers")
+            return
+        if engine not in _PAGE_OCR_ENGINES:
+            page_from_i = None
+            page_to_i = None
+            resume = False
         article_dir = article_dir_for(article_id)
         pdf_path = article_dir / "original.pdf"
         if not pdf_path.exists():
-            self._error(404, "PDF not found")
-            return
+            # Prefer stored pdf_file name when original.pdf is missing.
+            art = get_article(article_id) or {}
+            alt = article_dir / str(art.get("pdf_file") or "")
+            if alt.is_file():
+                pdf_path = alt
+            else:
+                self._error(404, "PDF not found")
+                return
         update_article_fields(article_id, {"converting": True})
+        clear_cancel_conversion(article_id)
         thread = threading.Thread(
             target=run_conversion,
-            args=(str(pdf_path), article_id, engine, docparser_engine),
+            kwargs={
+                "pdf_path": str(pdf_path),
+                "article_id": article_id,
+                "engine_name": engine,
+                "docparser_engine": docparser_engine or None,
+                "page_from": page_from_i,
+                "page_to": page_to_i,
+                "resume": resume,
+            },
             daemon=True,
         )
         thread.start()
-        self._json({"status": "converting", "id": article_id, "engine": engine})
+        self._json({
+            "status": "converting",
+            "id": article_id,
+            "engine": engine,
+            "page_from": page_from_i,
+            "page_to": page_to_i,
+            "resume": resume,
+        })
+
+    def handle_convert_cancel(self):
+        # Path: /api/convert/<id>/cancel
+        parts = urllib.parse.urlparse(self.path).path.strip("/").split("/")
+        if len(parts) < 4:
+            self._error(400, "article id required")
+            return
+        article_id = validate_article_id(urllib.parse.unquote(parts[2]))
+        request_cancel_conversion(article_id)
+        set_conv_status(article_id, "conversion", "cancelling", "正在取消…")
+        self._json({"status": "cancelling", "id": article_id})
+
+    def handle_ocr_checkpoint(self):
+        # Path: /api/articles/<id>/ocr-checkpoint
+        parts = urllib.parse.urlparse(self.path).path.strip("/").split("/")
+        if len(parts) < 3:
+            self._error(400, "article id required")
+            return
+        article_id = validate_article_id(urllib.parse.unquote(parts[2]))
+        article_dir_for(article_id)
+        from engines.page_ocr_common import load_checkpoint
+
+        ck = load_checkpoint(article_id)
+        if not ck:
+            self._json({"exists": False})
+            return
+        self._json({
+            "exists": True,
+            "engine": ck.get("engine"),
+            "page_from": ck.get("page_from"),
+            "page_to": ck.get("page_to"),
+            "next_page": ck.get("next_page"),
+            "done": ck.get("done"),
+            "total": ck.get("total"),
+            "pdf_total": ck.get("pdf_total"),
+            "status": ck.get("status"),
+        })
 
     def handle_article_update(self):
         body = self._read_json()

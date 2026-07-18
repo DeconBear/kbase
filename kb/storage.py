@@ -196,15 +196,16 @@ DOCPARSER_API_URL=https://your-cloud-parser.com
 DOCPARSER_API_KEY=
 DOCPARSER_ENGINE=struct
 
-# Cloud OCR PDF parsing.
+# Cloud OCR PDF parsing (default conversion engine).
 # OCR_PROVIDER_TYPE picks which cloud OCR to use:
-#   custom   — generic HTTP endpoint (set OCR_API_URL + OCR_API_KEY)
+#   qwen     — 通义千问 / 百炼 Qwen-VL-OCR (OpenAI-compatible chat/completions)
+#   custom   — generic multipart HTTP endpoint (set OCR_API_URL + OCR_API_KEY)
 #   unisound — 云知声 OCR; see the UNISOUND_* block below
-OCR_PROVIDER_TYPE=custom
-OCR_API_URL=
+OCR_PROVIDER_TYPE=qwen
+OCR_API_URL=https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions
 OCR_API_KEY=
-OCR_PROVIDER=
-OCR_MODEL=
+OCR_PROVIDER=qwen
+OCR_MODEL=qwen-vl-ocr-latest
 OCR_LANG=zh-CN+en
 
 # Unisound U1 Doc Parser (Token Plan / 开放平台 统一接入).

@@ -1,12 +1,20 @@
+"""Vision LLM OCR — page-by-page, range/resume aware."""
+from __future__ import annotations
+
 import base64
 import json
 import urllib.error
 import urllib.request
-from pathlib import Path
 
 import fitz  # PyMuPDF
 
 from engines._paths import ARTICLES_DIR, LOW_MEMORY_CONFIG as RUNTIME_CONFIG
+from engines.page_ocr_common import (
+    ConversionCancelled,
+    clear_checkpoint,
+    publish_stitched,
+    run_page_loop,
+)
 
 
 def image_to_base64(pix):
@@ -37,7 +45,19 @@ def _api_endpoint(api_type, api_url):
 class VisionOcrEngine:
     name = "vision"
 
-    def run(self, pdf_path: str, article_id: str, log_callback=None):
+    def run(
+        self,
+        pdf_path: str,
+        article_id: str,
+        log_callback=None,
+        *,
+        page_from: int | None = None,
+        page_to: int | None = None,
+        resume: bool = False,
+        progress_callback=None,
+        should_cancel=None,
+        **_kwargs,
+    ):
         def log(msg):
             if log_callback:
                 log_callback(msg)
@@ -72,11 +92,9 @@ class VisionOcrEngine:
                 "Please extract all text, formulas, code, and tables from this image "
                 "and format it precisely as Markdown. Return only Markdown content."
             )
-            markdown_pages = []
 
-            for page_num in range(total_pages):
-                log(f"Processing page {page_num + 1}/{total_pages}...")
-                page = doc.load_page(page_num)
+            def process_page(page_num: int) -> str:
+                page = doc.load_page(page_num - 1)
                 pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
                 base64_img = image_to_base64(pix)
 
@@ -136,21 +154,28 @@ class VisionOcrEngine:
                 if api_type == "anthropic":
                     page_text = res_json.get("content", [{}])[0].get("text", "")
                 else:
-                    page_text = res_json.get("choices", [{}])[0].get("message", {}).get("content", "")
-                markdown_pages.append(page_text.strip())
-                log(f"Page {page_num + 1} processed successfully.")
+                    page_text = (res_json.get("choices") or [{}])[0].get("message", {}).get("content", "")
+                return (page_text or "").strip()
 
-            from workspace_paths import publish_engine_markdown
-
-            final_markdown = "\n\n---\n\n".join(markdown_pages).strip() + "\n"
-            article_dir = ARTICLES_DIR / article_id
-            article_dir.mkdir(parents=True, exist_ok=True)
-
-            output_path = publish_engine_markdown(
-                article_dir, article_id, pdf_path, md_text=final_markdown,
+            status, start, end = run_page_loop(
+                article_id=article_id,
+                engine=self.name,
+                total_pages=total_pages,
+                page_from=page_from,
+                page_to=page_to,
+                resume=resume,
+                should_cancel=should_cancel,
+                progress_callback=progress_callback,
+                process_page=process_page,
+                log=log,
             )
+            if status != "done":
+                return False
 
-            meta_path = article_dir / f"{article_id}_meta.json"
+            output_path = publish_stitched(article_id, pdf_path, start, end, total_pages)
+            clear_checkpoint(article_id, remove_pages=True)
+
+            meta_path = ARTICLES_DIR / article_id / f"{article_id}_meta.json"
             meta = {}
             if meta_path.exists():
                 try:
@@ -162,10 +187,13 @@ class VisionOcrEngine:
                 "vision_provider": active_provider.get("name") or active_id,
                 "vision_model": model_name,
                 "pages": total_pages,
+                "ocr_range": f"{start}-{end}",
             })
             meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
-            log(f"Vision OCR processing complete: {output_path.name}")
+            log(f"Vision OCR complete: {output_path.name} (pages {start}-{end})")
             return True
+        except ConversionCancelled:
+            raise
         except urllib.error.HTTPError as e:
             body = ""
             try:
