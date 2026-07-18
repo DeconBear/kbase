@@ -2,6 +2,7 @@
 from importlib import import_module
 
 ENGINES = {
+    "pymupdf": "engines.pymupdf_engine.PyMuPDFEngine",
     "marker": "engines.marker.MarkerEngine",
     "docmind": "engines.docmind.DocMindEngine",
     "docparser": "engines.docparser.DocParserEngine",

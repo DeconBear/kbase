@@ -679,6 +679,7 @@ def run_conversion(
     page_from: int | None = None,
     page_to: int | None = None,
     resume: bool = False,
+    force_ocr: bool = False,
 ) -> None:
     log_path = _log_path(article_id, "conversion")
     clear_cancel_conversion(article_id)
@@ -693,8 +694,22 @@ def run_conversion(
             entry["message"] = msg[:200]
             entry["updated"] = time.time()
 
-    def progress(done: int, total: int, page: int) -> None:
+    def progress(done: int, total: int, page: int, extras: dict | None = None) -> None:
         pct = int(round(100.0 * done / total)) if total else 0
+        extras = extras or {}
+        eta_s = extras.get("eta_seconds")
+        tok = int(extras.get("total_tokens") or 0)
+        pt = int(extras.get("pages_text") or 0)
+        po = int(extras.get("pages_ocr") or 0)
+        from engines.page_ocr_common import format_eta
+        eta_txt = format_eta(eta_s) if eta_s is not None else ""
+        bits = [f"解析中 {done}/{total}（{pct}%）· 第 {page} 页"]
+        if eta_txt:
+            bits.append(f"剩余 {eta_txt}")
+        if pt or po:
+            bits.append(f"文本层 {pt} · 云 OCR {po}")
+        if tok:
+            bits.append(f"tokens {tok}")
         with _conv_lock:
             entry = _conv_status.setdefault(article_id, {}).setdefault("conversion", {
                 "status": "running", "message": "", "log": "", "updated": time.time()
@@ -704,7 +719,15 @@ def run_conversion(
                 "total": total,
                 "percent": pct,
                 "current_page": page,
-                "message": f"OCR 中 {done}/{total}（{pct}%）· 第 {page} 页",
+                "eta_seconds": eta_s,
+                "sec_per_page": extras.get("sec_per_page"),
+                "prompt_tokens": extras.get("prompt_tokens"),
+                "completion_tokens": extras.get("completion_tokens"),
+                "total_tokens": tok,
+                "pages_text": pt,
+                "pages_ocr": po,
+                "partial": True,
+                "message": " · ".join(bits),
                 "updated": time.time(),
             })
 
@@ -742,6 +765,8 @@ def run_conversion(
                 "progress_callback": progress,
                 "should_cancel": lambda: is_conversion_cancelled(article_id),
             })
+            if engine_name == "ocr":
+                run_kwargs["force_ocr"] = bool(force_ocr)
 
         try:
             success = engine.run(pdf_path, article_id, **run_kwargs)
@@ -814,7 +839,28 @@ def run_conversion(
                 log(f"Failed to handle {derived}: {exc}")
 
         record_conversion(article_id, engine_name, "success")
-        set_conv_status(article_id, "conversion", "done", "解析完成", percent=100)
+        done_extra: dict = {"percent": 100}
+        try:
+            meta_path = article_dir / f"{article_id}_meta.json"
+            if meta_path.exists():
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                for k in (
+                    "prompt_tokens", "completion_tokens", "total_tokens",
+                    "pages_text", "pages_ocr",
+                ):
+                    if meta.get(k) is not None:
+                        done_extra[k] = meta.get(k)
+        except Exception:
+            pass
+        tok = int(done_extra.get("total_tokens") or 0)
+        pt = int(done_extra.get("pages_text") or 0)
+        po = int(done_extra.get("pages_ocr") or 0)
+        done_msg = "解析完成"
+        if pt or po:
+            done_msg += f" · 文本层 {pt} / 云 OCR {po}"
+        if tok:
+            done_msg += f" · tokens {tok}"
+        set_conv_status(article_id, "conversion", "done", done_msg, **done_extra)
         update_article_fields(article_id, {
             "md_available": adjacent.exists() or legacy.exists(),
             "parser": engine_name,
@@ -1881,6 +1927,7 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         engine = (body.get("engine") or "ocr").strip() or "ocr"
         docparser_engine = body.get("docparser_engine", "").strip()
         resume = bool(body.get("resume"))
+        force_ocr = bool(body.get("force_ocr"))
         page_from = body.get("page_from")
         page_to = body.get("page_to")
         try:
@@ -1893,6 +1940,7 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             page_from_i = None
             page_to_i = None
             resume = False
+            force_ocr = False
         article_dir = article_dir_for(article_id)
         pdf_path = article_dir / "original.pdf"
         if not pdf_path.exists():
@@ -1906,6 +1954,21 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 return
         update_article_fields(article_id, {"converting": True})
         clear_cancel_conversion(article_id)
+        # Pre-compute ETA for page engines (UI can also compute client-side).
+        eta_seconds = None
+        if engine in _PAGE_OCR_ENGINES:
+            try:
+                import fitz
+                from engines.page_ocr_common import estimate_seconds, resolve_page_range
+
+                with fitz.open(str(pdf_path)) as _doc:
+                    total_p = len(_doc)
+                start_p, end_p = resolve_page_range(total_p, page_from_i, page_to_i)
+                # Hybrid OCR: assume mostly text-layer → much faster than pure cloud.
+                spp = 0.15 if engine == "ocr" and not force_ocr else None
+                eta_seconds = estimate_seconds(engine, end_p - start_p + 1, sec_per_page=spp)
+            except Exception:
+                eta_seconds = None
         thread = threading.Thread(
             target=run_conversion,
             kwargs={
@@ -1916,6 +1979,7 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 "page_from": page_from_i,
                 "page_to": page_to_i,
                 "resume": resume,
+                "force_ocr": force_ocr,
             },
             daemon=True,
         )
@@ -1927,6 +1991,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             "page_from": page_from_i,
             "page_to": page_to_i,
             "resume": resume,
+            "force_ocr": force_ocr,
+            "eta_seconds": eta_seconds,
         })
 
     def handle_convert_cancel(self):
@@ -1964,6 +2030,12 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             "total": ck.get("total"),
             "pdf_total": ck.get("pdf_total"),
             "status": ck.get("status"),
+            "eta_seconds": ck.get("eta_seconds"),
+            "prompt_tokens": ck.get("prompt_tokens"),
+            "completion_tokens": ck.get("completion_tokens"),
+            "total_tokens": ck.get("total_tokens"),
+            "pages_text": ck.get("pages_text"),
+            "pages_ocr": ck.get("pages_ocr"),
         })
 
     def handle_article_update(self):

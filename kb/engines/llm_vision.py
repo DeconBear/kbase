@@ -171,6 +171,11 @@ class LlmVisionEngine:
                     log(f"WARN: page {page_num} returned empty content")
                 return text
 
+            def publish_partial(start: int, page_num: int) -> None:
+                publish_stitched(
+                    article_id, pdf_path, start, page_num, total_pages, partial=True,
+                )
+
             status, start, end = run_page_loop(
                 article_id=article_id,
                 engine=self.name,
@@ -182,11 +187,12 @@ class LlmVisionEngine:
                 progress_callback=progress_callback,
                 process_page=process_page,
                 log=log,
+                publish_partial=publish_partial,
             )
             if status != "done":
                 return False
 
-            publish_stitched(article_id, pdf_path, start, end, total_pages)
+            publish_stitched(article_id, pdf_path, start, end, total_pages, partial=False)
             clear_checkpoint(article_id, remove_pages=True)
 
             meta_path = ARTICLES_DIR / article_id / f"{article_id}_meta.json"

@@ -157,6 +157,11 @@ class VisionOcrEngine:
                     page_text = (res_json.get("choices") or [{}])[0].get("message", {}).get("content", "")
                 return (page_text or "").strip()
 
+            def publish_partial(start: int, page_num: int) -> None:
+                publish_stitched(
+                    article_id, pdf_path, start, page_num, total_pages, partial=True,
+                )
+
             status, start, end = run_page_loop(
                 article_id=article_id,
                 engine=self.name,
@@ -168,11 +173,14 @@ class VisionOcrEngine:
                 progress_callback=progress_callback,
                 process_page=process_page,
                 log=log,
+                publish_partial=publish_partial,
             )
             if status != "done":
                 return False
 
-            output_path = publish_stitched(article_id, pdf_path, start, end, total_pages)
+            output_path = publish_stitched(
+                article_id, pdf_path, start, end, total_pages, partial=False,
+            )
             clear_checkpoint(article_id, remove_pages=True)
 
             meta_path = ARTICLES_DIR / article_id / f"{article_id}_meta.json"

@@ -13032,10 +13032,14 @@ async function loadVersion(articleId, engine) {
 // ---------------------------------------------------------------------------
 
 const PAGE_OCR_ENGINES = new Set(['ocr', 'vision', 'llm_vision']);
+const ETA_SEC_PER_PAGE = { ocr: 8, vision: 12, llm_vision: 15, pymupdf: 0.05, marker: 3 };
 const ENGINE_OPTIONS = [
+  { value: 'pymupdf',    label: 'PyMuPDF 文本层（免费 · 数字版推荐）', group: '快速全文',
+    desc: 'PyMuPDF：抽取 PDF 文本层，秒级出全文 Markdown；数字版书/论文优先用这个，不耗云 OCR token',
+    hint: '免费 · 全文 · 适合有文本层的 PDF' },
   { value: 'ocr',        label: '云 OCR（默认 · 千问/通用）', group: '逐页 OCR',
-    desc: '云 OCR：默认引擎。可在设置中配置千问 Qwen-VL-OCR 或通用/云知声接口；支持全文/选页、进度与续跑',
-    hint: '默认 · 逐页 · 推荐配置千问云 OCR' },
+    desc: '云 OCR：默认文本层优先（有字的页跳过云调用），稀疏页才走千问；可强制全页云 OCR。支持全文/选页、边解析边显示、续跑与 token 统计',
+    hint: '默认 · 文本层优先 · 可强制云 OCR' },
   { value: 'vision',     label: 'Vision（逐页识图）', group: '逐页 OCR',
     desc: 'Vision：逐页渲染发视觉模型，适合扫描件；耗时随页数线性增长，支持全文/选页与续跑',
     hint: '逐页 · 可全文或选页 · 可取消续跑' },
@@ -13056,6 +13060,25 @@ const ENGINE_OPTIONS = [
     hint: '本地 · ~6GB 显存 · 约 600s 超时' },
 ];
 
+function formatEtaSeconds(sec) {
+  const s = Math.max(0, Math.round(Number(sec) || 0));
+  if (!s) return '';
+  if (s < 60) return `约 ${s} 秒`;
+  const m = Math.floor(s / 60), r = s % 60;
+  if (m < 60) return r ? `约 ${m} 分 ${r} 秒` : `约 ${m} 分钟`;
+  const h = Math.floor(m / 60), mm = m % 60;
+  return `约 ${h} 小时 ${mm} 分`;
+}
+
+function estimateConvertSeconds(engine, pageCount, { forceOcr = false } = {}) {
+  const n = Math.max(0, Number(pageCount) || 0);
+  if (!n) return 0;
+  if (engine === 'pymupdf') return Math.max(2, Math.round(n * 0.05));
+  if (engine === 'ocr' && !forceOcr) return Math.max(5, Math.round(n * 0.15)); // text-layer first
+  const spp = ETA_SEC_PER_PAGE[engine] || 10;
+  return Math.max(5, Math.round(n * spp));
+}
+
 const ENGINE_DESCS = Object.fromEntries(ENGINE_OPTIONS.map(o => [o.value, o.desc]));
 
 function buildReparsePanelHtml() {
@@ -13067,7 +13090,8 @@ function buildReparsePanelHtml() {
       groups.push(`<optgroup label="${esc(opt.group)}">`);
       lastGroup = opt.group;
     }
-    groups.push(`<option value="${opt.value}">${esc(opt.label)}</option>`);
+    const selected = opt.value === 'ocr' ? ' selected' : '';
+    groups.push(`<option value="${opt.value}"${selected}>${esc(opt.label)}</option>`);
   }
   if (lastGroup) groups.push('</optgroup>');
   const pages = Number(currentArticle?.pages) || 0;
@@ -13083,10 +13107,11 @@ function buildReparsePanelHtml() {
       </div>
       <p class="engine-desc" id="engine-desc"></p>
       <div id="engine-estimate"></div>
+      <div id="preparse-hint" style="display:none;margin-top:8px;padding:8px 10px;border-radius:8px;background:var(--accent-subtle,#eef4ff);border:1px solid var(--border);font-size:12px;color:var(--text-2);text-align:left;line-height:1.45"></div>
       <div class="ocr-range-box" id="ocr-range-box" style="display:none">
         <div class="ocr-mode">
-          <label><input type="radio" name="ocr-mode" value="full" checked /> 全文 OCR</label>
-          <label><input type="radio" name="ocr-mode" value="range" /> 选页 OCR</label>
+          <label><input type="radio" name="ocr-mode" value="full" checked /> 全文</label>
+          <label><input type="radio" name="ocr-mode" value="range" /> 选页</label>
         </div>
         <div class="ocr-pages" id="ocr-pages-row" style="display:none">
           <span>第</span>
@@ -13096,6 +13121,9 @@ function buildReparsePanelHtml() {
           <span>页${pages ? `（共 ${pages} 页）` : ''}</span>
           <button type="button" class="ctrl-btn" style="padding:2px 8px;font-size:11px" onclick="setOcrQuickRange(10)">前 10 页</button>
         </div>
+        <label style="display:flex;gap:6px;align-items:center;margin-top:8px;font-size:12px;color:var(--text-2)">
+          <input type="checkbox" id="ocr-force-cloud" /> 强制云 OCR（忽略文本层，较慢且耗 token）
+        </label>
       </div>
       <div class="engine-row engine-row-llm">
         <label>LLM 模型</label>
@@ -13117,17 +13145,57 @@ function _updateEngineEstimate() {
   if (!engineSel || !el) return;
   const opt = ENGINE_OPTIONS.find(o => o.value === engineSel.value);
   const pages = Number(currentArticle?.pages) || 0;
+  const mode = document.querySelector('input[name="ocr-mode"]:checked')?.value || 'full';
+  let pageCount = pages;
+  if (PAGE_OCR_ENGINES.has(engineSel.value) && mode === 'range') {
+    const from = parseInt(document.getElementById('ocr-page-from')?.value || '1', 10) || 1;
+    const to = parseInt(document.getElementById('ocr-page-to')?.value || String(from), 10) || from;
+    pageCount = Math.max(0, to - from + 1);
+  }
+  const forceOcr = !!document.getElementById('ocr-force-cloud')?.checked;
+  const eta = estimateConvertSeconds(engineSel.value, pageCount, { forceOcr });
   const bits = [];
   if (pages) bits.push(`本文约 ${pages} 页`);
+  if (PAGE_OCR_ENGINES.has(engineSel.value) && pageCount && pageCount !== pages) {
+    bits.push(`本次 ${pageCount} 页`);
+  }
   if (opt?.hint) bits.push(opt.hint);
-  if (pages >= 80 && PAGE_OCR_ENGINES.has(engineSel.value)) {
-    bits.push('页数较多，建议改用 DocMind / DocParser；逐页会很久');
+  if (eta) bits.push(`预计耗时 ${formatEtaSeconds(eta)}`);
+  if (engineSel.value === 'ocr' && !forceOcr) {
+    bits.push('文本层优先时几乎不耗 token');
+  } else if (engineSel.value === 'ocr' && forceOcr && pageCount) {
+    bits.push('强制云 OCR 将按页计费');
+  }
+  if (pages >= 80 && PAGE_OCR_ENGINES.has(engineSel.value) && forceOcr) {
+    bits.push('厚书强制云 OCR 很慢，建议文本层优先或 DocMind');
   } else if (pages >= 80 && engineSel.value === 'marker') {
     bits.push('厚书本地 Marker 易超时/显存不足，建议云端引擎');
-  } else if (pages >= 80) {
-    bits.push('长文档优先云端整本解析');
+  } else if (pages >= 80 && engineSel.value === 'pymupdf') {
+    bits.push('数字版厚书优先本引擎');
   }
   el.textContent = bits.join(' · ');
+  _updatePreparseHint();
+}
+
+async function _updatePreparseHint() {
+  const box = document.getElementById('preparse-hint');
+  const engineSel = document.getElementById('engine-select');
+  if (!box || !engineSel || !currentArticle?.id) return;
+  const pages = Number(currentArticle.pages) || 0;
+  if (pages < 20 || !PAGE_OCR_ENGINES.has(engineSel.value)) {
+    box.style.display = 'none';
+    return;
+  }
+  // Heuristic: if article already has md from pymupdf history, recommend it.
+  const parser = (currentArticle.parser || '').toLowerCase();
+  const forceOcr = !!document.getElementById('ocr-force-cloud')?.checked;
+  if (forceOcr) {
+    box.style.display = 'block';
+    box.innerHTML = `已勾选强制云 OCR：约 ${pages} 页将逐页识图，耗时与 token 随页数增长。数字版请优先取消勾选或改用 <b>PyMuPDF 文本层</b>。`;
+    return;
+  }
+  box.style.display = 'block';
+  box.innerHTML = `长文档提示：云 OCR 默认<strong>文本层优先</strong>（有字的页不调云）。数字版全书可直接选 <button type="button" class="ctrl-btn" style="padding:1px 8px;font-size:11px;margin:0 4px" onclick="document.getElementById('engine-select').value='pymupdf';document.getElementById('engine-select').dispatchEvent(new Event('change'))">PyMuPDF 全文</button>${parser === 'pymupdf' ? '（当前已是文本层解析）' : ''}。`;
 }
 
 function _syncOcrRangeUi() {
@@ -13221,6 +13289,12 @@ function wireReparsePanel() {
   document.querySelectorAll('input[name="ocr-mode"]').forEach(r => {
     r.addEventListener('change', _syncOcrRangeUi);
   });
+  const forceCb = document.getElementById('ocr-force-cloud');
+  if (forceCb) forceCb.addEventListener('change', _updateEngineEstimate);
+  ['ocr-page-from', 'ocr-page-to'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', _updateEngineEstimate);
+  });
   _loadOcrCheckpointUi();
 
   const providerSel = document.getElementById('convert-llm-provider');
@@ -13298,15 +13372,20 @@ function _readOcrRangePayload(engine) {
   if (!PAGE_OCR_ENGINES.has(engine)) return {};
   const mode = document.querySelector('input[name="ocr-mode"]:checked')?.value || 'full';
   const pages = Number(currentArticle?.pages) || 0;
+  const forceOcr = !!document.getElementById('ocr-force-cloud')?.checked;
+  let range;
   if (mode === 'full') {
-    return { page_from: 1, page_to: pages || null };
+    range = { page_from: 1, page_to: pages || null };
+  } else {
+    let from = parseInt(document.getElementById('ocr-page-from')?.value || '1', 10);
+    let to = parseInt(document.getElementById('ocr-page-to')?.value || String(from), 10);
+    if (!Number.isFinite(from) || from < 1) from = 1;
+    if (!Number.isFinite(to) || to < from) to = from;
+    if (pages && to > pages) to = pages;
+    range = { page_from: from, page_to: to };
   }
-  let from = parseInt(document.getElementById('ocr-page-from')?.value || '1', 10);
-  let to = parseInt(document.getElementById('ocr-page-to')?.value || String(from), 10);
-  if (!Number.isFinite(from) || from < 1) from = 1;
-  if (!Number.isFinite(to) || to < from) to = from;
-  if (pages && to > pages) to = pages;
-  return { page_from: from, page_to: to };
+  if (engine === 'ocr') range.force_ocr = forceOcr;
+  return range;
 }
 
 async function startConvert(resume = false) {
@@ -13328,12 +13407,21 @@ async function startConvert(resume = false) {
   }
 
   const pages = Number(article.pages) || 0;
-  if (!resume && pages >= 80 && (PAGE_OCR_ENGINES.has(engine) || engine === 'marker')) {
+  const pageCount = (range.page_from && range.page_to)
+    ? (range.page_to - range.page_from + 1)
+    : pages;
+  const forceOcr = !!range.force_ocr;
+  const etaSec = estimateConvertSeconds(engine, pageCount, { forceOcr });
+  const needConfirm = !resume && pageCount >= 80 && (
+    engine === 'marker' || (PAGE_OCR_ENGINES.has(engine) && forceOcr)
+  );
+  if (needConfirm) {
     const btn = document.getElementById('btn-start-convert');
-    if (btn && btn.dataset.longDocConfirm !== engine) {
-      btn.dataset.longDocConfirm = engine;
+    const key = `${engine}:${forceOcr ? 'force' : 'hybrid'}`;
+    if (btn && btn.dataset.longDocConfirm !== key) {
+      btn.dataset.longDocConfirm = key;
       showDataRootMsg(
-        `约 ${pages} 页用 ${engine} 可能很慢/失败（推荐 DocMind/DocParser）。再点一次「开始解析」确认继续。`,
+        `约 ${pageCount} 页 · 预计 ${formatEtaSeconds(etaSec)}。强制云 OCR/Marker 可能很慢且耗 token。再点一次「开始解析」确认。`,
         'amber',
       );
       return;
@@ -13352,19 +13440,21 @@ async function startConvert(resume = false) {
       <div style="text-align:center;margin-bottom:20px">
         <div class="spinner"></div>
         <p style="margin-top:12px;font-weight:600;color:var(--text-strong)" id="conv-status-msg">正在启动 ${esc(engine)} 引擎...</p>
-        <p style="font-size:12px;color:var(--text-3)">实时进度与日志如下，完成后自动刷新</p>
+        <p style="font-size:12px;color:var(--text-3)">边解析边写入 Markdown；进度、剩余时间与 token 如下</p>
         <div id="conv-progress-wrap">
           <div class="bar"><i id="conv-progress-bar"></i></div>
-          <div class="meta" id="conv-progress-meta">准备中…</div>
+          <div class="meta" id="conv-progress-meta">准备中…预计 ${esc(formatEtaSeconds(etaSec) || '计算中')}</div>
         </div>
-        <div style="margin-top:12px">
+        <div style="margin-top:12px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
           <button type="button" class="ctrl-btn" id="btn-cancel-convert" onclick="cancelConvert('${esc(article.id)}')">取消</button>
+          <button type="button" class="ctrl-btn" id="btn-peek-partial" style="display:none" onclick="peekPartialMarkdown('${esc(article.id)}')">查看已解析内容</button>
         </div>
       </div>
+      <div id="conv-partial-preview" style="display:none;margin-bottom:12px;max-height:280px;overflow:auto;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);text-align:left;font-size:13px;line-height:1.55"></div>
       <div id="conv-log-viewer" style="background:var(--surface-2);color:var(--text);padding:16px;border-radius:8px;font-family:'SFMono-Regular',Consolas,monospace;font-size:12px;line-height:1.7;max-height:400px;overflow-y:auto;white-space:pre-wrap;border:1px solid var(--border)">提交中...</div>
     </div>`;
   document.getElementById('md-content').style.display = 'block';
-  if (PAGE_OCR_ENGINES.has(engine)) {
+  if (PAGE_OCR_ENGINES.has(engine) || engine === 'pymupdf') {
     const wrap = document.getElementById('conv-progress-wrap');
     if (wrap) wrap.style.display = 'block';
   }
@@ -13409,6 +13499,39 @@ async function cancelConvert(articleId) {
     if (statusMsg) statusMsg.textContent = '正在取消…';
   } catch (e) {
     toast('取消请求失败: ' + e.message, 'error');
+  }
+}
+
+async function peekPartialMarkdown(articleId) {
+  const preview = document.getElementById('conv-partial-preview');
+  const btn = document.getElementById('btn-peek-partial');
+  if (!preview) return;
+  try {
+    const resp = await fetch(`articles/${encodeURIComponent(articleId)}/${encodeURIComponent(articleId)}.md?t=${Date.now()}`);
+    if (!resp.ok) throw new Error('暂无部分结果');
+    const md = await resp.text();
+    preview.style.display = 'block';
+    if (btn) btn.style.display = '';
+    // Lightweight preview: escape + keep line breaks; full render after done.
+    const clip = md.length > 12000 ? md.slice(0, 12000) + '\n\n…' : md;
+    preview.innerHTML = '<pre style="white-space:pre-wrap;margin:0;font-family:inherit">' + esc(clip) + '</pre>';
+    preview.scrollTop = preview.scrollHeight;
+  } catch (e) {
+    toast(e.message || '读取失败', 'error');
+  }
+}
+
+let _convLastPartialAt = 0;
+async function _refreshPartialDuringConvert(articleId, data) {
+  if (!(data.done > 0)) return;
+  const now = Date.now();
+  if (now - _convLastPartialAt < 2500) return;
+  _convLastPartialAt = now;
+  const btn = document.getElementById('btn-peek-partial');
+  if (btn) btn.style.display = '';
+  const preview = document.getElementById('conv-partial-preview');
+  if (preview && preview.style.display !== 'none') {
+    await peekPartialMarkdown(articleId);
   }
 }
 
@@ -13461,20 +13584,52 @@ async function startConvPolling(articleId) {
         wrap.style.display = 'block';
         const pct = data.percent != null ? data.percent : Math.round(100 * (data.done || 0) / data.total);
         if (bar) bar.style.width = pct + '%';
-        if (meta) meta.textContent = `OCR ${data.done || 0}/${data.total}（${pct}%）`
-          + (data.page_from && data.page_to ? ` · 范围 ${data.page_from}-${data.page_to}` : '');
+        const tok = Number(data.total_tokens) || 0;
+        const tokIn = Number(data.prompt_tokens) || 0;
+        const tokOut = Number(data.completion_tokens) || 0;
+        const eta = data.eta_seconds != null ? formatEtaSeconds(data.eta_seconds) : '';
+        if (meta) {
+          meta.textContent = `${data.done || 0}/${data.total}（${pct}%）`
+            + (data.page_from && data.page_to ? ` · 范围 ${data.page_from}-${data.page_to}` : '')
+            + (eta ? ` · 剩余 ${eta}` : '')
+            + ((data.pages_text || data.pages_ocr)
+              ? ` · 文本层 ${data.pages_text || 0} / 云 ${data.pages_ocr || 0}` : '')
+            + (tok ? ` · tokens ${tok}（in ${tokIn} / out ${tokOut}）` : '');
+        }
+        await _refreshPartialDuringConvert(articleId, data);
       }
 
       if (data.status === 'done') {
         clearInterval(convPollTimer);
         convPollTimer = null;
-        if (statusMsg) statusMsg.textContent = '✅ 解析完成，正在刷新...';
+        const tok = Number(data.total_tokens) || 0;
+        if (statusMsg) {
+          statusMsg.textContent = tok
+            ? `✅ 解析完成 · 共用 tokens ${tok}，正在刷新...`
+            : '✅ 解析完成，正在刷新...';
+        }
         await loadArticles();
         const updated = articles.find(a => a.id === articleId);
         if (updated && !updated.converting && updated.md_available) {
           openReader(articleId);
         } else if (statusMsg) {
-          statusMsg.textContent = '等待文件写入...';
+          // articles list may timeout on huge workspaces — open anyway
+          try {
+            if (!articles.find(a => a.id === articleId)) {
+              articles.push({
+                id: articleId,
+                title: currentArticle?.title || articleId,
+                md_available: true,
+                pdf_available: true,
+                pages: currentArticle?.pages || 0,
+                tags: [],
+                converting: false,
+              });
+            }
+            openReader(articleId);
+          } catch (_) {
+            statusMsg.textContent = '等待文件写入...';
+          }
         }
       } else if (data.status === 'cancelled') {
         clearInterval(convPollTimer);
