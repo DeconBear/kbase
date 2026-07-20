@@ -66,6 +66,7 @@ if getattr(sys, "frozen", False):
         ("kb.literature_classify", "literature_classify"),
         ("kb.workspace_ingest", "workspace_ingest"),
         ("kb.literature_organize", "literature_organize"),
+        ("kb.article_folder_classify", "article_folder_classify"),
         ("kb.cli", "cli"),
     ]
     for _fq_name, _alias in _aliases:
@@ -87,6 +88,51 @@ if getattr(sys, "frozen", False):
 _SELF_DIR = os.path.dirname(os.path.abspath(__file__))
 if _SELF_DIR not in sys.path:
     sys.path.insert(0, _SELF_DIR)
+
+
+def _maybe_relaunch_without_console() -> None:
+    """On Windows source runs, re-exec via pythonw so no console box stays open.
+
+    Set ``KBASE_CONSOLE=1`` to keep the console for debugging.
+    """
+    if getattr(sys, "frozen", False) or sys.platform != "win32":
+        return
+    flag = (os.environ.get("KBASE_CONSOLE") or "").strip().lower()
+    if flag in {"1", "true", "yes", "on"}:
+        return
+    if (os.environ.get("KBASE_NO_CONSOLE_REEXEC") or "").strip() == "1":
+        return
+    exe = os.path.normpath(sys.executable or "")
+    base = os.path.basename(exe).lower()
+    if base != "python.exe":
+        return
+    pythonw = os.path.join(os.path.dirname(exe), "pythonw.exe")
+    if not os.path.isfile(pythonw):
+        return
+    import subprocess
+
+    script = os.path.abspath(sys.argv[0])
+    cwd = os.path.dirname(_SELF_DIR)  # repo root when script lives in kb/
+    env = os.environ.copy()
+    env["KBASE_NO_CONSOLE_REEXEC"] = "1"
+    try:
+        # pythonw has no console; don't attach child to this console either.
+        subprocess.Popen(
+            [pythonw, script, *sys.argv[1:]],
+            cwd=cwd if os.path.isdir(cwd) else None,
+            env=env,
+            close_fds=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        return
+    # Hard-exit so the console host process disappears immediately.
+    os._exit(0)
+
+
+_maybe_relaunch_without_console()
 
 import storage
 from storage import DATA_ROOT, LOGS_DIR

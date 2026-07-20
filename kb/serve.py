@@ -55,6 +55,7 @@ from storage import (
     list_article_history,
     list_chat_sessions,
     list_conversion_history,
+    record_article_history,
     list_notebooks,
     list_workspaces,
     load_chat_session_file,
@@ -247,7 +248,7 @@ def validate_article_id(article_id: str) -> str:
 def article_dir_for(article_id: str) -> Path:
     article_id = validate_article_id(article_id)
     base = storage.ARTICLES_DIR.resolve()
-    target = (storage.ARTICLES_DIR / article_id).resolve()
+    target = storage.resolve_article_dir(article_id).resolve()
     if target == base or not _is_inside(target, base):
         raise ValueError("Invalid article path")
     return target
@@ -411,33 +412,106 @@ def _preferred_markdown_file(article_id: str) -> Path | None:
     return None
 
 
+_VERSIONED_MD_ENGINES = frozenset({
+    "pymupdf", "marker", "docmind", "docparser", "unisound",
+    "ocr", "vision", "llm_vision",
+})
+# Suffixes that look like ``{id}_*.md`` but are not engine snapshots.
+_VERSIONED_MD_SKIP = frozenset({
+    "calibrated", "translated", "translated_old", "summary",
+    "info", "meta", "page_ocr",
+})
+
+
 def _versioned_markdown_files(article_id: str) -> list[Path]:
     folder = article_dir_for(article_id)
-    engines = {"pymupdf", "marker", "docmind", "docparser"}
     files: list[Path] = []
-    for f in folder.iterdir():
+    try:
+        children = list(folder.iterdir())
+    except OSError:
+        return files
+    for f in children:
         if not f.is_file() or not f.name.startswith(f"{article_id}_") or not f.name.endswith(".md"):
             continue
         engine = f.name[len(article_id) + 1 : -3]
-        if engine in engines:
+        if not engine or engine in _VERSIONED_MD_SKIP or engine.endswith("_pages"):
+            continue
+        if engine in _VERSIONED_MD_ENGINES or engine.replace("-", "_").isalnum():
             files.append(f)
     return files
+
+
+def _list_article_versions(article_id: str) -> list[dict]:
+    """Merge DB history with on-disk ``{id}_{engine}.md`` snapshots."""
+    article_dir = article_dir_for(article_id)
+    try:
+        article_dir_res = article_dir.resolve()
+    except OSError:
+        article_dir_res = article_dir
+
+    by_engine: dict[str, dict] = {}
+    for entry in list_article_history(article_id):
+        engine = str(entry.get("engine") or "").strip()
+        if not engine:
+            continue
+        raw = entry.get("file_path") or ""
+        p = Path(raw) if raw else article_dir / f"{article_id}_{engine}.md"
+        try:
+            ok = p.is_file() and p.resolve().parent == article_dir_res
+        except OSError:
+            ok = p.is_file() and p.parent == article_dir
+        if not ok:
+            # Prefer live file under the resolved article dir.
+            live = article_dir / f"{article_id}_{engine}.md"
+            if live.is_file():
+                p = live
+                ok = True
+        if ok:
+            by_engine[engine] = {"engine": engine, "file": p.name}
+
+    for f in _versioned_markdown_files(article_id):
+        engine = f.name[len(article_id) + 1 : -3]
+        if engine not in by_engine:
+            by_engine[engine] = {"engine": engine, "file": f.name}
+            # Backfill catalog so later loads stay consistent.
+            record_article_history_safe(article_id, engine, f)
+
+    return sorted(by_engine.values(), key=lambda v: v["engine"])
+
+
+def _is_article_library_folder(folder: Path) -> bool:
+    """True when ``folder`` looks like a per-paper literature directory."""
+    aid = folder.name
+    if not aid or aid.startswith("."):
+        return False
+    try:
+        if (folder / "original.pdf").is_file():
+            return True
+        if (folder / f"{aid}_meta.json").is_file() or (folder / f"{aid}_info.json").is_file():
+            return True
+        if (folder / f"{aid}.md").is_file():
+            return True
+        for child in folder.iterdir():
+            if child.is_file() and child.suffix.lower() == ".pdf":
+                return True
+    except OSError:
+        return False
+    return False
 
 
 def _iter_article_library_folders() -> list[Path]:
     """Yield article folders under the bound literature dir and common aliases.
 
-    Organize may write into ``literature/`` while an older session still had
-    ``ARTICLES_DIR`` pointing at ``articles/``. Scanning both (preferring the
-    bound dir on id collisions) keeps the library complete after organize.
+    Supports flat (``lit/<id>/``) and structure-preserving
+    (``lit/<mirrored dirs>/<id>/``) layouts. Prefer the bound dir on id collisions.
     """
     roots: list[Path] = []
     seen_roots: set[Path] = set()
     for candidate in (
         storage.ARTICLES_DIR,
+        storage.DATA_ROOT / ".literature",
         storage.DATA_ROOT / "literature",
         storage.DATA_ROOT / "articles",
-        storage.DATA_ROOT / ".literature",
     ):
         try:
             resolved = candidate.resolve()
@@ -450,22 +524,80 @@ def _iter_article_library_folders() -> list[Path]:
 
     folders: list[Path] = []
     seen_ids: set[str] = set()
+    path_map: dict[str, str] = {}
     for root in roots:
         try:
-            children = sorted(root.iterdir())
+            for dirpath, dirnames, _filenames in os.walk(root):
+                folder = Path(dirpath)
+                # Skip hidden / meta trees inside the lit root.
+                try:
+                    rel_parts = folder.relative_to(root).parts
+                except ValueError:
+                    dirnames[:] = []
+                    continue
+                if any(p.startswith(".") for p in rel_parts):
+                    dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+                    continue
+                if not _is_article_library_folder(folder):
+                    dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+                    continue
+                aid = folder.name
+                if aid in seen_ids:
+                    dirnames[:] = []
+                    continue
+                seen_ids.add(aid)
+                folders.append(folder)
+                try:
+                    rel = folder.resolve().relative_to(storage.ARTICLES_DIR.resolve()).as_posix()
+                except (OSError, ValueError):
+                    rel = aid
+                path_map[aid] = "" if rel == aid else rel
+                dirnames[:] = []  # article folders are leaves
         except OSError:
             continue
-        for folder in children:
-            if not folder.is_dir():
-                continue
-            aid = folder.name
-            if not aid or aid.startswith("."):
-                continue
-            if aid in seen_ids:
-                continue
-            seen_ids.add(aid)
-            folders.append(folder)
+    if path_map:
+        try:
+            storage.save_article_dir_cache(path_map)
+        except Exception:
+            pass
     return folders
+
+
+_articles_scan_lock = threading.Lock()
+_articles_scan_thread: threading.Thread | None = None
+_articles_last_scan_at: float = 0.0
+
+
+def schedule_scan_articles(*, force: bool = False) -> bool:
+    """Run ``scan_articles`` in a daemon thread (deduped). Returns True if started."""
+    global _articles_scan_thread, _articles_last_scan_at
+    with _articles_scan_lock:
+        if _articles_scan_thread is not None and _articles_scan_thread.is_alive():
+            return False
+        if not force and _articles_last_scan_at and (time.time() - _articles_last_scan_at) < 30:
+            return False
+
+        def _run() -> None:
+            global _articles_last_scan_at
+            try:
+                scan_articles()
+            except Exception as exc:  # noqa: BLE001
+                print(f" background scan_articles failed: {exc}")
+            finally:
+                _articles_last_scan_at = time.time()
+
+        _articles_scan_thread = threading.Thread(
+            target=_run, daemon=True, name="scan-articles",
+        )
+        _articles_scan_thread.start()
+        return True
+
+
+def list_articles_quick() -> list[dict]:
+    """Return SQLite catalog immediately (no filesystem reconcile)."""
+    from legacy_bridge import enrich_articles
+
+    return enrich_articles(get_all_articles())
 
 
 def scan_articles() -> list[dict]:
@@ -585,9 +717,23 @@ def scan_articles() -> list[dict]:
             upsert_article(article)
 
         # Any leftover rows whose article folder is gone: drop them.
-        for aid in list(existing.keys()):
-            if aid not in live_dirs:
-                delete_article(aid)
+        # Guard: if the literature root itself is missing/empty but the catalog
+        # still has rows, do NOT mass-delete — usually a sync/rename glitch
+        # (e.g. literature ↔ .literature) rather than intentional removal.
+        lit_root = storage.ARTICLES_DIR
+        try:
+            lit_empty = (not lit_root.is_dir()) or (not any(lit_root.iterdir()))
+        except OSError:
+            lit_empty = True
+        if lit_empty and existing:
+            print(
+                "scan_articles: skip catalog purge — literature root empty/missing "
+                f"({lit_root}) while {len(existing)} articles remain in SQLite"
+            )
+        else:
+            for aid in list(existing.keys()):
+                if aid not in live_dirs:
+                    delete_article(aid)
 
     return get_all_articles()
 
@@ -599,27 +745,51 @@ def scan_articles() -> list[dict]:
 
 _conv_status: dict[str, dict] = {}
 _conv_lock = threading.Lock()
+_conv_cancel: set[str] = set()
 _translation_threads: dict[str, threading.Thread] = {}
 _translation_lock = threading.Lock()
 _metadata_threads: dict[str, threading.Thread] = {}
 _metadata_lock = threading.Lock()
 
+_PAGE_OCR_ENGINES = frozenset({"ocr", "vision", "llm_vision"})
 
-def set_conv_status(article_id: str, task: str, status: str, message: str = "", log: str = "") -> None:
+
+def set_conv_status(article_id: str, task: str, status: str, message: str = "", log: str = "", **extra) -> None:
     with _conv_lock:
         bucket = _conv_status.setdefault(article_id, {})
-        bucket[task] = {
+        entry = bucket.get(task) or {}
+        entry.update({
             "status": status,
             "message": message,
-            "log": log,
             "updated": time.time(),
-        }
+        })
+        if log:
+            entry["log"] = log
+        for k, v in extra.items():
+            if v is not None:
+                entry[k] = v
+        bucket[task] = entry
 
 
 def get_conv_status(article_id: str, task: str) -> dict | None:
     with _conv_lock:
         bucket = _conv_status.get(article_id, {})
         return dict(bucket.get(task, {})) or None
+
+
+def request_cancel_conversion(article_id: str) -> None:
+    with _conv_lock:
+        _conv_cancel.add(article_id)
+
+
+def clear_cancel_conversion(article_id: str) -> None:
+    with _conv_lock:
+        _conv_cancel.discard(article_id)
+
+
+def is_conversion_cancelled(article_id: str) -> bool:
+    with _conv_lock:
+        return article_id in _conv_cancel
 
 
 def _log_path(article_id: str, task: str) -> Path:
@@ -646,8 +816,19 @@ def _write_log(path: Path, msg: str) -> None:
             pass
 
 
-def run_conversion(pdf_path: str, article_id: str, engine_name: str = "marker", docparser_engine: str | None = None) -> None:
+def run_conversion(
+    pdf_path: str,
+    article_id: str,
+    engine_name: str = "ocr",
+    docparser_engine: str | None = None,
+    *,
+    page_from: int | None = None,
+    page_to: int | None = None,
+    resume: bool = False,
+    force_ocr: bool = False,
+) -> None:
     log_path = _log_path(article_id, "conversion")
+    clear_cancel_conversion(article_id)
 
     def log(msg: str) -> None:
         _write_log(log_path, msg)
@@ -656,26 +837,111 @@ def run_conversion(pdf_path: str, article_id: str, engine_name: str = "marker", 
                 "status": "running", "message": "", "log": "", "updated": time.time()
             })
             entry["log"] = (entry.get("log", "") + msg + "\n")[-200000:]
+            entry["message"] = msg[:200]
             entry["updated"] = time.time()
+
+    def progress(done: int, total: int, page: int, extras: dict | None = None) -> None:
+        pct = int(round(100.0 * done / total)) if total else 0
+        extras = extras or {}
+        eta_s = extras.get("eta_seconds")
+        tok = int(extras.get("total_tokens") or 0)
+        pt = int(extras.get("pages_text") or 0)
+        po = int(extras.get("pages_ocr") or 0)
+        from engines.page_ocr_common import format_eta
+        eta_txt = format_eta(eta_s) if eta_s is not None else ""
+        bits = [f"解析中 {done}/{total}（{pct}%）· 第 {page} 页"]
+        if eta_txt:
+            bits.append(f"剩余 {eta_txt}")
+        if pt or po:
+            bits.append(f"文本层 {pt} · 云 OCR {po}")
+        if tok:
+            bits.append(f"tokens {tok}")
+        with _conv_lock:
+            entry = _conv_status.setdefault(article_id, {}).setdefault("conversion", {
+                "status": "running", "message": "", "log": "", "updated": time.time()
+            })
+            entry.update({
+                "done": done,
+                "total": total,
+                "percent": pct,
+                "current_page": page,
+                "eta_seconds": eta_s,
+                "sec_per_page": extras.get("sec_per_page"),
+                "prompt_tokens": extras.get("prompt_tokens"),
+                "completion_tokens": extras.get("completion_tokens"),
+                "total_tokens": tok,
+                "pages_text": pt,
+                "pages_ocr": po,
+                "partial": True,
+                "message": " · ".join(bits),
+                "updated": time.time(),
+            })
 
     try:
         log(f"=== Conversion started at {time.strftime('%H:%M:%S')} ===")
         log(f"Engine: {engine_name}")
         log(f"PDF: {pdf_path}")
-        set_conv_status(article_id, "conversion", "running", f"启动 {engine_name} 引擎...")
+        if page_from or page_to:
+            log(f"Page range: {page_from or 1}-{page_to or 'end'}" + (" (resume)" if resume else ""))
+        set_conv_status(
+            article_id,
+            "conversion",
+            "running",
+            f"启动 {engine_name} 引擎...",
+            engine=engine_name,
+            page_from=page_from,
+            page_to=page_to,
+            done=0,
+            total=0,
+            percent=0,
+        )
 
         from engines import get_engine
-        engine = get_engine(engine_name)
+        from engines.page_ocr_common import ConversionCancelled
 
+        engine = get_engine(engine_name)
+        run_kwargs: dict = {"log_callback": log}
         if engine_name == "docparser" and docparser_engine:
-            success = engine.run(pdf_path, article_id, log_callback=log, engine=docparser_engine)
-        else:
-            success = engine.run(pdf_path, article_id, log_callback=log)
+            run_kwargs["engine"] = docparser_engine
+        if engine_name in _PAGE_OCR_ENGINES:
+            run_kwargs.update({
+                "page_from": page_from,
+                "page_to": page_to,
+                "resume": resume,
+                "progress_callback": progress,
+                "should_cancel": lambda: is_conversion_cancelled(article_id),
+            })
+            if engine_name == "ocr":
+                run_kwargs["force_ocr"] = bool(force_ocr)
+
+        try:
+            success = engine.run(pdf_path, article_id, **run_kwargs)
+        except ConversionCancelled:
+            log("=== Conversion CANCELLED ===")
+            record_conversion(article_id, engine_name, "fail")
+            set_conv_status(
+                article_id,
+                "conversion",
+                "cancelled",
+                "已取消，可从断点续跑",
+                engine=engine_name,
+                page_from=page_from,
+                page_to=page_to,
+            )
+            update_article_fields(article_id, {"converting": False})
+            return
+
+        if is_conversion_cancelled(article_id) and not success:
+            log("=== Conversion CANCELLED ===")
+            set_conv_status(article_id, "conversion", "cancelled", "已取消，可从断点续跑", engine=engine_name)
+            update_article_fields(article_id, {"converting": False})
+            return
 
         if not success:
             log("=== Conversion FAILED ===")
             record_conversion(article_id, engine_name, "fail")
             set_conv_status(article_id, "conversion", "error", "解析失败，查看日志了解详情")
+            update_article_fields(article_id, {"converting": False})
             return
 
         # Snapshot versioned copy (prefer workspace-adjacent .parsed.md)
@@ -694,9 +960,18 @@ def run_conversion(pdf_path: str, article_id: str, engine_name: str = "marker", 
         if md_file.exists():
             try:
                 shutil.copy2(md_file, versioned)
-            except OSError:
-                pass
-            record_article_history_safe(article_id, engine_name, versioned)
+            except OSError as exc:
+                log(f"WARN: copy versioned markdown failed: {exc}")
+        elif versioned.exists():
+            log(f"WARN: primary markdown missing; keeping existing {versioned.name}")
+        else:
+            log("WARN: no markdown output to snapshot as history version")
+        if versioned.exists():
+            try:
+                record_article_history(article_id, engine_name, versioned)
+            except Exception as exc:  # noqa: BLE001
+                log(f"WARN: record article history failed: {exc}")
+                record_article_history_safe(article_id, engine_name, versioned)
 
         # Drop outdated derived files. Translated goes to *_translated_old.md.
         zh_file = adjacent_zh_md_path(article_dir, pdf, article_id)
@@ -719,10 +994,32 @@ def run_conversion(pdf_path: str, article_id: str, engine_name: str = "marker", 
                 log(f"Failed to handle {derived}: {exc}")
 
         record_conversion(article_id, engine_name, "success")
-        set_conv_status(article_id, "conversion", "done", "解析完成")
+        done_extra: dict = {"percent": 100}
+        try:
+            meta_path = article_dir / f"{article_id}_meta.json"
+            if meta_path.exists():
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                for k in (
+                    "prompt_tokens", "completion_tokens", "total_tokens",
+                    "pages_text", "pages_ocr",
+                ):
+                    if meta.get(k) is not None:
+                        done_extra[k] = meta.get(k)
+        except Exception:
+            pass
+        tok = int(done_extra.get("total_tokens") or 0)
+        pt = int(done_extra.get("pages_text") or 0)
+        po = int(done_extra.get("pages_ocr") or 0)
+        done_msg = "解析完成"
+        if pt or po:
+            done_msg += f" · 文本层 {pt} / 云 OCR {po}"
+        if tok:
+            done_msg += f" · tokens {tok}"
+        set_conv_status(article_id, "conversion", "done", done_msg, **done_extra)
         update_article_fields(article_id, {
             "md_available": adjacent.exists() or legacy.exists(),
             "parser": engine_name,
+            "converting": False,
         })
         try:
             from derivations import sync_legacy_parse
@@ -739,13 +1036,16 @@ def run_conversion(pdf_path: str, article_id: str, engine_name: str = "marker", 
         log(f"FATAL ERROR: {exc}")
         log(traceback.format_exc())
         set_conv_status(article_id, "conversion", "error", f"系统错误: {exc}")
+        update_article_fields(article_id, {"converting": False})
+    finally:
+        clear_cancel_conversion(article_id)
 
 
 def record_article_history_safe(article_id: str, engine: str, file_path: Path) -> None:
     try:
         record_article_history(article_id, engine, file_path)
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001
+        print(f" record_article_history failed ({article_id}/{engine}): {exc}")
 
 
 def _run_calibrate(article_id: str, log_callback) -> None:
@@ -1002,9 +1302,25 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
         path = urllib.parse.urlsplit(self.path).path
         try:
             if path == "/api/articles":
-                from legacy_bridge import enrich_articles
+                # Full FS reconcile on WPS/Baidu sync can take minutes and used to
+                # leave the library empty (client timeout). Serve SQLite first;
+                # reconcile in the background unless ?reconcile=1 is requested.
+                qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                want_reconcile = (qs.get("reconcile") or ["0"])[0] in ("1", "true", "yes")
+                if want_reconcile:
+                    from legacy_bridge import enrich_articles
 
-                self._json({"articles": enrich_articles(scan_articles())})
+                    arts = enrich_articles(scan_articles())
+                    self._json({"articles": arts, "reconciled": True})
+                else:
+                    schedule_scan_articles()
+                    self._json({
+                        "articles": list_articles_quick(),
+                        "reconciled": False,
+                        "scanning": True,
+                    })
+            elif path == "/api/articles/resolve-by-path":
+                self.handle_resolve_article_by_path()
             elif path == "/api/settings":
                 self._json(self._collect_settings())
             elif path == "/api/llm-config":
@@ -1021,18 +1337,12 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self._json(_translation_state(article_id))
             elif path.startswith("/api/conversion-history/"):
                 article_id = article_id_from_request_path(self.path)
-                article_dir = article_dir_for(article_id)
+                article_dir_for(article_id)
                 history = list_conversion_history(article_id)
-                versions = []
-                for entry in list_article_history(article_id):
-                    if not entry.get("file_path"):
-                        continue
-                    p = Path(entry["file_path"])
-                    if not p.exists() or p.parent != article_dir:
-                        continue
-                    engine = entry["engine"]
-                    versions.append({"engine": engine, "file": p.name})
+                versions = _list_article_versions(article_id)
                 self._json({"history": history, "versions": versions})
+            elif path.startswith("/api/articles/") and path.endswith("/ocr-checkpoint"):
+                self.handle_ocr_checkpoint()
             elif path.startswith("/api/articles/") and path.endswith("/attachments"):
                 self.handle_get_attachments()
             elif path.startswith("/api/articles/") and path.endswith("/notes"):
@@ -1166,7 +1476,7 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                     if ".." in safe_name or "/" in safe_name or "\\" in safe_name:
                         self._error(400, "Invalid asset path")
                         return
-                    target = storage.ARTICLES_DIR / aid / safe_name
+                    target = storage.resolve_article_dir(aid) / safe_name
                 else:
                     self._error(404, "Asset not found")
                     return
@@ -1305,8 +1615,12 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_create_article_folder()
             elif path == "/api/article-folders/move-articles":
                 self.handle_move_articles_to_folder()
+            elif path == "/api/article-folders/auto-classify":
+                self.handle_auto_classify_articles()
             elif path == "/api/notes":
                 self.handle_create_note()
+            elif path.startswith("/api/convert/") and path.endswith("/cancel"):
+                self.handle_convert_cancel()
             elif path.startswith("/api/convert/"):
                 self.handle_convert()
             elif path.startswith("/api/calibrate/"):
@@ -1348,6 +1662,8 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_workspace_ingest_run()
             elif path == "/api/workspace/organize-literature":
                 self.handle_workspace_organize_literature()
+            elif path == "/api/workspace/organize-restore":
+                self.handle_workspace_organize_restore()
             elif path == "/api/workspace/settings":
                 self.handle_workspace_settings_save()
             elif path == "/api/workspace/file":
@@ -1775,21 +2091,119 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
     def handle_convert(self):
         body = self._read_json()
         article_id = validate_article_id(body.get("id", ""))
-        engine = body.get("engine", "marker")
+        engine = (body.get("engine") or "ocr").strip() or "ocr"
         docparser_engine = body.get("docparser_engine", "").strip()
+        resume = bool(body.get("resume"))
+        force_ocr = bool(body.get("force_ocr"))
+        page_from = body.get("page_from")
+        page_to = body.get("page_to")
+        try:
+            page_from_i = int(page_from) if page_from is not None and page_from != "" else None
+            page_to_i = int(page_to) if page_to is not None and page_to != "" else None
+        except (TypeError, ValueError):
+            self._error(400, "page_from / page_to must be integers")
+            return
+        if engine not in _PAGE_OCR_ENGINES:
+            page_from_i = None
+            page_to_i = None
+            resume = False
+            force_ocr = False
         article_dir = article_dir_for(article_id)
         pdf_path = article_dir / "original.pdf"
         if not pdf_path.exists():
-            self._error(404, "PDF not found")
-            return
+            # Prefer stored pdf_file name when original.pdf is missing.
+            art = get_article(article_id) or {}
+            alt = article_dir / str(art.get("pdf_file") or "")
+            if alt.is_file():
+                pdf_path = alt
+            else:
+                self._error(404, "PDF not found")
+                return
         update_article_fields(article_id, {"converting": True})
+        clear_cancel_conversion(article_id)
+        # Pre-compute ETA for page engines (UI can also compute client-side).
+        eta_seconds = None
+        if engine in _PAGE_OCR_ENGINES:
+            try:
+                import fitz
+                from engines.page_ocr_common import estimate_seconds, resolve_page_range
+
+                with fitz.open(str(pdf_path)) as _doc:
+                    total_p = len(_doc)
+                start_p, end_p = resolve_page_range(total_p, page_from_i, page_to_i)
+                # Hybrid OCR: assume mostly text-layer → much faster than pure cloud.
+                spp = 0.15 if engine == "ocr" and not force_ocr else None
+                eta_seconds = estimate_seconds(engine, end_p - start_p + 1, sec_per_page=spp)
+            except Exception:
+                eta_seconds = None
         thread = threading.Thread(
             target=run_conversion,
-            args=(str(pdf_path), article_id, engine, docparser_engine),
+            kwargs={
+                "pdf_path": str(pdf_path),
+                "article_id": article_id,
+                "engine_name": engine,
+                "docparser_engine": docparser_engine or None,
+                "page_from": page_from_i,
+                "page_to": page_to_i,
+                "resume": resume,
+                "force_ocr": force_ocr,
+            },
             daemon=True,
         )
         thread.start()
-        self._json({"status": "converting", "id": article_id, "engine": engine})
+        self._json({
+            "status": "converting",
+            "id": article_id,
+            "engine": engine,
+            "page_from": page_from_i,
+            "page_to": page_to_i,
+            "resume": resume,
+            "force_ocr": force_ocr,
+            "eta_seconds": eta_seconds,
+        })
+
+    def handle_convert_cancel(self):
+        # Path: /api/convert/<id>/cancel
+        parts = urllib.parse.urlparse(self.path).path.strip("/").split("/")
+        if len(parts) < 4:
+            self._error(400, "article id required")
+            return
+        article_id = validate_article_id(urllib.parse.unquote(parts[2]))
+        request_cancel_conversion(article_id)
+        set_conv_status(article_id, "conversion", "cancelling", "正在取消…")
+        self._json({"status": "cancelling", "id": article_id})
+
+    def handle_ocr_checkpoint(self):
+        # Path: /api/articles/<id>/ocr-checkpoint
+        parts = urllib.parse.urlparse(self.path).path.strip("/").split("/")
+        if len(parts) < 3:
+            self._error(400, "article id required")
+            return
+        article_id = validate_article_id(urllib.parse.unquote(parts[2]))
+        article_dir_for(article_id)
+        from engines.page_ocr_common import load_checkpoint
+
+        ck = load_checkpoint(article_id)
+        if not ck:
+            self._json({"exists": False})
+            return
+        self._json({
+            "exists": True,
+            "engine": ck.get("engine"),
+            "page_from": ck.get("page_from"),
+            "page_to": ck.get("page_to"),
+            "next_page": ck.get("next_page"),
+            "done": ck.get("done"),
+            "total": ck.get("total"),
+            "pdf_total": ck.get("pdf_total"),
+            "status": ck.get("status"),
+            "eta_seconds": ck.get("eta_seconds"),
+            "prompt_tokens": ck.get("prompt_tokens"),
+            "completion_tokens": ck.get("completion_tokens"),
+            "total_tokens": ck.get("total_tokens"),
+            "pages_text": ck.get("pages_text"),
+            "pages_ocr": ck.get("pages_ocr"),
+        })
 
     def handle_article_update(self):
         body = self._read_json()
@@ -2201,6 +2615,65 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             return
         move_articles_to_folder(article_ids, folder_id)
         self._json({"status": "ok"})
+
+    def handle_auto_classify_articles(self):
+        """POST /api/article-folders/auto-classify — file articles by configured mode."""
+        from article_folder_classify import classify_all_articles, normalize_mode
+
+        body = self._read_json()
+        mode = body.get("mode")
+        if mode is None:
+            try:
+                ws = require_active_workspace()
+                mode = ws.load_manifest().get("articleFolderAutoMode") or "off"
+            except RuntimeError:
+                mode = "off"
+        mode = normalize_mode(str(mode))
+        only_uncategorized = body.get("only_uncategorized", True)
+        if isinstance(only_uncategorized, str):
+            only_uncategorized = only_uncategorized.lower() not in ("0", "false", "no")
+        article_ids = body.get("article_ids")
+        if article_ids is not None and not isinstance(article_ids, list):
+            self._error(400, "article_ids must be a list")
+            return
+        # Persist mode when caller supplies one (settings sync).
+        if "mode" in body:
+            try:
+                ws = require_active_workspace()
+                manifest = ws.load_manifest()
+                manifest["articleFolderAutoMode"] = mode
+                ws.save_manifest(manifest)
+            except RuntimeError:
+                pass
+        result = classify_all_articles(
+            mode,
+            only_uncategorized=bool(only_uncategorized),
+            article_ids=article_ids,
+        )
+        result["folders_catalog"] = list_article_folders()
+        self._json({"ok": True, **result})
+
+    def handle_resolve_article_by_path(self):
+        """GET /api/articles/resolve-by-path?path=... — map workspace PDF → article."""
+        from article_folder_classify import resolve_article_id_for_path
+        from legacy_bridge import enrich_articles
+
+        qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        rel = (qs.get("path") or [""])[0].strip()
+        if not rel:
+            self._error(400, "path required")
+            return
+        art = resolve_article_id_for_path(urllib.parse.unquote(rel))
+        if not art:
+            self._json({"found": False, "path": rel})
+            return
+        enriched = enrich_articles([art])
+        self._json({
+            "found": True,
+            "path": rel,
+            "article": enriched[0] if enriched else art,
+            "id": art.get("id"),
+        })
 
     def handle_note_backlinks(self):
         parts = urllib.parse.urlsplit(self.path).path.rstrip("/").split("/")
@@ -2961,7 +3434,9 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
 
         data = self._read_json()
         dry_run = bool(data.get("dryRun", False))
-        move = bool(data.get("move", True))
+        move = data.get("move", None)
+        if move is not None:
+            move = bool(move)
         target_dir = (data.get("targetDir") or "").strip() or None
         force = bool(data.get("force", False))
         try:
@@ -2984,6 +3459,23 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 payload["articlesPending"] = True
         self._json(payload)
 
+    def handle_workspace_organize_restore(self) -> None:
+        """POST /api/workspace/organize-restore — copy organized files back to original paths."""
+        from literature_organize import restore_from_organize_log
+
+        data = self._read_json()
+        log_name = (data.get("log") or data.get("logFile") or "").strip() or None
+        keep_library = bool(data.get("keepLibrary", True))
+        try:
+            ws = require_active_workspace()
+            result = restore_from_organize_log(
+                ws, log_name=log_name, keep_library=keep_library,
+            )
+        except (RuntimeError, ValueError) as exc:
+            self._error(400, str(exc))
+            return
+        self._json(result)
+
     def handle_workspace_settings_save(self) -> None:
         """POST /api/workspace/settings — update workspace.json flags."""
         data = self._read_json()
@@ -2993,16 +3485,54 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
             self._error(400, str(exc))
             return
         manifest = ws.load_manifest()
+        lit_changed = False
         for key in (
             "ingestOnOpen",
             "autoClassifyPdfs",
             "autoExtractMetadata",
             "classifyUseLlm",
             "literatureDir",
+            "articleFolderAutoMode",
+            "organizeMode",
+            "organizePreserveStructure",
         ):
-            if key in data:
+            if key not in data:
+                continue
+            if key == "articleFolderAutoMode":
+                from article_folder_classify import normalize_mode
+
+                manifest[key] = normalize_mode(str(data[key]))
+            elif key == "organizeMode":
+                mode = str(data[key] or "copy").strip().lower()
+                manifest[key] = mode if mode in {"copy", "move"} else "copy"
+            elif key == "organizePreserveStructure":
+                manifest[key] = bool(data[key])
+            elif key == "literatureDir":
+                lit = str(data[key] or ".literature").strip().strip("/") or ".literature"
+                if any(p in lit for p in ("..", "\\")) or "/" in lit:
+                    # Only allow a single path segment under workspace root.
+                    self._error(400, "literatureDir must be a single folder name")
+                    return
+                if lit != str(manifest.get("literatureDir") or ""):
+                    lit_changed = True
+                manifest[key] = lit
+            else:
                 manifest[key] = data[key]
         ws.save_manifest(manifest)
+        if lit_changed:
+            try:
+                from literature_organize import migrate_literature_dir_name
+
+                migrate_literature_dir_name(ws, manifest["literatureDir"])
+            except Exception as exc:  # noqa: BLE001
+                self._error(400, f"无法迁移文献库目录: {exc}")
+                return
+            try:
+                from storage import bind_data_root_runtime
+
+                bind_data_root_runtime(ws.root, literature_dir=manifest["literatureDir"])
+            except Exception:
+                pass
         self._json({"ok": True, "workspace": ws.info()})
 
     def handle_workspace_file_read(self) -> None:

@@ -35,25 +35,59 @@ _scan_status: dict[str, Any] = {
 
 
 def _literature_dir_name(ws: Workspace) -> str:
-    return str(ws.load_manifest().get("literatureDir") or "articles")
+    return str(ws.load_manifest().get("literatureDir") or ".literature").strip("/") or ".literature"
+
+
+def _organize_options(ws: Workspace) -> dict[str, Any]:
+    m = ws.load_manifest()
+    mode = str(m.get("organizeMode") or "copy").strip().lower()
+    if mode not in {"copy", "move"}:
+        mode = "copy"
+    preserve = m.get("organizePreserveStructure")
+    if preserve is None:
+        preserve = True
+    return {
+        "mode": mode,
+        "move": mode == "move",
+        "preserveStructure": bool(preserve),
+        "literatureDir": _literature_dir_name(ws),
+    }
 
 
 def _lit_roots(literature_dir: str) -> set[str]:
     roots = {"articles", "literature", ".literature"}
-    lit = (literature_dir or "articles").strip("/").lower()
+    lit = (literature_dir or ".literature").strip("/").lower()
     if lit:
         roots.add(lit)
     return roots
 
 
-def article_id_from_rel(rel: str, literature_dir: str = "articles") -> str | None:
-    """Return article id when path is already under ``<lit>/<id>/...``."""
+def article_id_from_rel(rel: str, literature_dir: str = ".literature") -> str | None:
+    """Return article id when path is under ``<lit>/.../<id>/<file>``.
+
+    Supports flat (``lit/<id>/original.pdf``) and structure-preserving
+    (``lit/<mirrored dirs>/<id>/original.pdf``) layouts.
+    """
     parts = rel.replace("\\", "/").strip("/").split("/")
     if len(parts) < 3:
         return None
     if parts[0].lower() not in _lit_roots(literature_dir):
         return None
-    aid = parts[1]
+    # Prefer parent of original.pdf / versioned md / meta as the article id.
+    fname = parts[-1].lower()
+    if (
+        fname == "original.pdf"
+        or fname.endswith(".md")
+        or fname.endswith("_meta.json")
+        or fname.endswith("_info.json")
+        or fname == "original.md"
+    ):
+        aid = parts[-2]
+    elif parts[-2].lower() == "attachments" and len(parts) >= 4:
+        aid = parts[-3]
+    else:
+        # Flat legacy: lit/<id>/anything
+        aid = parts[1] if len(parts) == 3 else parts[-2]
     if not aid or aid in {".", ".."} or aid.startswith("."):
         return None
     return aid
@@ -62,6 +96,42 @@ def article_id_from_rel(rel: str, literature_dir: str = "articles") -> str | Non
 def _is_organized(rel: str, literature_dir: str) -> bool:
     """True when PDF already lives in a per-article literature folder."""
     return article_id_from_rel(rel, literature_dir) is not None
+
+
+def _sanitize_rel_dir(rel_dir: str) -> str:
+    """Sanitize a relative directory for use under the literature root."""
+    parts = []
+    for seg in rel_dir.replace("\\", "/").strip("/").split("/"):
+        if not seg or seg in {".", ".."}:
+            continue
+        if seg.startswith("."):
+            continue
+        safe = re.sub(r'[<>:"|?*]', "_", seg).strip()
+        if safe:
+            parts.append(safe[:120])
+    return "/".join(parts)
+
+
+def article_dest_rel(
+    *,
+    literature_dir: str,
+    article_id: str,
+    source_rel: str,
+    preserve_structure: bool,
+    filename: str = "original.pdf",
+) -> str:
+    """Build destination relative path under the literature library root."""
+    lit = (literature_dir or ".literature").strip("/")
+    aid = article_id.strip("/")
+    if not preserve_structure:
+        return f"{lit}/{aid}/{filename}"
+    parent = str(Path(source_rel.replace("\\", "/")).parent).replace("\\", "/")
+    if parent in {".", ""}:
+        return f"{lit}/{aid}/{filename}"
+    mirrored = _sanitize_rel_dir(parent)
+    if not mirrored:
+        return f"{lit}/{aid}/{filename}"
+    return f"{lit}/{mirrored}/{aid}/{filename}"
 
 
 def _sanitize_article_id(value: str) -> str:
@@ -265,6 +335,8 @@ def _collect_plan(
                 message=f"分类中 {idx + 1}/{total}",
             )
 
+    opts = _organize_options(ws)
+    preserve = bool(opts.get("preserveStructure"))
     used_ids: set[str] = set()
     for root in (
         ws.root / literature_dir,
@@ -274,8 +346,21 @@ def _collect_plan(
         ws.root / ".literature",
     ):
         try:
-            if root.is_dir():
-                used_ids.update(p.name for p in root.iterdir() if p.is_dir())
+            if not root.is_dir():
+                continue
+            for dirpath, dirnames, filenames in os.walk(root):
+                folder = Path(dirpath)
+                aid = folder.name
+                if not aid or aid.startswith("."):
+                    dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+                    continue
+                if (
+                    (folder / "original.pdf").is_file()
+                    or (folder / f"{aid}_meta.json").is_file()
+                    or any(f.lower().endswith(".pdf") for f in filenames)
+                ):
+                    used_ids.add(aid)
+                    dirnames[:] = []
         except OSError:
             continue
     moves: list[dict] = []
@@ -285,7 +370,13 @@ def _collect_plan(
     for rel, path, cls in mains:
         aid = _propose_article_id(path, info=_read_info_for_path(ws, rel), used=used_ids)
         used_ids.add(aid)
-        dest_rel = f"{literature_dir}/{aid}/original.pdf"
+        dest_rel = article_dest_rel(
+            literature_dir=literature_dir,
+            article_id=aid,
+            source_rel=rel,
+            preserve_structure=preserve,
+            filename="original.pdf",
+        )
         main_by_rel[rel] = aid
         moves.append({
             "from": rel,
@@ -310,7 +401,13 @@ def _collect_plan(
             if name.endswith((".parsed.md", ".zh.md", "_meta.json", "_info.json")):
                 moves.append({
                     "from": ws.rel_path(extra).replace("\\", "/"),
-                    "to": f"{literature_dir}/{aid}/{extra.name}",
+                    "to": article_dest_rel(
+                        literature_dir=literature_dir,
+                        article_id=aid,
+                        source_rel=rel,
+                        preserve_structure=preserve,
+                        filename=extra.name,
+                    ),
                     "articleId": aid,
                     "kind": "derivative",
                 })
@@ -334,9 +431,18 @@ def _collect_plan(
             skipped.append({"from": rel, "reason": "no_parent"})
             continue
         aid = main_by_rel[parent_rel]
+        dest_base = article_dest_rel(
+            literature_dir=literature_dir,
+            article_id=aid,
+            source_rel=parent_rel,
+            preserve_structure=preserve,
+            filename="original.pdf",
+        )
+        # attachments/ under the article folder
+        art_prefix = dest_base.rsplit("/", 1)[0]
         moves.append({
             "from": rel,
-            "to": f"{literature_dir}/{aid}/attachments/{path.name}",
+            "to": f"{art_prefix}/attachments/{path.name}",
             "articleId": aid,
             "kind": "supplement",
         })
@@ -347,11 +453,15 @@ def _collect_plan(
         "moveCount": len(moves),
         "skippedKnownId": skipped_known,
         "candidateCount": total,
+        "organizeMode": opts.get("mode") or "copy",
+        "preserveStructure": preserve,
     }
     return {
         "ok": True,
         "dryRun": dry_run,
         "targetDir": literature_dir,
+        "organizeMode": opts.get("mode") or "copy",
+        "preserveStructure": preserve,
         "moves": moves,
         "skipped": skipped,
         "summary": summary,
@@ -458,7 +568,7 @@ def start_organize_scan(
 def start_organize_apply(
     ws: Workspace | None = None,
     *,
-    move: bool = True,
+    move: bool | None = None,
     target_dir: str | None = None,
 ) -> dict[str, Any]:
     """Apply the last ready plan in a background thread."""
@@ -466,6 +576,9 @@ def start_organize_apply(
     ws = ws or get_active_workspace()
     if ws is None:
         raise ValueError("未打开工作空间")
+
+    opts = _organize_options(ws)
+    do_move = bool(opts["move"]) if move is None else bool(move)
 
     with _scan_lock:
         phase = _scan_status.get("phase")
@@ -501,6 +614,7 @@ def start_organize_apply(
         errors: list[str] = []
         main_ids: list[str] = []
         total = len(plan_moves)
+        action_msg = "正在移动文件…" if do_move else "正在复制文件（保留原位）…"
         _set_status(
             phase="organizing",
             total=total,
@@ -508,7 +622,8 @@ def start_organize_apply(
             percent=0,
             moved=[],
             errors=[],
-            message="正在移动文件…",
+            organizeMode="move" if do_move else "copy",
+            message=action_msg,
             startedAt=_now(),
             finishedAt="",
         )
@@ -522,7 +637,7 @@ def start_organize_apply(
                 if dest.exists() and dest.resolve() != src.resolve():
                     # Avoid silent overwrite when ids collide.
                     raise FileExistsError(f"目标已存在: {item.get('to')}")
-                if move:
+                if do_move:
                     try:
                         shutil.move(str(src), str(dest))
                     except OSError:
@@ -531,12 +646,17 @@ def start_organize_apply(
                         item["copied"] = True
                 else:
                     shutil.copy2(src, dest)
+                    item = dict(item)
+                    item["copied"] = True
                 moved.append(item)
                 aid = item.get("articleId")
                 if aid and item.get("kind") == "main":
                     main_ids.append(str(aid))
-                    # Keep PDF under lit_dir/<id>/; do not dual-write to a
-                    # mismatched ARTICLES_DIR. Bulk quick_parse is deferred —
+                    try:
+                        storage.register_article_dir(str(aid), dest.parent)
+                    except Exception:
+                        pass
+                    # Keep PDF under lit tree; bulk quick_parse deferred —
                     # scan_articles + ingest will register/index afterwards.
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"{item.get('from')}: {exc}")
@@ -605,7 +725,8 @@ def start_organize_apply(
                 "articlesCount": articles_count,
             },
             message=(
-                f"已整理 {len(moved)} 个文件，文献库现有 {articles_count} 篇"
+                f"已整理 {len(moved)} 个文件（{'移动' if do_move else '复制'}），"
+                f"文献库现有 {articles_count} 篇"
                 + (f"，{len(errors)} 个失败" if errors else "")
             ),
             finishedAt=_now(),
@@ -618,6 +739,206 @@ def start_organize_apply(
         _scan_thread = threading.Thread(target=_worker, daemon=True, name="org-apply")
         _scan_thread.start()
     return organize_status()
+
+
+def _latest_organize_log(ws: Workspace) -> Path | None:
+    tasks = ws.tasks_dir
+    if not tasks.is_dir():
+        return None
+    # Only apply logs (organize_<ts>.json), not restore reports.
+    logs = [
+        p for p in tasks.glob("organize_*.json")
+        if re.fullmatch(r"organize_\d+\.json", p.name)
+    ]
+    logs.sort(
+        key=lambda p: p.stat().st_mtime if p.exists() else 0,
+        reverse=True,
+    )
+    return logs[0] if logs else None
+
+
+def restore_from_organize_log(
+    ws: Workspace | None = None,
+    *,
+    log_name: str | None = None,
+    keep_library: bool = True,
+) -> dict[str, Any]:
+    """Copy organized files back to their original ``from`` paths.
+
+    By default keeps library copies (``keep_library=True``). Uses the latest
+    ``.kbase/tasks/organize_*.json`` unless ``log_name`` is given.
+    """
+    import json
+
+    from storage import _atomic_write_json
+
+    ws = ws or get_active_workspace()
+    if ws is None:
+        raise ValueError("未打开工作空间")
+
+    if log_name:
+        safe = Path(str(log_name).replace("\\", "/")).name
+        log_path = ws.tasks_dir / safe
+    else:
+        log_path = _latest_organize_log(ws)
+    if log_path is None or not log_path.is_file():
+        raise ValueError("未找到整理日志 organize_*.json")
+
+    try:
+        report = json.loads(log_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"无法读取整理日志: {exc}") from exc
+
+    items = list(report.get("moved") or [])
+    restored: list[dict] = []
+    skipped: list[dict] = []
+    errors: list[str] = []
+
+    def _resolve_library_src(rel: str) -> Path | None:
+        """Resolve a library file, trying literatureDir aliases if needed."""
+        candidates = [rel]
+        parts = rel.replace("\\", "/").split("/", 1)
+        if len(parts) == 2 and parts[0].lower() in {"articles", "literature", ".literature"}:
+            for root_name in (".literature", "literature", "articles"):
+                alt = f"{root_name}/{parts[1]}"
+                if alt not in candidates:
+                    candidates.append(alt)
+        for cand in candidates:
+            path = ws.resolve(cand)
+            if path.is_file():
+                return path
+        return None
+
+    for item in items:
+        src_rel = str(item.get("to") or "").replace("\\", "/")
+        dest_rel = str(item.get("from") or "").replace("\\", "/")
+        if not src_rel or not dest_rel:
+            skipped.append({"item": item, "reason": "bad_paths"})
+            continue
+        src = _resolve_library_src(src_rel)
+        dest = ws.resolve(dest_rel)
+        try:
+            if src is None:
+                skipped.append({"from": dest_rel, "to": src_rel, "reason": "library_missing"})
+                continue
+            if dest.exists():
+                skipped.append({"from": dest_rel, "to": src_rel, "reason": "already_exists"})
+                continue
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+            entry = {
+                "from": src_rel,
+                "to": dest_rel,
+                "articleId": item.get("articleId"),
+                "kind": item.get("kind"),
+            }
+            if not keep_library:
+                try:
+                    src.unlink()
+                    entry["removedLibrary"] = True
+                except OSError:
+                    entry["removedLibrary"] = False
+            restored.append(entry)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{dest_rel}: {exc}")
+
+    out = {
+        "ok": True,
+        "log": log_path.name,
+        "keepLibrary": keep_library,
+        "restored": restored,
+        "skipped": skipped,
+        "errors": errors,
+        "summary": {
+            "restoredCount": len(restored),
+            "skippedCount": len(skipped),
+            "errorCount": len(errors),
+        },
+        "message": (
+            f"已还原 {len(restored)} 个文件到原路径"
+            + ("（文献库副本已保留）" if keep_library else "（已删除文献库副本）")
+            + (f"，跳过 {len(skipped)}" if skipped else "")
+            + (f"，失败 {len(errors)}" if errors else "")
+        ),
+    }
+    try:
+        out_path = ws.tasks_dir / f"organize_restore_{int(time.time())}.json"
+        _atomic_write_json(out_path, out)
+        out["restoreLog"] = out_path.name
+    except Exception:
+        pass
+    return out
+
+
+def migrate_literature_dir_name(
+    ws: Workspace | None = None,
+    new_name: str = ".literature",
+) -> dict[str, Any]:
+    """Rename on-disk literature folder and update manifest ``literatureDir``."""
+    from storage import bind_data_root_runtime
+
+    ws = ws or get_active_workspace()
+    if ws is None:
+        raise ValueError("未打开工作空间")
+
+    new_name = (new_name or ".literature").strip().strip("/") or ".literature"
+    if "/" in new_name or "\\" in new_name or ".." in new_name:
+        raise ValueError("literatureDir must be a single folder name")
+
+    manifest = ws.load_manifest()
+    old_name = str(manifest.get("literatureDir") or "").strip("/") or "literature"
+    old_path = ws.root / old_name
+    new_path = ws.root / new_name
+
+    renamed = False
+    if old_name != new_name:
+        if old_path.is_dir() and not new_path.exists():
+            old_path.rename(new_path)
+            renamed = True
+        elif old_path.is_dir() and new_path.is_dir() and old_path.resolve() != new_path.resolve():
+            # Merge: move children that don't collide.
+            for child in list(old_path.iterdir()):
+                dest = new_path / child.name
+                if dest.exists():
+                    continue
+                shutil.move(str(child), str(dest))
+            renamed = True
+        elif not old_path.exists() and (ws.root / "literature").is_dir() and new_name == ".literature":
+            # Common migration: literature → .literature even if manifest already updated.
+            lit = ws.root / "literature"
+            if not new_path.exists():
+                lit.rename(new_path)
+                renamed = True
+                old_name = "literature"
+
+    # Also migrate legacy aliases when targeting .literature
+    if new_name == ".literature":
+        for alias in ("literature", "articles"):
+            alias_path = ws.root / alias
+            if not alias_path.is_dir():
+                continue
+            if alias_path.resolve() == new_path.resolve():
+                continue
+            if not new_path.exists():
+                alias_path.rename(new_path)
+                renamed = True
+                old_name = alias
+                break
+
+    manifest["literatureDir"] = new_name
+    if manifest.get("organizeMode") is None:
+        manifest["organizeMode"] = "copy"
+    if manifest.get("organizePreserveStructure") is None:
+        manifest["organizePreserveStructure"] = True
+    ws.save_manifest(manifest)
+    bind_data_root_runtime(ws.root, literature_dir=new_name)
+    return {
+        "ok": True,
+        "renamed": renamed,
+        "from": old_name,
+        "to": new_name,
+        "path": str(new_path),
+    }
 
 
 # ---- backward-compatible sync helpers (prefer background APIs) ----
@@ -640,13 +961,15 @@ def organize_literature(
     *,
     dry_run: bool = False,
     target_dir: str | None = None,
-    move: bool = True,
+    move: bool | None = None,
 ) -> dict[str, Any]:
     """Synchronous organize (tests / CLI). Prefer ``start_organize_apply``."""
     ws = ws or get_active_workspace()
     if ws is None:
         raise ValueError("未打开工作空间")
     lit_dir = (target_dir or _literature_dir_name(ws)).strip("/")
+    opts = _organize_options(ws)
+    do_move = bool(opts["move"]) if move is None else bool(move)
     plan = _collect_plan(ws, lit_dir, dry_run=dry_run, progress=False)
     if dry_run:
         return plan
@@ -665,7 +988,7 @@ def organize_literature(
         dest = ws.resolve(item["to"])
         try:
             dest.parent.mkdir(parents=True, exist_ok=True)
-            if move:
+            if do_move:
                 try:
                     shutil.move(str(src), str(dest))
                 except OSError:
@@ -674,11 +997,13 @@ def organize_literature(
                     item["copied"] = True
             else:
                 shutil.copy2(src, dest)
+                item = dict(item)
+                item["copied"] = True
             moved.append(item)
             aid = item.get("articleId")
             if aid and item.get("kind") == "main":
-                art_dir = storage.ARTICLES_DIR / aid
-                art_dir.mkdir(parents=True, exist_ok=True)
+                storage.register_article_dir(str(aid), dest.parent)
+                art_dir = storage.resolve_article_dir(str(aid), create=True)
                 if not (art_dir / f"{aid}.md").exists():
                     quick_parse_pdf(aid, dest, source_filename="original.pdf")
                 _start_extract_info(aid, reason="organize", allow_parallel=True)

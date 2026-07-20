@@ -18,7 +18,7 @@ TEXT_EXTS = {
 
 
 def _article_dir(article_id: str) -> Path:
-    return storage.ARTICLES_DIR / article_id
+    return storage.resolve_article_dir(article_id)
 
 
 def _preferred_markdown(article_id: str) -> Path | None:
@@ -46,13 +46,46 @@ def _clean_text(text: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", (text or "").replace("\x00", "")).strip()
 
 
+def assess_preparse_quality(page_stats: list[dict] | None) -> dict:
+    """Score text-layer coverage for UI hints (skip cloud OCR when rich)."""
+    stats = page_stats or []
+    n = len(stats)
+    if n <= 0:
+        return {
+            "pages": 0,
+            "rich_pages": 0,
+            "empty_pages": 0,
+            "avg_chars": 0,
+            "coverage": 0.0,
+            "recommend_text_layer": False,
+        }
+    rich = sum(1 for p in stats if int(p.get("chars") or 0) >= 80)
+    empty = sum(1 for p in stats if int(p.get("chars") or 0) < 20)
+    total_chars = sum(int(p.get("chars") or 0) for p in stats)
+    coverage = rich / n
+    return {
+        "pages": n,
+        "rich_pages": rich,
+        "empty_pages": empty,
+        "avg_chars": int(total_chars / n),
+        "coverage": round(coverage, 3),
+        "recommend_text_layer": coverage >= 0.7 and n >= 5,
+    }
+
+
 def quick_parse_pdf(article_id: str, pdf_path: Path, source_filename: str = "") -> dict:
     """Create a first-pass Markdown file from PyMuPDF immediately after upload."""
     import fitz
+    from workspace_paths import publish_engine_markdown
 
     art_dir = _article_dir(article_id)
     doc = fitz.open(str(pdf_path))
     meta = doc.metadata or {}
+    toc = []
+    try:
+        toc = doc.get_toc(simple=True) or []
+    except Exception:
+        toc = []
     pages: list[dict] = []
     for i in range(doc.page_count):
         text = _clean_text(doc[i].get_text("text"))
@@ -63,32 +96,57 @@ def quick_parse_pdf(article_id: str, pdf_path: Path, source_filename: str = "") 
     if not title:
         title = Path(source_filename or pdf_path).stem.replace("_", " ")
 
+    quality = assess_preparse_quality(
+        [{"page": p["page"], "chars": p["chars"]} for p in pages]
+    )
     markdown_parts = [
         f"# {title}",
         "",
-        "> PyMuPDF 快速预解析结果。可点击“解析”选择 Marker 或 DocMind 进行精解析。",
+        f"<!-- kbase-preparse: pymupdf · {len(pages)} pages"
+        f" · coverage {quality['coverage']:.0%} -->",
+        "",
+        "> PyMuPDF 文本层全文。数字版 PDF 通常已可直接阅读；扫描件请改用云 OCR。",
+        "",
     ]
+    if toc:
+        markdown_parts.append("## 目录")
+        markdown_parts.append("")
+        for level, heading, page in toc[:80]:
+            try:
+                lvl = max(1, min(int(level), 3))
+            except (TypeError, ValueError):
+                lvl = 1
+            pad = "  " * (lvl - 1)
+            markdown_parts.append(f"{pad}- {heading} · p.{page}")
+        markdown_parts.append("")
+        markdown_parts.append("---")
+        markdown_parts.append("")
+
     for page in pages:
         markdown_parts.extend([
+            f"<!-- kbase-page: {page['page']} -->",
             "",
-            f"## Page {page['page']}",
+            page["text"] or "_（本页无文本层）_",
             "",
-            page["text"] or "_本页未提取到文本。_",
+            "---",
+            "",
         ])
 
-    md_path = art_dir / f"{article_id}.md"
-    md_path.write_text("\n".join(markdown_parts).strip() + "\n", encoding="utf-8")
+    md_text = "\n".join(markdown_parts).strip() + "\n"
+    md_path = publish_engine_markdown(art_dir, article_id, pdf_path, md_text=md_text)
     versioned = art_dir / f"{article_id}_pymupdf.md"
-    versioned.write_text(md_path.read_text(encoding="utf-8"), encoding="utf-8")
+    versioned.write_text(md_text, encoding="utf-8")
     storage.record_article_history(article_id, "pymupdf", versioned)
 
+    toc_public = [{"level": lv, "title": h, "page": pg} for lv, h, pg in toc[:200]]
     meta_payload = {
         "source": "pymupdf",
         "source_filename": source_filename,
         "title": title,
         "metadata": meta,
         "page_stats": [{"page": p["page"], "chars": p["chars"]} for p in pages],
-        "table_of_contents": [{"title": title}],
+        "preparse_quality": quality,
+        "table_of_contents": toc_public or [{"title": title}],
     }
     meta_path = art_dir / f"{article_id}_meta.json"
     meta_path.write_text(json.dumps(meta_payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -97,6 +155,7 @@ def quick_parse_pdf(article_id: str, pdf_path: Path, source_filename: str = "") 
         "pages": len(pages),
         "meta": meta_payload,
         "md_path": md_path,
+        "quality": quality,
     }
 
 
@@ -315,4 +374,19 @@ Content:
     if tags:
         storage.replace_article_tags(article_id, tags[:8])
     log("Metadata extraction complete")
+    # Optional: auto-file into article folders after metadata lands.
+    try:
+        from article_folder_classify import classify_article, normalize_mode
+        from workspace import get_active_workspace
+
+        ws = get_active_workspace()
+        mode = normalize_mode(
+            (ws.load_manifest().get("articleFolderAutoMode") if ws else None)
+        )
+        if mode != "off":
+            result = classify_article(article_id, mode, only_uncategorized=True)
+            if result.get("moved"):
+                log(f"Auto-classified → folder «{result.get('folder_name')}» ({mode})")
+    except Exception as exc:  # noqa: BLE001
+        log(f"Auto-classify skipped: {exc}")
     return {"info": info, "updates": update}

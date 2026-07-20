@@ -42,7 +42,6 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-from engines._paths import ARTICLES_DIR
 
 
 DEFAULT_BASE_URL = "https://maas-api.hivoice.cn"
@@ -332,8 +331,9 @@ class UnisoundParserEngine:
 
             from workspace_paths import publish_engine_markdown
 
-            article_dir = ARTICLES_DIR / article_id
-            article_dir.mkdir(parents=True, exist_ok=True)
+            from engines._paths import resolve_article_dir
+
+            article_dir = resolve_article_dir(article_id, create=True)
             md_path = publish_engine_markdown(
                 article_dir, article_id, pdf_path, md_text=markdown,
             )

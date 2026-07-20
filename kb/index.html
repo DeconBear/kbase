@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Knowledge Base - 论文知识库</title>
-<link rel="icon" type="image/png" href="assets/kbase-logo-64.png">
+<link rel="icon" type="image/png" href="assets/kbase-logo-64.png?v=2">
 <!-- Vendored CDN libraries under assets/cdn/ — original upstream URLs are kept in comments for reference -->
 <script src="assets/cdn/marked.min.js"></script>
 <!-- was: https://cdn.jsdelivr.net/npm/marked/marked.min.js -->
@@ -360,22 +360,48 @@ select option{background:var(--surface-2);color:var(--text)}
 .sidebar-nav-btn.primary{background:var(--primary);color:#fff;border-color:var(--primary)}
 .sidebar-nav-btn.primary:hover{background:var(--primary-hover);border-color:var(--primary-hover);box-shadow:0 2px 8px rgba(53,115,240,.25)}
 .sidebar-nav-btn.icon-only{padding:5px 8px;font-size:14px}
-#folder-tree-body{display:none}
+#folder-tree-body{display:none;flex:1;overflow-y:auto;padding:4px 0 10px;min-height:0}
 #folder-tree-actions{display:none}
+#folder-tree-pane.mode-collections #folder-tree-body{display:flex;flex-direction:column}
+#folder-tree-pane.mode-collections #folder-tree-actions{display:flex}
+#folder-tree-pane.mode-collections #workspace-doc-tree,
+#folder-tree-pane.mode-collections #workspace-bookmark-tree,
+#folder-tree-pane.mode-collections #workspace-file-actions{display:none !important}
+#folder-tree-pane.mode-workspace #folder-tree-body,
+#folder-tree-pane.mode-workspace #folder-tree-actions{display:none !important}
+#library-side-tabs{display:flex;gap:0;padding:0;border-bottom:1px solid var(--border);background:var(--surface-2);flex-shrink:0}
+#library-side-tabs button{flex:1;border:0;background:transparent;color:var(--text-3);font-size:12px;font-weight:600;padding:8px 6px;cursor:pointer;border-bottom:2px solid transparent}
+#library-side-tabs button.active{color:var(--text-strong);border-bottom-color:var(--primary);background:var(--surface)}
+#library-side-tabs button:hover{color:var(--text)}
 .folder-tree-item{padding:6px 12px;cursor:pointer;font-size:13px;color:var(--text-2);display:flex;align-items:center;gap:6px;transition:var(--transition);border-left:3px solid transparent;user-select:none}
 .folder-tree-item:hover{background:var(--list-hover);color:var(--text)}
 .folder-tree-item.active{border-left-color:var(--primary);background:var(--list-active);color:var(--text-strong);font-weight:500;box-shadow:inset 3px 0 0 var(--primary)}
 .folder-tree-item.drag-over{background:var(--primary-subtle);border:1px dashed var(--primary)}
-.folder-tree-item .folder-icon{font-size:14px;width:18px;text-align:center;flex-shrink:0}
+.folder-tree-item .folder-icon{width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;line-height:0}
+.folder-tree-item .folder-icon .kb-ico{width:16px;height:16px;display:block}
 .folder-tree-item .folder-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
 .folder-tree-item .folder-count{font-size:10px;color:var(--text-3);background:var(--surface-3);padding:1px 6px;border-radius:10px;flex-shrink:0}
-.folder-tree-item .folder-toggle{font-size:10px;width:14px;text-align:center;cursor:pointer;color:var(--text-3);flex-shrink:0}
+.folder-tree-item .folder-toggle{width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text-3);flex-shrink:0;line-height:0}
+.folder-tree-item .folder-toggle .kb-ico{width:12px;height:12px;opacity:.75}
+.folder-tree-item.active .folder-icon .kb-ico{color:var(--primary)}
+.kb-ico{color:currentColor;flex-shrink:0}
+.kb-ico-folder{color:#e8a317}
+.kb-ico-folder-open{color:#3573f0}
+.kb-ico-library{color:#3573f0}
+.kb-ico-inbox{color:#8b8b8b}
+.kb-ico-pdf{color:#e84654}
+.kb-ico-md{color:#36b37e}
+.kb-ico-link{color:#3573f0}
+.kb-ico-file{color:#8b8b8b}
+.kb-ico-image{color:#a78bfa}
+.kb-ico-code{color:#38bdf8}
 .article-tree-item{padding:5px 14px;cursor:pointer;font-size:12px;color:var(--text-2);display:flex;align-items:center;gap:6px;transition:var(--transition);user-select:none}
 .article-tree-item:hover{background:var(--accent-subtle);color:var(--text)}
 .article-tree-item .item-icon{font-size:13px;width:16px;text-align:center;flex-shrink:0;opacity:.6}
 .article-tree-item .item-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
 .article-tree-item .item-badge{font-size:10px;flex-shrink:0}
-.article-tree-item .article-item-icon{font-size:13px;width:16px;text-align:center;flex-shrink:0;opacity:.6}
+.article-tree-item .article-item-icon{width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;opacity:.85;line-height:0}
+.article-tree-item .article-item-icon .kb-ico{width:14px;height:14px}
 .article-card-sm{margin:4px 8px;padding:10px 14px;background:var(--surface-2);border-radius:var(--radius-sm);border:1px solid var(--border);cursor:pointer;transition:var(--transition)}
 .article-card-sm:hover{background:var(--surface-3);border-color:var(--border-light)}
 .article-card-sm-title{font-size:13px;font-weight:600;color:var(--text-strong);margin-bottom:4px}
@@ -561,6 +587,19 @@ select option{background:var(--surface-2);color:var(--text)}
 #engine-selector .engine-desc{font-size:11px;color:var(--text-3);margin-top:4px}
 #engine-selector .engine-actions{display:flex;gap:8px;justify-content:center;margin-top:6px}
 #engine-selector .btn-convert{padding:6px 18px;font-size:12px}
+#engine-selector .ocr-range-box{margin-top:10px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2);text-align:left}
+#engine-selector .ocr-range-box .ocr-mode{display:flex;gap:14px;align-items:center;font-size:12px;color:var(--text-2);margin-bottom:8px}
+#engine-selector .ocr-range-box .ocr-pages{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px}
+#engine-selector .ocr-range-box input[type=number]{width:72px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text);font-size:12px}
+#engine-estimate{font-size:11px;color:var(--text-3);margin-top:6px;line-height:1.45;text-align:left}
+#conv-progress-wrap{display:none;margin:12px auto 0;max-width:420px;text-align:left}
+#conv-progress-wrap .bar{height:8px;border-radius:999px;background:var(--bt-line-soft,#F2F3F5);overflow:hidden}
+#conv-progress-wrap .bar>i{display:block;height:100%;width:0;background:var(--bt-accent,#3370FF);transition:width .2s}
+#conv-progress-meta{margin-top:6px;font-size:12px;color:var(--text-3)}
+#chat-scope-bar{display:flex;flex-wrap:wrap;gap:6px;padding:0 12px 8px;align-items:center}
+#chat-scope-bar .chip{font-size:11px;padding:3px 9px;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--text-2);cursor:pointer}
+#chat-scope-bar .chip:hover,#chat-scope-bar .chip.active{border-color:var(--accent);color:var(--accent)}
+#chat-scope-bar select,#chat-scope-bar input{font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text);max-width:140px}
 #engine-selector .engine-row-llm select{flex:1;min-width:140px}
 
 /* ===== API key input + eye toggle (settings → 文档解析模型) ===== */
@@ -1298,7 +1337,7 @@ body { display: flex !important; flex-direction: column !important; height: 100v
           <button class="sidebar-nav-btn" onclick="switchToKanbanView()" title="打开看板">📋 看板</button>
           <button class="sidebar-nav-btn" onclick="promptOrganizeLiterature()" title="自动整理文献">📚↗</button>
         </div>
-        <div id="folder-tree-pane">
+        <div id="folder-tree-pane" class="mode-collections">
         <div id="workspace-tree-header" style="padding:8px 12px 6px;border-bottom:1px solid var(--border);background:var(--surface-2);flex-shrink:0">
           <button type="button" class="sidebar-nav-btn" style="width:100%;justify-content:flex-start;font-size:12px;gap:6px" onclick="toggleWorkspaceSwitcher(event)" title="切换工作空间">
             <span>🗂️</span>
@@ -1311,8 +1350,12 @@ body { display: flex !important; flex-direction: column !important; height: 100v
             <button type="button" class="btn-outline" style="width:100%;font-size:11px" onclick="pickAndOpenWorkspace()">打开文件夹…</button>
           </div>
         </div>
+        <div id="library-side-tabs">
+          <button type="button" class="active" data-side-tab="collections" onclick="setLibrarySideTab('collections')" title="Zotero 式文献分类">📚 文献分类</button>
+          <button type="button" data-side-tab="workspace" onclick="setLibrarySideTab('workspace')" title="工作空间文件树">🗂 工作空间</button>
+        </div>
         <div id="folder-tree-header">
-          <input type="text" id="searchInput" placeholder="🔍 搜索工作空间文件..." oninput="onLibrarySearchInput()" style="flex:1;min-width:0">
+          <input type="text" id="searchInput" placeholder="🔍 搜索文献 / 文件..." oninput="onLibrarySearchInput()" style="flex:1;min-width:0">
         </div>
         <div id="workspace-file-actions" style="display:flex;gap:6px;padding:0 12px 8px;border-bottom:1px solid var(--border);background:var(--surface-2);flex-wrap:wrap">
           <button class="sidebar-action-btn" onclick="addWorkspaceSource()" title="索引现有文件夹，不移动原文件">
@@ -1326,17 +1369,11 @@ body { display: flex !important; flex-direction: column !important; height: 100v
           </button>
         </div>
         <div id="folder-tree-actions">
-          <button class="sidebar-action-btn" onclick="createWorkspaceFolderPrompt()" title="在当前目录新建文件夹">
-            <span class="icon">📁</span> 新建文件夹
+          <button class="sidebar-action-btn" onclick="createFolderPrompt()" title="新建主题/分类文件夹">
+            ＋ 新建分类
           </button>
-          <button class="sidebar-action-btn" onclick="openNotesEditorFromTree()" title="在当前目录新建 Markdown">
-            <span class="icon">📝</span> 新建笔记
-          </button>
-          <button class="sidebar-action-btn primary" onclick="switchToBitableView()" title="打开多维表格">
-            <span class="icon">📊</span> 多维表格
-          </button>
-          <button class="sidebar-action-btn" onclick="switchToKanbanView()" title="打开看板">
-            <span class="icon">📋</span> 看板
+          <button class="sidebar-action-btn" onclick="runArticleAutoClassify(true)" title="按主题重新分类全部文献">
+            <span class="icon">🏷</span> 按主题分类
           </button>
         </div>
         <div id="folder-tree-body"></div>
@@ -1365,7 +1402,11 @@ body { display: flex !important; flex-direction: column !important; height: 100v
           <button type="button" class="btn-outline" onclick="biblioImportReferences()" title="导入 RIS、BibTeX 或 CSL/Zotero JSON">⇧ 导入</button>
           <button type="button" class="btn-outline" onclick="biblioShowDuplicates()" title="按 DOI 或标题与年份检测重复文献">◫ 重复项</button>
           <button type="button" class="btn-outline" onclick="promptOrganizeLiterature()" title="整理散落 PDF">📚 整理文献</button>
+          <button type="button" class="btn-outline" onclick="runArticleAutoClassify()" title="按设置规则将未分类文献归入文件夹">自动分类</button>
           <button type="button" class="btn-outline" onclick="biblioBatchExtract()" title="批量提取元数据">批量提取</button>
+          <select id="biblioFolderFilterSelect" onchange="onBiblioFolderFilterChange(this.value)" title="按文件夹筛选" style="max-width:140px;font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text)">
+            <option value="">全部文件夹</option>
+          </select>
         </div>
       </div>
       <div id="library-biblio-panel">
@@ -1380,7 +1421,7 @@ body { display: flex !important; flex-direction: column !important; height: 100v
     <main id="global-chat-panel">
       <div id="home-topbar">
         <div class="home-title">
-          <img class="app-logo" src="assets/kbase-logo-64.png" alt="">
+          <img class="app-logo" src="assets/kbase-logo-64.png?v=2" alt="">
           <div class="home-title-text">
             <h2>KBase AI</h2>
             <span id="global-model-label"></span>
@@ -1452,7 +1493,7 @@ body { display: flex !important; flex-direction: column !important; height: 100v
         <div class="settings-sidebar-item" data-pane="paneLLM" data-keywords="llm 大语言模型 chatgpt deepseek openai provider 模型">
           <span class="icon">🧠</span><span>LLM 模型</span>
         </div>
-        <div class="settings-sidebar-item" data-pane="paneCredentials" data-keywords="文档解析 docparser docmind ocr unisound 云知声 凭证 引擎">
+        <div class="settings-sidebar-item" data-pane="paneCredentials" data-keywords="文档解析 docparser docmind ocr unisound 云知声 千问 qwen 百炼 凭证 引擎">
           <span class="icon">🔑</span><span>文档解析模型</span>
         </div>
         <div class="settings-sidebar-item" data-pane="paneModelUsage" data-keywords="翻译 对话 用途 路由 chat translation model">
@@ -1496,6 +1537,39 @@ body { display: flex !important; flex-direction: column !important; height: 100v
             <input type="checkbox" id="setAutoExtractInfo" onchange="onSettingChange()" style="accent-color:var(--accent)">
             <span>上传和解析后自动用 LLM 提取/校准标题、作者、DOI 等信息</span>
           </label>
+          <label style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:8px 12px;background:var(--surface-2);border-radius:var(--radius-sm);cursor:pointer;font-size:12px;color:var(--text-2)">
+            <select id="setArticleFolderAutoMode" onchange="onArticleFolderAutoModeChange()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:2px 6px;min-width:160px">
+              <option value="off">关闭（仅手动）</option>
+              <option value="topic">按主题（推荐，主题/年份二级）</option>
+              <option value="year">按年份</option>
+              <option value="venue">按期刊/会议</option>
+              <option value="category">按 category 字段</option>
+              <option value="first_tag">按首个标签</option>
+            </select>
+            <span>文献库自动分类（Zotero 式文件夹；也可点侧栏「按主题分类」）</span>
+          </label>
+          <div style="margin-top:10px;padding:10px 12px;background:var(--surface-2);border-radius:var(--radius-sm);font-size:12px;color:var(--text-2)">
+            <div style="font-weight:600;margin-bottom:8px;color:var(--text)">📚 整理文献入库</div>
+            <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer">
+              <select id="setOrganizeMode" onchange="onOrganizeSettingsChange()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:2px 6px;min-width:160px">
+                <option value="copy">复制（保留原位）</option>
+                <option value="move">移动（从原路径移除）</option>
+              </select>
+              <span>整理时复制还是移动</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer">
+              <input type="checkbox" id="setOrganizePreserveStructure" onchange="onOrganizeSettingsChange()" style="accent-color:var(--accent)" checked>
+              <span>保持原有目录结构（推荐：已分类文件夹会镜像进文献库）</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+              <select id="setLiteratureDir" onchange="onOrganizeSettingsChange()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:2px 6px;min-width:160px">
+                <option value=".literature">.literature（推荐，隐藏目录）</option>
+                <option value="literature">literature</option>
+                <option value="articles">articles（旧版）</option>
+              </select>
+              <span>文献库文件夹名</span>
+            </label>
+          </div>
           <label style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:8px 12px;background:var(--surface-2);border-radius:var(--radius-sm);cursor:pointer;font-size:12px;color:var(--text-2)">
             <select id="chatScopeSetting" onchange="onSettingChange()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:2px 6px;">
                <option value="local">当前内容优先</option>
@@ -1644,13 +1718,15 @@ body { display: flex !important; flex-direction: column !important; height: 100v
 
         <div class="settings-section">
           <div class="settings-section-head">
-            <h4>云 OCR (逐页 PNG)</h4>
+            <h4>云 OCR (逐页 · 默认解析引擎)</h4>
           </div>
+          <p style="font-size:11px;color:var(--text-3);margin:0 0 10px">推荐使用<strong>千问 / 百炼 Qwen-VL-OCR</strong>。API Key 申请：<a href="https://bailian.console.aliyun.com/" target="_blank" style="color:var(--accent)">阿里云百炼控制台</a></p>
           <div class="settings-grid">
             <div class="settings-field">
               <label for="envOcrProviderType">OCR 提供方</label>
               <select id="envOcrProviderType" onchange="onOcrProviderChange()">
-                <option value="custom">通用云端</option>
+                <option value="qwen">千问云 OCR（Qwen-VL-OCR）</option>
+                <option value="custom">通用云端（multipart）</option>
                 <option value="unisound">云知声</option>
               </select>
             </div>
@@ -1663,23 +1739,23 @@ body { display: flex !important; flex-direction: column !important; height: 100v
           </div>
           <div class="settings-field">
             <label for="envOcrApiUrl">API URL</label>
-            <input type="url" id="envOcrApiUrl" placeholder="https://your-ocr-provider.com/v1/ocr">
+            <input type="url" id="envOcrApiUrl" placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions">
           </div>
           <div class="settings-grid">
             <div class="settings-field">
               <label for="envOcrApiKey">云 OCR API Key</label>
               <div style="position:relative">
-                <input type="password" id="envOcrApiKey" autocomplete="off" placeholder="留空保留原值" style="padding-right:36px">
+                <input type="password" id="envOcrApiKey" autocomplete="off" placeholder="留空保留原值；千问填百炼 API Key" style="padding-right:36px">
                 <button class="env-eye-btn" type="button" data-eye-for="envOcrApiKey" onclick="toggleEnvReveal('envOcrApiKey', this)" style="display:none" title="点击显示">👁</button>
               </div>
             </div>
             <div class="settings-field" id="ocrProviderWrap">
               <label for="envOcrProvider">厂商名（可选）</label>
-              <input type="text" id="envOcrProvider" placeholder="yunzhisheng">
+              <input type="text" id="envOcrProvider" placeholder="qwen">
             </div>
-            <div class="settings-field" id="ocrModelWrap" style="display:none">
+            <div class="settings-field" id="ocrModelWrap">
               <label for="envOcrModel">模型</label>
-              <input type="text" id="envOcrModel" placeholder="u1-ocr">
+              <input type="text" id="envOcrModel" placeholder="qwen-vl-ocr-latest">
             </div>
           </div>
           <div class="settings-field">
@@ -2055,8 +2131,15 @@ body { display: flex !important; flex-direction: column !important; height: 100v
       </div>
     </div>
     <div id="chat-loading"><span class="spinner-sm"></span>思考中...</div>
+    <div id="chat-scope-bar">
+      <button type="button" class="chip" id="chat-chip-outline" onclick="runChapterOutline()">分章摘要</button>
+      <button type="button" class="chip" id="chat-chip-section" onclick="toggleSectionScope()">只问本章</button>
+      <select id="chat-section-select" style="display:none" title="选择章节"></select>
+      <button type="button" class="chip" id="chat-chip-pages" onclick="togglePageScope()">页范围</button>
+      <input id="chat-page-range" type="text" placeholder="如 12-18" style="display:none" title="Markdown 页标记范围" />
+    </div>
     <div id="chat-input-area">
-      <textarea id="chat-input" placeholder="输入问题，基于当前文献回答..." rows="1" onkeydown="if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();sendChat();}"></textarea>
+      <textarea id="chat-input" placeholder="输入问题；可用上方「只问本章 / 页范围」限定检索…" rows="1" onkeydown="if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();sendChat();}"></textarea>
       <button id="chat-send" onclick="sendChat()">➤</button>
     </div>
   </div>
@@ -3120,16 +3203,44 @@ const OCR_TOKEN_PLAN_PRESETS = {
   model: 'u1-ocr',
 };
 
+const OCR_QWEN_PRESETS = {
+  base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+  model: 'qwen-vl-ocr-latest',
+  provider: 'qwen',
+};
+
 function onOcrProviderChange() {
   const sel = document.getElementById('envOcrProviderType');
   const tpWrap = document.getElementById('ocrTokenPlanWrap');
   const provWrap = document.getElementById('ocrProviderWrap');
   const modelWrap = document.getElementById('ocrModelWrap');
+  const urlEl = document.getElementById('envOcrApiUrl');
+  const modelEl = document.getElementById('envOcrModel');
+  const provEl = document.getElementById('envOcrProvider');
   if (!sel) return;
   const isUnisound = sel.value === 'unisound';
+  const isQwen = sel.value === 'qwen';
   if (tpWrap) tpWrap.style.display = isUnisound ? '' : 'none';
   if (provWrap) provWrap.style.display = isUnisound ? 'none' : '';
-  if (modelWrap) modelWrap.style.display = isUnisound ? '' : 'none';
+  if (modelWrap) modelWrap.style.display = (isUnisound || isQwen) ? '' : 'none';
+  // Prefill DashScope defaults when switching to 千问 (don't overwrite filled fields).
+  if (isQwen) {
+    if (urlEl && (!urlEl.value || /hivoice|your-ocr/i.test(urlEl.value))) {
+      urlEl.value = OCR_QWEN_PRESETS.base_url;
+    }
+    if (modelEl && (!modelEl.value || modelEl.value === 'u1-ocr')) {
+      modelEl.value = OCR_QWEN_PRESETS.model;
+    }
+    if (provEl && !provEl.value) provEl.value = OCR_QWEN_PRESETS.provider;
+    if (urlEl) urlEl.placeholder = OCR_QWEN_PRESETS.base_url;
+    if (modelEl) modelEl.placeholder = OCR_QWEN_PRESETS.model;
+  } else if (isUnisound) {
+    if (urlEl) urlEl.placeholder = OCR_TOKEN_PLAN_PRESETS.base_url;
+    if (modelEl) modelEl.placeholder = OCR_TOKEN_PLAN_PRESETS.model;
+  } else {
+    if (urlEl) urlEl.placeholder = 'https://your-ocr-provider.com/v1/ocr';
+    if (modelEl) modelEl.placeholder = '';
+  }
 }
 
 function onOcrTokenPlanChange() {
@@ -3349,6 +3460,28 @@ async function showSettings() {
   document.querySelector('input[name="theme"][value="' + (s.theme === 'light' ? 'light' : 'dark') + '"]').checked = true;
   document.getElementById('setProtectPdf').checked = s.protect_pdf !== false;
   document.getElementById('setAutoExtractInfo').checked = s.auto_extract_info !== false;
+  const modeEl = document.getElementById('setArticleFolderAutoMode');
+  if (modeEl) {
+    modeEl.value = workspaceMeta?.articleFolderAutoMode || modeEl.value || 'off';
+  }
+  const ingestEl = document.getElementById('setIngestOnOpen');
+  if (ingestEl && workspaceMeta) ingestEl.checked = workspaceMeta.ingestOnOpen !== false;
+  const orgModeEl = document.getElementById('setOrganizeMode');
+  if (orgModeEl && workspaceMeta) orgModeEl.value = workspaceMeta.organizeMode === 'move' ? 'move' : 'copy';
+  const orgPreserveEl = document.getElementById('setOrganizePreserveStructure');
+  if (orgPreserveEl && workspaceMeta) {
+    orgPreserveEl.checked = workspaceMeta.organizePreserveStructure !== false;
+  }
+  const litDirEl = document.getElementById('setLiteratureDir');
+  if (litDirEl && workspaceMeta?.literatureDir) {
+    const lit = workspaceMeta.literatureDir;
+    if (![...litDirEl.options].some(o => o.value === lit)) {
+      const opt = document.createElement('option');
+      opt.value = lit; opt.textContent = lit;
+      litDirEl.appendChild(opt);
+    }
+    litDirEl.value = lit;
+  }
   updateRadioCards();
   updateThemeCards();
   // Wire sidebar navigation (idempotent — re-bind on every open so newly
@@ -4111,6 +4244,8 @@ let biblioSortCol = 'title';
 let biblioSortDir = 1;
 let biblioSelectedId = null;
 let biblioFolderFilter = null;
+/** Filter biblio by article_folders id, or ``__uncategorized__``. */
+let biblioArticleFolderFilter = null;
 let libraryStatusCache = null;
 let ingestPollTimer = null;
 
@@ -4257,13 +4392,35 @@ function _biblioStatusHtml(a) {
   return parts.length ? parts.join(' ') : '—';
 }
 
+function _folderDescendantIds(folderId) {
+  const ids = new Set([folderId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const f of (articleFolders || [])) {
+      if (f.parent_id && ids.has(f.parent_id) && !ids.has(f.id)) {
+        ids.add(f.id);
+        changed = true;
+      }
+    }
+  }
+  return ids;
+}
+
 function getFilteredBiblioArticles() {
   const q = (document.getElementById('searchInput')?.value || '').trim().toLowerCase();
   let list = articles.slice();
   if (biblioFolderFilter) list = list.filter(a => a.id === biblioFolderFilter);
+  const folderFilter = biblioArticleFolderFilter || currentFolderId;
+  if (folderFilter === '__uncategorized__') {
+    list = list.filter(a => !a.folder_id);
+  } else if (folderFilter) {
+    const ids = _folderDescendantIds(folderFilter);
+    list = list.filter(a => a.folder_id && ids.has(a.folder_id));
+  }
   if (q) {
     list = list.filter(a => {
-      const hay = [a.title, a.author, (a.authors || []).join(' '), a.doi, a.year, a.venue, a.source_filename, (a.tags || []).join(' ')].join(' ').toLowerCase();
+      const hay = [a.title, a.author, (a.authors || []).join(' '), a.doi, a.year, a.venue, a.source_filename, (a.tags || []).join(' '), folderNameForArticle(a)].join(' ').toLowerCase();
       return hay.includes(q);
     });
   }
@@ -4322,12 +4479,14 @@ function renderBiblioTable(list) {
     const sel = biblioSelectedId === a.id ? ' selected' : '';
     const authors = _biblioAuthors(a);
     const checked = selectedArticleIds.has(a.id) ? ' checked' : '';
+    const folder = folderNameForArticle(a);
     return `<tr class="${sel.trim()}" data-id="${esc(a.id)}" onclick="selectBiblioArticle('${esc(a.id)}')" ondblclick="openReader('${esc(a.id)}')">
       <td onclick="event.stopPropagation()"><input type="checkbox" class="biblio-row-check" data-id="${esc(a.id)}"${checked} onchange="toggleBiblioSelect('${esc(a.id)}', this.checked)"></td>
       <td>${esc(a.title || a.id)}</td>
       <td title="${esc(authors)}">${esc(authors.slice(0, 48))}${authors.length > 48 ? '…' : ''}</td>
       <td>${esc(a.year || '')}</td>
       <td>${esc(a.venue || '')}</td>
+      <td title="${esc(folder)}">${esc(folder || '未分类')}</td>
       <td>${esc(kindLabel(a.kind) || '')}</td>
       <td><span class="biblio-status">${_biblioStatusHtml(a)}</span></td>
     </tr>`;
@@ -4338,6 +4497,7 @@ function renderBiblioTable(list) {
     <th onclick="sortBiblioColumn('authors')">作者</th>
     <th onclick="sortBiblioColumn('year')">年份</th>
     <th onclick="sortBiblioColumn('venue')">期刊/会议</th>
+    <th>文件夹</th>
     <th>类型</th>
     <th>状态</th>
   </tr></thead><tbody>${rows}</tbody></table>`;
@@ -4512,6 +4672,146 @@ async function onWorkspaceIngestSettingChange() {
   } catch (_) {}
 }
 
+async function onArticleFolderAutoModeChange() {
+  const el = document.getElementById('setArticleFolderAutoMode');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/workspace/settings', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({articleFolderAutoMode: el.value || 'off'}),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || d.message || '保存失败');
+    if (d.workspace) workspaceMeta = d.workspace;
+    toast('自动分类方式已保存', 'success');
+  } catch (e) {
+    toast('保存失败: ' + (e.message || e), 'error');
+  }
+}
+
+async function onOrganizeSettingsChange() {
+  const modeEl = document.getElementById('setOrganizeMode');
+  const preserveEl = document.getElementById('setOrganizePreserveStructure');
+  const litEl = document.getElementById('setLiteratureDir');
+  const payload = {
+    organizeMode: modeEl?.value === 'move' ? 'move' : 'copy',
+    organizePreserveStructure: !!(preserveEl && preserveEl.checked),
+    literatureDir: (litEl?.value || '.literature').trim() || '.literature',
+  };
+  try {
+    const r = await fetch('/api/workspace/settings', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || d.message || '保存失败');
+    if (d.workspace) workspaceMeta = d.workspace;
+    toast('整理文献设置已保存', 'success');
+  } catch (e) {
+    toast('保存失败: ' + (e.message || e), 'error');
+  }
+}
+
+async function runArticleAutoClassify(forceAll = false) {
+  const modeEl = document.getElementById('setArticleFolderAutoMode');
+  let mode = modeEl?.value || workspaceMeta?.articleFolderAutoMode || 'off';
+  // Sidebar「按主题分类」defaults to topic when settings are still off/year-only.
+  if (forceAll && (mode === 'off' || mode === 'year')) mode = 'topic';
+  if (mode === 'off') {
+    toast('请先在设置 → 常规 中选择自动分类方式（主题/年份等）', 'info');
+    if (typeof showSettings === 'function') {
+      await showSettings();
+      if (typeof showSettingsTab === 'function') showSettingsTab('paneGeneral');
+    }
+    return;
+  }
+  try {
+    toast(mode === 'topic' ? '正在按主题分级分类…' : '正在自动分类…', 'info');
+    // Persist chosen mode so later metadata ingest follows it.
+    try {
+      await fetch('/api/workspace/settings', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ articleFolderAutoMode: mode }),
+      }).then(async r => {
+        const d = await r.json().catch(() => ({}));
+        if (d.workspace) workspaceMeta = d.workspace;
+      });
+      if (modeEl) modeEl.value = mode;
+    } catch (_) {}
+    const r = await fetch('/api/article-folders/auto-classify', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ mode, only_uncategorized: !forceAll }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || d.message || '分类失败');
+    if (Array.isArray(d.folders_catalog)) articleFolders = d.folders_catalog;
+    else await loadArticleFolders();
+    await loadArticles();
+    refreshBiblioFolderFilterSelect();
+    setLibrarySideTab('collections');
+    // Expand top-level topic folders for a Zotero-like browse
+    for (const f of articleFolders) {
+      if (!f.parent_id) expandedFolderIds.add(f.id);
+    }
+    _saveExpandedFolderState();
+    renderFolderTree();
+    renderLibrary();
+    toast(d.message || `已归类 ${d.moved || 0} 篇`, 'success');
+  } catch (e) {
+    toast('自动分类失败: ' + (e.message || e), 'error');
+  }
+}
+
+function setLibrarySideTab(tab) {
+  const pane = document.getElementById('folder-tree-pane');
+  const mode = tab === 'workspace' ? 'workspace' : 'collections';
+  if (pane) {
+    pane.classList.toggle('mode-collections', mode === 'collections');
+    pane.classList.toggle('mode-workspace', mode === 'workspace');
+  }
+  document.querySelectorAll('#library-side-tabs button').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.sideTab === mode);
+  });
+  try { localStorage.setItem('kbaseLibrarySideTab', mode); } catch (_) {}
+  if (mode === 'collections') renderFolderTree();
+  else if (typeof loadWorkspaceTree === 'function') loadWorkspaceTree();
+}
+
+function folderNameForArticle(a) {
+  if (!a?.folder_id) return '';
+  const f = (articleFolders || []).find(x => x.id === a.folder_id);
+  return f?.name || '';
+}
+
+function refreshBiblioFolderFilterSelect() {
+  const sel = document.getElementById('biblioFolderFilterSelect');
+  if (!sel) return;
+  const cur = sel.value;
+  const opts = [
+    '<option value="">全部文件夹</option>',
+    '<option value="__uncategorized__">未分类</option>',
+  ];
+  const folders = (articleFolders || []).slice().sort(
+    (a, b) => (a.name || '').localeCompare(b.name || ''),
+  );
+  for (const f of folders) {
+    opts.push(`<option value="${esc(f.id)}">${esc(f.name || f.id)}</option>`);
+  }
+  sel.innerHTML = opts.join('');
+  if ([...sel.options].some(o => o.value === cur)) sel.value = cur;
+}
+
+function onBiblioFolderFilterChange(value) {
+  biblioArticleFolderFilter = value || null;
+  currentFolderId = value || null;
+  renderFolderTree();
+  renderBiblioPanel();
+}
+
 let organizeModalBusy = false;
 let _organizeModalResolver = null;
 
@@ -4529,7 +4829,15 @@ function openOrganizeConfirmModal(plan) {
   const moves = plan.moves || [];
   const mainCount = plan.summary?.mainCount || moves.filter(m => m.kind === 'main').length;
   const skipped = plan.skippedKnownId || plan.summary?.skippedKnownId || 0;
-  const target = plan.targetDir || 'literature';
+  const target = plan.targetDir || workspaceMeta?.literatureDir || '.literature';
+  const mode = plan.organizeMode || plan.summary?.organizeMode
+    || (workspaceMeta?.organizeMode === 'move' ? 'move' : 'copy');
+  const preserve = plan.preserveStructure != null
+    ? !!plan.preserveStructure
+    : (plan.summary?.preserveStructure != null
+      ? !!plan.summary.preserveStructure
+      : workspaceMeta?.organizePreserveStructure !== false);
+  const action = mode === 'move' ? '移动' : '复制（保留原位）';
   const desc = document.getElementById('organize-modal-desc');
   const list = document.getElementById('organize-modal-list');
   const prog = document.getElementById('organize-modal-progress');
@@ -4538,9 +4846,10 @@ function openOrganizeConfirmModal(plan) {
   const titleEl = document.getElementById('organize-modal-title');
   if (titleEl) titleEl.textContent = '整理文献';
   if (desc) {
-    desc.textContent = `将 ${mainCount} 篇主文献移入 ${target}/`
-      + (skipped ? `（已跳过 ${skipped} 个已有 ID）` : '')
-      + `，共 ${moves.length} 项文件操作。`;
+    desc.textContent = `将 ${mainCount} 篇主文献${action}到 ${target}/`
+      + (preserve ? '，并保持原有目录结构' : '（扁平：每篇一个文件夹）')
+      + (skipped ? `；已跳过 ${skipped} 个已有 ID` : '')
+      + `，共 ${moves.length} 项文件操作。可在设置 → 常规 中更改复制/移动与目录结构。`;
   }
   if (list) {
     const preview = moves.slice(0, 80);
@@ -4613,11 +4922,18 @@ async function promptOrganizeLiterature() {
       await refreshLibraryStatus();
       return;
     }
-    _setOrganizeModalProgress({ percent: 0, message: '正在启动整理…', done: 0, total: n });
+    const orgMode = plan.organizeMode || plan.summary?.organizeMode
+      || (workspaceMeta?.organizeMode === 'move' ? 'move' : 'copy');
+    _setOrganizeModalProgress({
+      percent: 0,
+      message: orgMode === 'move' ? '正在启动整理（移动）…' : '正在启动整理（复制保留原位）…',
+      done: 0,
+      total: n,
+    });
     const r = await fetch('/api/workspace/organize-literature', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({dryRun: false, move: true}),
+      body: JSON.stringify({dryRun: false, move: orgMode === 'move'}),
     });
     if (!r.ok) throw new Error(await r.text());
     let data = await r.json();
@@ -4654,7 +4970,7 @@ async function promptOrganizeLiterature() {
     const cancelBtn = document.getElementById('organize-modal-cancel');
     if (titleEl) titleEl.textContent = errN ? '整理完成（有失败项）' : '整理完成';
     if (desc) {
-      desc.textContent = `文献库现有 ${artsN} 篇；本次移动 ${movedN} 个文件`
+      desc.textContent = `文献库现有 ${artsN} 篇；本次${orgMode === 'move' ? '移动' : '复制'} ${movedN} 个文件`
         + (errN ? `，失败 ${errN} 项（详见下方）` : '。');
     }
     if (bar) bar.style.width = '100%';
@@ -4675,7 +4991,9 @@ async function promptOrganizeLiterature() {
 
 function _articleTitleForPath(path) {
   const norm = String(path || '').replace(/\\/g, '/');
-  const m = norm.match(/^(?:articles|literature|\.literature)\/([^/]+)\//i);
+  // Flat lit/<id>/… or nested lit/.../<id>/original.pdf
+  let m = norm.match(/^(?:articles|literature|\.literature)\/(?:.*\/)?([^/]+)\/(?:original\.pdf|[^/]+\.pdf)$/i);
+  if (!m) m = norm.match(/^(?:articles|literature|\.literature)\/([^/]+)\//i);
   if (m) {
     const a = articles.find(x => x.id === m[1]);
     if (a?.title) return a.title.length > 42 ? a.title.slice(0, 40) + '…' : a.title;
@@ -4686,8 +5004,8 @@ function _articleTitleForPath(path) {
 function _isPendingOrganizePath(path) {
   if (!libraryStatusCache?.pendingOrganize) return false;
   const norm = String(path || '').replace(/\\/g, '/');
-  // Already under articles/<id>/… — not pending.
-  if (/^(articles|literature|\.literature)\/[^/]+\//i.test(norm)) return false;
+  // Already under lit tree (flat or nested article folder) — not pending.
+  if (/^(articles|literature|\.literature)\//i.test(norm)) return false;
   return /\.pdf$/i.test(norm);
 }
 
@@ -4770,6 +5088,26 @@ async function loadWorkspaceTree() {
     renderWorkspaceSources();
     const ingestEl = document.getElementById('setIngestOnOpen');
     if (ingestEl && workspaceMeta) ingestEl.checked = workspaceMeta.ingestOnOpen !== false;
+    const modeEl = document.getElementById('setArticleFolderAutoMode');
+    if (modeEl && workspaceMeta?.articleFolderAutoMode) {
+      modeEl.value = workspaceMeta.articleFolderAutoMode;
+    }
+    const orgModeEl = document.getElementById('setOrganizeMode');
+    if (orgModeEl && workspaceMeta) orgModeEl.value = workspaceMeta.organizeMode === 'move' ? 'move' : 'copy';
+    const orgPreserveEl = document.getElementById('setOrganizePreserveStructure');
+    if (orgPreserveEl && workspaceMeta) {
+      orgPreserveEl.checked = workspaceMeta.organizePreserveStructure !== false;
+    }
+    const litDirEl = document.getElementById('setLiteratureDir');
+    if (litDirEl && workspaceMeta?.literatureDir) {
+      const lit = workspaceMeta.literatureDir;
+      if (![...litDirEl.options].some(o => o.value === lit)) {
+        const opt = document.createElement('option');
+        opt.value = lit; opt.textContent = lit;
+        litDirEl.appendChild(opt);
+      }
+      litDirEl.value = lit;
+    }
     _ensureDefaultWorkspaceExpanded();
     renderWorkspaceDocTree();
   } catch (e) {
@@ -4805,11 +5143,61 @@ function _treeNodeMatchesFilter(node) {
   return !!node;
 }
 
+function _kbIco(name, extraClass = '') {
+  const cls = `kb-ico kb-ico-${name}${extraClass ? ' ' + extraClass : ''}`;
+  const common = `class="${cls}" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"`;
+  const stroke = 'fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"';
+  switch (name) {
+    case 'library':
+      return `<svg ${common} ${stroke}><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M8 7h8M8 11h6"/></svg>`;
+    case 'folder':
+      return `<svg ${common} ${stroke}><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>`;
+    case 'folder-open':
+      return `<svg ${common} ${stroke}><path d="M3 7a2 2 0 0 1 2-2h3.5l1.5 1.5H19a1 1 0 0 1 1 1V9"/><path d="M3 9h18l-1.4 8.2A2 2 0 0 1 17.6 19H6.4a2 2 0 0 1-2-1.8L3 9z"/></svg>`;
+    case 'inbox':
+      return `<svg ${common} ${stroke}><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>`;
+    case 'chevron-right':
+      return `<svg ${common} ${stroke}><path d="m9 18 6-6-6-6"/></svg>`;
+    case 'chevron-down':
+      return `<svg ${common} ${stroke}><path d="m6 9 6 6 6-6"/></svg>`;
+    case 'dot':
+      return `<svg ${common}><circle cx="12" cy="12" r="2.2" fill="currentColor"/></svg>`;
+    case 'link':
+      return `<svg ${common} ${stroke}><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`;
+    case 'pdf':
+      return `<svg ${common} ${stroke}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h2.5a1.5 1.5 0 0 1 0 3H8v-5m0 5v2m5-5h1a2 2 0 0 1 0 4h-1v-4m4 0v5"/></svg>`;
+    case 'md':
+      return `<svg ${common} ${stroke}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13l2 3 2-3m3 0v5m0-5h1.5a1.5 1.5 0 0 1 0 3H13"/></svg>`;
+    case 'file':
+      return `<svg ${common} ${stroke}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></svg>`;
+    case 'image':
+      return `<svg ${common} ${stroke}><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.5-3.5L7 22"/></svg>`;
+    case 'code':
+      return `<svg ${common} ${stroke}><path d="m8 9-4 3 4 3M16 9l4 3-4 3M13 6l-2 12"/></svg>`;
+    case 'globe':
+      return `<svg ${common} ${stroke}><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>`;
+    case 'canvas':
+      return `<svg ${common} ${stroke}><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`;
+    default:
+      return `<svg ${common} ${stroke}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>`;
+  }
+}
+
 function _workspaceKindIcon(kind) {
-  return {
-    pdf:'📕', markdown:'📝', word:'📝', html:'🌐', image:'🖼️', canvas:'🎨',
-    text:'📄', json:'{ }', csv:'▦', code:'💻', file:'📄',
-  }[kind] || '📄';
+  const map = {
+    pdf: 'pdf', markdown: 'md', word: 'md', html: 'globe', image: 'image',
+    canvas: 'canvas', text: 'file', json: 'code', csv: 'file', code: 'code', file: 'file',
+  };
+  return _kbIco(map[kind] || 'file');
+}
+
+function _kbFolderIco(open = false) {
+  return _kbIco(open ? 'folder-open' : 'folder');
+}
+
+function _kbToggleIco(expanded, canExpand) {
+  if (!canExpand) return _kbIco('dot');
+  return _kbIco(expanded ? 'chevron-down' : 'chevron-right');
 }
 
 function _isTextBrowseKind(kind, path) {
@@ -4948,8 +5336,8 @@ function _renderWorkspaceTreeNode(node, depth) {
       ? ` oncontextmenu="showWorkspaceFsContextMenu(event,decodeURIComponent('${keyArg}'),'dir','')"`
       : '';
     let html = `<div class="folder-tree-item${workspaceSelectedDir === key ? ' active' : ''}" style="padding-left:${indent}px" onclick="${folderClick}"${ctx}>
-      <span class="folder-toggle" onclick="event.stopPropagation();toggleWorkspaceDir(decodeURIComponent('${keyArg}'))">${canExpand ? (isExpanded ? '▼' : '▶') : ''}</span>
-      <span class="folder-icon">${node.isSourceRoot ? '🔗' : '📁'}</span>
+      <span class="folder-toggle" onclick="event.stopPropagation();toggleWorkspaceDir(decodeURIComponent('${keyArg}'))">${_kbToggleIco(isExpanded, canExpand)}</span>
+      <span class="folder-icon">${node.isSourceRoot ? _kbIco('link') : _kbFolderIco(isExpanded)}</span>
       <span class="folder-name">${esc(node.name || workspaceMeta?.name || '根目录')}${node.readOnly ? ' <span style="font-size:9px;color:var(--text-3)">只读</span>' : ''}${node.available === false ? ' <span style="font-size:9px;color:var(--rose)">不可用</span>' : ''}</span>
       ${canExpand ? `<span class="folder-count">${children.length}</span>` : ''}
     </div>`;
@@ -5063,14 +5451,33 @@ async function _loadWorkspaceMarkdownText(norm) {
 async function openPdfFromWorkspacePath(path) {
   const norm = String(path || '').replace(/\\/g, '/').replace(/^\//, '');
   const m = norm.match(/^(?:articles|literature|\.literature)\/([^/]+)\//i);
-  if (!m) {
-    // Any workspace PDF (inbox, root, managed-files, etc.) via direct embed.
+  let articleId = m ? m[1] : null;
+
+  // Scattered / source PDFs: resolve to an existing library article when possible.
+  if (!articleId) {
+    try {
+      const resp = await fetch(
+        '/api/articles/resolve-by-path?path=' + encodeURIComponent(norm),
+      );
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.found && data.id) {
+          articleId = data.id;
+          if (data.article && !articles.find(a => a.id === articleId)) {
+            articles.push(data.article);
+          }
+        }
+      }
+    } catch (_) { /* fall through to raw PDF */ }
+  }
+
+  if (!articleId) {
     const url = '/' + norm.split('/').map(encodeURIComponent).join('/');
     const name = norm.split('/').pop() || norm;
     TabManager.openTab('ws-pdf-' + norm, 'pdf_direct', '📕 ' + name, {url}, true);
     return;
   }
-  const articleId = m[1];
+
   if (!articles.find(a => a.id === articleId)) await loadArticles();
   if (!articles.find(a => a.id === articleId)) {
     const fileName = norm.split('/').pop() || 'original.pdf';
@@ -5569,6 +5976,12 @@ async function init() {
   await loadArticleFolders();
   applyLibrarySideState();
   applyAiPanelState();
+  try {
+    const sideTab = localStorage.getItem('kbaseLibrarySideTab') || 'collections';
+    setLibrarySideTab(sideTab);
+  } catch (_) {
+    setLibrarySideTab('collections');
+  }
   renderBiblioSavedSearches();
   toggleBiblioView(biblioViewMode);
   await loadLibrarySessions();
@@ -5612,6 +6025,19 @@ async function loadArticles() {
     articles = data.articles || [];
     const liveIds = new Set(articles.map(a => a.id));
     selectedArticleIds = new Set([...selectedArticleIds].filter(id => liveIds.has(id)));
+    // Background FS reconcile may add newly organized folders — soft refresh once.
+    if (data.scanning && !loadArticles._rescanTimer) {
+      loadArticles._rescanTimer = setTimeout(async () => {
+        loadArticles._rescanTimer = null;
+        try {
+          const r2 = await fetch('/api/articles');
+          if (!r2.ok) return;
+          const d2 = await r2.json();
+          articles = d2.articles || articles;
+          if (typeof renderLibrary === 'function') renderLibrary();
+        } catch (_) {}
+      }, 8000);
+    }
   } catch(e) {
     if (e?.name === 'AbortError') return;
     if (!Array.isArray(articles)) articles = [];
@@ -5649,6 +6075,7 @@ async function loadArticleFolders() {
   } catch(e) {
     articleFolders = [];
   }
+  refreshBiblioFolderFilterSelect();
   renderFolderTree();
 }
 
@@ -5666,51 +6093,45 @@ function _totalFolderCount(folderId) {
 function renderFolderTree() {
   const body = document.getElementById('folder-tree-body');
   if (!body) return;
-  const search = (document.getElementById('searchInput')?.value || '').toLowerCase();
-  if (search) {
+  const pane = document.getElementById('folder-tree-pane');
+  if (pane && pane.classList.contains('mode-workspace')) return;
+  const search = (document.getElementById('searchInput')?.value || '').trim().toLowerCase();
+  if (search && pane?.classList.contains('mode-collections')) {
     _renderSearchResults(body, search);
     return;
   }
   let html = `<div class="folder-nav-header">
-    <span class="breadcrumb-current">📁 文献库</span>
-    <button class="sidebar-action-btn compact" style="flex:0;padding:4px 8px;font-size:11px" onclick="createFolderPrompt()" title="新建根文件夹">📁 新建</button>
-    <button class="icon-btn" onclick="toggleArticleDetailMode()" title="${articleDetailMode ? '简略模式' : '详细模式'}">${articleDetailMode ? '📋' : '📝'}</button>
+    <span class="breadcrumb-current">📚 我的文库</span>
+    <button class="sidebar-action-btn compact" style="flex:0;padding:4px 8px;font-size:11px" onclick="createFolderPrompt()" title="新建根分类">＋</button>
+    <button class="icon-btn" onclick="toggleArticleDetailMode()" title="${articleDetailMode ? '侧栏隐藏条目' : '侧栏显示条目'}">${articleDetailMode ? '📋' : '📄'}</button>
   </div>`;
 
-  // Root drop zone — move items to uncategorized
   html += `<div class="folder-tree-item${currentFolderId === null ? ' active' : ''}" style="padding-left:12px"
     onclick="selectFolder(null)"
     ondragover="event.preventDefault();this.classList.add('drag-over')"
     ondragleave="this.classList.remove('drag-over')"
     ondrop="handleFolderDrop(event,null);this.classList.remove('drag-over')">
-    <span class="folder-toggle" style="opacity:0">▶</span>
-    <span class="folder-icon">🏠</span>
+    <span class="folder-toggle" style="opacity:0">${_kbIco('dot')}</span>
+    <span class="folder-icon">${_kbIco('library')}</span>
     <span class="folder-name">全部文献</span>
     <span class="folder-count">${articles.length}</span>
   </div>`;
 
   const uncategorized = _folderArticles(null);
   if (uncategorized.length) {
-    const uncExpanded = expandedFolderIds.has('__uncategorized__');
-    html += `<div class="uncategorized-header" onclick="toggleFolderExpand('__uncategorized__')">
-      <span class="folder-toggle">${uncExpanded ? '▼' : '▶'}</span>
-      <span>未分类</span>
+    html += `<div class="folder-tree-item${currentFolderId === '__uncategorized__' ? ' active' : ''}" style="padding-left:12px"
+      onclick="selectFolder('__uncategorized__')">
+      <span class="folder-toggle" style="opacity:0">${_kbIco('dot')}</span>
+      <span class="folder-icon">${_kbIco('inbox')}</span>
+      <span class="folder-name">未分类</span>
       <span class="folder-count">${uncategorized.length}</span>
     </div>`;
-    if (uncExpanded) {
-      uncategorized.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
-      if (articleDetailMode) {
-        html += uncategorized.map(a => _renderArticleDetailFull(a, 12)).join('');
-      } else {
-        html += uncategorized.map(a => _renderArticleItem(a, 12)).join('');
-      }
-    }
   }
 
   html += _renderArticleFolderBranch(null, 0);
 
   if (!articleFolders.length && !uncategorized.length && !articles.length) {
-    html += '<div style="padding:24px;text-align:center;color:var(--text-3);font-size:12px">暂无文献<br><span style="font-size:11px">上传 PDF 或创建文件夹</span></div>';
+    html += '<div style="padding:24px;text-align:center;color:var(--text-3);font-size:12px">暂无文献<br><span style="font-size:11px">上传 PDF 或点击「按主题分类」</span></div>';
   }
   body.innerHTML = html;
 }
@@ -5724,28 +6145,26 @@ function _renderArticleFolderBranch(parentId, depth) {
     const hasSubfolders = articleFolders.some(x => x.parent_id === f.id);
     const directArts = _folderArticles(f.id);
     const totalCount = _totalFolderCount(f.id);
-    const indent = 12 + depth * 16;
-    const canExpand = hasSubfolders || directArts.length > 0;
+    const indent = 12 + depth * 14;
     html += `<div class="folder-tree-item${currentFolderId === f.id ? ' active' : ''}" style="padding-left:${indent}px"
+      onclick="selectFolder('${esc(f.id)}')"
       oncontextmenu="showFolderContextMenu(event,'${esc(f.id)}')"
       draggable="true"
       ondragstart="event.dataTransfer.setData('text/folder-id','${esc(f.id)}')"
       ondragover="event.preventDefault();this.classList.add('drag-over')"
       ondragleave="this.classList.remove('drag-over')"
       ondrop="handleFolderDrop(event,'${esc(f.id)}');this.classList.remove('drag-over')">
-      <span class="folder-toggle" onclick="event.stopPropagation();${canExpand ? `toggleFolderExpand('${esc(f.id)}')` : ''}">${canExpand ? (isExpanded ? '▼' : '▶') : ''}</span>
-      <span class="folder-icon">${f.icon || '📁'}</span>
-      <span class="folder-name" onclick="event.stopPropagation();selectFolder('${esc(f.id)}')">${esc(f.name)}</span>
+      <span class="folder-toggle" onclick="event.stopPropagation();${hasSubfolders ? `toggleFolderExpand('${esc(f.id)}')` : `selectFolder('${esc(f.id)}')`}">${_kbToggleIco(isExpanded, hasSubfolders)}</span>
+      <span class="folder-icon">${_kbFolderIco(!!isExpanded)}</span>
+      <span class="folder-name">${esc(f.name)}</span>
       <span class="folder-count">${totalCount}</span>
-      <button class="folder-add-btn" onclick="event.stopPropagation();createSubFolder('${esc(f.id)}')" title="新建子文件夹">＋</button>
+      <button class="folder-add-btn" onclick="event.stopPropagation();createSubFolder('${esc(f.id)}')" title="新建子分类">＋</button>
     </div>`;
     if (isExpanded) {
       html += _renderArticleFolderBranch(f.id, depth + 1);
-      const arts = directArts.slice().sort((a, b) => (a.title || '').localeCompare(b.title || ''));
       if (articleDetailMode) {
-        html += arts.map(a => _renderArticleDetailFull(a, indent + 16)).join('');
-      } else {
-        html += arts.map(a => _renderArticleItem(a, indent + 16)).join('');
+        const arts = directArts.slice().sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+        html += arts.map(a => _renderArticleItem(a, indent + 14)).join('');
       }
     }
   }
@@ -5793,7 +6212,16 @@ function _renderArticleDetailFull(a, indent) {
 
 function selectFolder(folderId) {
   currentFolderId = folderId;
+  biblioArticleFolderFilter = folderId;
+  // Expanding on select feels like Zotero collections
+  if (folderId && folderId !== '__uncategorized__') {
+    expandedFolderIds.add(folderId);
+    _saveExpandedFolderState();
+  }
+  const sel = document.getElementById('biblioFolderFilterSelect');
+  if (sel) sel.value = folderId || '';
   renderFolderTree();
+  renderBiblioPanel();
 }
 
 function toggleFolderExpand(folderId) {
@@ -5826,7 +6254,7 @@ function _renderArticleItem(a, indent) {
     draggable="true"
     ondragstart="event.dataTransfer.setData('text/article-id','${esc(a.id)}')"
     title="${esc(a.title)}">
-    <span class="article-item-icon">📄</span>
+    <span class="article-item-icon">${_kbIco('file')}</span>
     <span class="item-title">${esc(a.title)}</span>
     ${a.translated?'<span class="item-badge">🌐</span>':''}
     ${a.summarized?'<span class="item-badge">🤖</span>':''}
@@ -5852,9 +6280,9 @@ function _renderSearchResults(body, q) {
   for (const [fid, arts] of byFolder) {
     if (fid) {
       const folder = articleFolders.find(f => f.id === fid);
-      html += `<div style="padding:6px 14px;font-size:11px;color:var(--text-3);font-weight:600">📁 ${esc(folder ? folder.name : fid)}</div>`;
+      html += `<div style="padding:6px 14px;font-size:11px;color:var(--text-3);font-weight:600;display:flex;align-items:center;gap:6px">${_kbIco('folder')} ${esc(folder ? folder.name : fid)}</div>`;
     } else {
-      html += '<div style="padding:6px 14px;font-size:11px;color:var(--text-3);font-weight:600">📁 未分类</div>';
+      html += `<div style="padding:6px 14px;font-size:11px;color:var(--text-3);font-weight:600;display:flex;align-items:center;gap:6px">${_kbIco('inbox')} 未分类</div>`;
     }
     html += arts.map(a => _renderArticleItem(a, 14)).join('');
   }
@@ -6898,10 +7326,56 @@ function removeArticlePdf(articleId) {
   if (frame) frame.remove();
 }
 
-async function openReader(id) {
+async function openReader(id, { forceReload = false } = {}) {
   const article = articles.find(a => a.id === id);
   if (!article) return;
+  if (forceReload) {
+    await reloadArticleReader(id);
+    return;
+  }
   TabManager.openTab('article-' + id, 'article', '📄 ' + article.title, {article});
+}
+
+/** Force-reload article markdown even when its tab is already active. */
+async function reloadArticleReader(articleId) {
+  let article = articles.find(a => a.id === articleId);
+  if (!article && currentArticle?.id === articleId) {
+    article = { ...currentArticle, converting: false, md_available: true };
+    articles.push(article);
+  }
+  if (!article) return;
+
+  article.converting = false;
+  article.md_available = true;
+
+  const tabId = 'article-' + articleId;
+  const tab = TabManager.tabs.find(t => t.id === tabId);
+  if (!tab) {
+    TabManager.openTab(tabId, 'article', '📄 ' + article.title, { article });
+    return;
+  }
+
+  tab.data.article = article;
+  tab.data.currentRawMd = '';
+  tab.data.translatedMd = '';
+  tab.data.parsedMd = '';
+  tab.data.summaryText = '';
+  tab.data.translationChecked = false;
+  delete tab.data.renderedHtml;
+  delete tab.data.renderedView;
+  delete tab.data.tocHtml;
+
+  if (TabManager.activeTabId !== tabId) {
+    TabManager.activateTab(tabId);
+    return;
+  }
+
+  currentArticle = article;
+  currentRawMd = '';
+  translatedMd = '';
+  parsedMd = '';
+  summaryText = '';
+  await initArticleTab(tabId, tab.data);
 }
 
 async function initArticleTab(tabId, tabData) {
@@ -7477,6 +7951,96 @@ function getRelevantContent(sections, indices, maxChars) {
   return selected.join('\n\n');
 }
 
+let chatScopeMode = null; // null | 'section' | 'pages'
+
+function refreshChatSectionSelect() {
+  const sel = document.getElementById('chat-section-select');
+  if (!sel) return;
+  const sections = parseSections(currentRawMd || '');
+  sel.innerHTML = sections.map((s, i) =>
+    `<option value="${i}">${esc((s.title || ('节 ' + i)).slice(0, 40))}</option>`
+  ).join('');
+}
+
+function toggleSectionScope() {
+  const chip = document.getElementById('chat-chip-section');
+  const sel = document.getElementById('chat-section-select');
+  const pageChip = document.getElementById('chat-chip-pages');
+  const pageInput = document.getElementById('chat-page-range');
+  if (chatScopeMode === 'section') {
+    chatScopeMode = null;
+    chip?.classList.remove('active');
+    if (sel) sel.style.display = 'none';
+  } else {
+    chatScopeMode = 'section';
+    chip?.classList.add('active');
+    pageChip?.classList.remove('active');
+    if (pageInput) pageInput.style.display = 'none';
+    refreshChatSectionSelect();
+    if (sel) sel.style.display = '';
+  }
+}
+
+function togglePageScope() {
+  const chip = document.getElementById('chat-chip-pages');
+  const input = document.getElementById('chat-page-range');
+  const secChip = document.getElementById('chat-chip-section');
+  const sel = document.getElementById('chat-section-select');
+  if (chatScopeMode === 'pages') {
+    chatScopeMode = null;
+    chip?.classList.remove('active');
+    if (input) input.style.display = 'none';
+  } else {
+    chatScopeMode = 'pages';
+    chip?.classList.add('active');
+    secChip?.classList.remove('active');
+    if (sel) sel.style.display = 'none';
+    if (input) input.style.display = '';
+  }
+}
+
+function extractMdByPageRange(md, from, to) {
+  // Prefer <!-- kbase-ocr-range --> page parts separated by ---, or <!-- page N --> markers
+  const pageMarker = /<!--\s*page\s+(\d+)\s*-->/gi;
+  const parts = [];
+  let last = 0;
+  let m;
+  const marks = [];
+  while ((m = pageMarker.exec(md)) !== null) {
+    marks.push({ page: parseInt(m[1], 10), index: m.index });
+  }
+  if (marks.length) {
+    for (let i = 0; i < marks.length; i++) {
+      const start = marks[i].index;
+      const end = i + 1 < marks.length ? marks[i + 1].index : md.length;
+      const p = marks[i].page;
+      if (p >= from && p <= to) parts.push(md.slice(start, end).trim());
+    }
+    if (parts.length) return parts.join('\n\n');
+  }
+  // Fallback: --- separated pages after kbase-ocr-range header
+  if (/kbase-ocr-range/i.test(md)) {
+    const chunks = md.split(/\n---\n/);
+    // first chunk may include header; treat as page 1 of range unknown — use sequential
+    for (let i = 0; i < chunks.length; i++) {
+      const pageNo = i + 1;
+      if (pageNo >= from && pageNo <= to) parts.push(chunks[i].trim());
+    }
+    if (parts.length) return parts.join('\n\n');
+  }
+  return null;
+}
+
+async function runChapterOutline() {
+  if (!currentRawMd || !currentArticle) {
+    toast('请先打开已解析的文献', 'error');
+    return;
+  }
+  const input = document.getElementById('chat-input');
+  if (input) input.value = '请生成分章摘要';
+  await sendChat({ type: 'outline' });
+}
+
 function estimateTokens(text) {
   // Rough estimate: ~3 chars per token for English, ~1.5 for Chinese
   const cn = (text.match(/[一-鿿]/g) || []).length;
@@ -7720,11 +8284,15 @@ async function streamChatReply(apiMessages, msgs, loading) {
   return reply;
 }
 
-async function sendChat() {
+async function sendChat(forcedScope = null) {
   if (chatBusy) return;
   const input = document.getElementById('chat-input');
   const question = input.value.trim();
   if (!question || !currentArticle) return;
+  if (!currentRawMd) {
+    toast('当前文献尚无 Markdown，请先解析再问答', 'error');
+    return;
+  }
   chatBusy = true;
   input.value = '';
   input.style.height = 'auto';
@@ -7746,26 +8314,70 @@ async function sendChat() {
   try {
     const sections = parseSections(currentRawMd);
     const toc = buildTOC(sections);
+    const scope = forcedScope || (
+      chatScopeMode === 'section' ? { type: 'section', index: parseInt(document.getElementById('chat-section-select')?.value || '0', 10) }
+      : chatScopeMode === 'pages' ? { type: 'pages', range: (document.getElementById('chat-page-range')?.value || '').trim() }
+      : null
+    );
 
-    const retrievalPrompt = `You are analyzing an academic paper. The user asked: "${question}"
+    let retrievedContent = '';
+    let systemExtra = '';
+
+    if (scope?.type === 'outline') {
+      const batchSize = 6;
+      const summaries = [];
+      for (let i = 0; i < sections.length; i += batchSize) {
+        const slice = sections.slice(i, i + batchSize);
+        const body = slice.map((s, j) => `### [${i + j}] ${s.title}\n${s.body.slice(0, 2200)}`).join('\n\n');
+        loading.innerHTML = `<span class="spinner-sm"></span>分章摘要 ${i + 1}-${Math.min(i + batchSize, sections.length)}/${sections.length}…`;
+        const part = await callLLM(
+          `为以下论文章节各写 2–4 句中文要点摘要，保留关键术语与结论。用 Markdown 列表，每项以章节标题开头。\n\n${body}`
+        );
+        summaries.push(part);
+      }
+      retrievedContent = summaries.join('\n\n');
+      systemExtra = '用户要求分章摘要。请整合下列各批章节摘要，输出结构化总览（按原章节顺序），不要编造未提供的内容。';
+    } else if (scope?.type === 'section') {
+      const idx = Number(scope.index) || 0;
+      const indices = [idx];
+      if (idx + 1 < sections.length) indices.push(idx + 1);
+      retrievedContent = getRelevantContent(sections, indices, CHAT_RETRIEVAL_CONTEXT_CHARS);
+      systemExtra = `用户限定只基于章节「${sections[idx]?.title || idx}」回答（可参考相邻一节）。`;
+    } else if (scope?.type === 'pages') {
+      const m = String(scope.range || '').match(/(\d+)\s*[-–~到至]\s*(\d+)/);
+      if (!m) {
+        throw new Error('请填写页范围，例如 12-18');
+      }
+      const from = parseInt(m[1], 10);
+      const to = parseInt(m[2], 10);
+      const sliced = extractMdByPageRange(currentRawMd, Math.min(from, to), Math.max(from, to));
+      if (!sliced) {
+        throw new Error('当前 Markdown 无页标记，请改用「只问本章」或先用选页 OCR');
+      }
+      retrievedContent = sliced.slice(0, CHAT_RETRIEVAL_CONTEXT_CHARS);
+      systemExtra = `用户限定页范围 ${from}-${to}。`;
+    } else {
+      const retrievalPrompt = `You are analyzing an academic paper. The user asked: "${question}"
 
 Paper structure (TOC):
 ${toc}
 
 Pick the section indices that are useful for answering the question. Include background/method/result sections when they help explain the answer clearly. Return ONLY a JSON array like [0,3,5]. Do not explain.`;
 
-    let relevantIndices = [];
-    try {
-      const idxResp = await callLLM(retrievalPrompt);
-      const match = idxResp.match(/\[[\d,\s]+\]/);
-      if (match) relevantIndices = JSON.parse(match[0]);
-    } catch (e) {
-      relevantIndices = [0, 1, 2];
+      let relevantIndices = [];
+      try {
+        const idxResp = await callLLM(retrievalPrompt);
+        const match = idxResp.match(/\[[\d,\s]+\]/);
+        if (match) relevantIndices = JSON.parse(match[0]);
+      } catch (e) {
+        relevantIndices = [0, 1, 2];
+      }
+      retrievedContent = getRelevantContent(sections, relevantIndices, CHAT_RETRIEVAL_CONTEXT_CHARS);
     }
 
-    const retrievedContent = getRelevantContent(sections, relevantIndices, CHAT_RETRIEVAL_CONTEXT_CHARS);
-
     const systemPrompt = `You are a careful research assistant helping the user understand the paper "${currentArticle.title}".
+
+${systemExtra}
 
 Answer the user's question using the provided paper sections as evidence. Your goal is clarity and completeness, not brevity.
 
@@ -7806,11 +8418,12 @@ ${retrievedContent}`;
     }
   } catch (e) {
     loading.style.display = 'none';
-    msgs.appendChild(createMsgEl('assistant', `❌ 网络或 API 错误: ${e.message}`));
+    msgs.appendChild(createMsgEl('assistant', `❌ ${e.message || e}`));
   }
 
   chatBusy = false;
   sendBtn.disabled = false;
+  loading.innerHTML = '<span class="spinner-sm"></span>思考中...';
   msgs.scrollTop = msgs.scrollHeight;
 }
 function createMsgEl(role, text) {
@@ -12744,9 +13357,8 @@ async function showReconvert() {
   if (versions.length > 0) {
     verHtml = '<div id="version-list"><h5>历史版本</h5>';
     for (const v of versions) {
-      const histEntry = history.filter(h => h.engine === v.engine && h.status === 'success').pop();
-      const time = histEntry ? histEntry.time : '';
-      const current = v.engine === 'marker' ? '' : ''; // just simplify: all show as available
+      const histEntry = history.filter(h => h.engine === v.engine && h.status === 'success')[0];
+      const time = histEntry ? (histEntry.ts || histEntry.time || '') : '';
       verHtml += `<div class="version-item" onclick="loadVersion('${esc(article.id)}', '${esc(v.engine)}')">
         <span class="v-engine">${v.engine}</span>
         <span class="v-time">${time || ''}</span>
@@ -12755,10 +13367,10 @@ async function showReconvert() {
     verHtml += '</div>';
   } else if (history.length > 0) {
     verHtml = '<div id="version-list"><h5>转换记录</h5>';
-    for (const h of [...history].reverse()) {
+    for (const h of history) {
       verHtml += `<div class="version-item">
         <span class="v-engine">${h.engine}</span>
-        <span class="v-time">${h.time}</span>
+        <span class="v-time">${h.ts || h.time || ''}</span>
         <span class="v-status ${h.status}">${h.status === 'success' ? '✓' : '✗'}</span>
       </div>`;
     }
@@ -12842,41 +13454,73 @@ async function loadVersion(articleId, engine) {
 // Reparse panel: engine + LLM choice
 // ---------------------------------------------------------------------------
 
+const PAGE_OCR_ENGINES = new Set(['ocr', 'vision', 'llm_vision']);
+const ETA_SEC_PER_PAGE = { ocr: 8, vision: 12, llm_vision: 15, pymupdf: 0.05, marker: 3 };
 const ENGINE_OPTIONS = [
-  { value: 'marker',     label: 'Marker（本地）',          group: '本地',
-    desc: 'Marker：本地 Surya 模型，~6GB 显存，离线可用' },
-  { value: 'docmind',    label: 'DocMind（阿里云）',       group: '云端 API',
-    desc: 'DocMind：阿里云文档解析 API，无需 GPU，需配置 RAM AccessKey' },
-  { value: 'docparser',  label: 'DocParser（云 GPU）',     group: '云端 API',
-    desc: 'DocParser：DeconBear 云端 GPU 加速解析，支持 struct/polyglot 引擎' },
-  { value: 'unisound',   label: '云知声 U1（异步 PDF→MD）', group: 'OCR 异步',
-    desc: '云知声 U1 Doc Parser：异步上传 → 解析 → 拉取 Markdown。需 UNISOUND_API_KEY' },
-  { value: 'vision',     label: '云知声 Vision（逐页识图）', group: 'OCR 异步',
-    desc: '云知声 Vision：每页渲染成图发给 LLM，适合扫描件/版式复杂 PDF' },
-  { value: 'ocr',        label: '云 OCR（逐页 PNG）',      group: 'OCR 异步',
-    desc: '云 OCR：通用 HTTP 接口（云知声 等），需在 local.env 中配置 OCR_API_URL / OCR_API_KEY' },
-  { value: 'llm_vision', label: 'LLM 视觉解析',            group: 'OCR 异步',
-    desc: 'LLM 视觉解析：复用下方 LLM 配置（DeepSeek / OpenAI 等），逐页发图让模型抽 Markdown' },
+  { value: 'pymupdf',    label: 'PyMuPDF 文本层（免费 · 数字版推荐）', group: '快速全文',
+    desc: 'PyMuPDF：抽取 PDF 文本层，秒级出全文 Markdown；数字版书/论文优先用这个，不耗云 OCR token',
+    hint: '免费 · 全文 · 适合有文本层的 PDF' },
+  { value: 'ocr',        label: '云 OCR（默认 · 千问/通用）', group: '逐页 OCR',
+    desc: '云 OCR：默认文本层优先（有字的页跳过云调用），稀疏页才走千问；可强制全页云 OCR。支持全文/选页、边解析边显示、续跑与 token 统计',
+    hint: '默认 · 文本层优先 · 可强制云 OCR' },
+  { value: 'vision',     label: 'Vision（逐页识图）', group: '逐页 OCR',
+    desc: 'Vision：逐页渲染发视觉模型，适合扫描件；耗时随页数线性增长，支持全文/选页与续跑',
+    hint: '逐页 · 可全文或选页 · 可取消续跑' },
+  { value: 'llm_vision', label: 'LLM 视觉解析',            group: '逐页 OCR',
+    desc: 'LLM 视觉：复用下方 LLM 配置逐页识图；费用与时间随页数增长，支持全文/选页',
+    hint: '逐页 · 调用下方 LLM · 可全文或选页' },
+  { value: 'docmind',    label: 'DocMind（阿里云）',       group: '云端整本',
+    desc: 'DocMind：阿里云整本解析，无需 GPU；轮询约数分钟，适合长论文/书籍',
+    hint: '整本上传 · 适合长文档' },
+  { value: 'docparser',  label: 'DocParser（云 GPU）',     group: '云端整本',
+    desc: 'DocParser：云端 GPU 解析（struct/polyglot）；单文件约 100MB 上限，轮询最长约 50 分钟',
+    hint: '整本 · ≤100MB' },
+  { value: 'unisound',   label: '云知声 U1（异步 PDF→MD）', group: '云端整本',
+    desc: '云知声 U1：异步整本解析；约 100MB / 总超时约 600s',
+    hint: '整本 · ≤100MB · 超时约 10 分钟' },
+  { value: 'marker',     label: 'Marker（本地 · 不推荐）', group: '高级（不推荐）',
+    desc: 'Marker：本地 Surya，~6GB 显存，进程超时约 600s；厚书易失败。仅离线/无云 API 时使用',
+    hint: '本地 · ~6GB 显存 · 约 600s 超时' },
 ];
+
+function formatEtaSeconds(sec) {
+  const s = Math.max(0, Math.round(Number(sec) || 0));
+  if (!s) return '';
+  if (s < 60) return `约 ${s} 秒`;
+  const m = Math.floor(s / 60), r = s % 60;
+  if (m < 60) return r ? `约 ${m} 分 ${r} 秒` : `约 ${m} 分钟`;
+  const h = Math.floor(m / 60), mm = m % 60;
+  return `约 ${h} 小时 ${mm} 分`;
+}
+
+function estimateConvertSeconds(engine, pageCount, { forceOcr = false } = {}) {
+  const n = Math.max(0, Number(pageCount) || 0);
+  if (!n) return 0;
+  if (engine === 'pymupdf') return Math.max(2, Math.round(n * 0.05));
+  if (engine === 'ocr' && !forceOcr) return Math.max(5, Math.round(n * 0.15)); // text-layer first
+  const spp = ETA_SEC_PER_PAGE[engine] || 10;
+  return Math.max(5, Math.round(n * spp));
+}
 
 const ENGINE_DESCS = Object.fromEntries(ENGINE_OPTIONS.map(o => [o.value, o.desc]));
 
 function buildReparsePanelHtml() {
-  // Two-row layout: engine row, LLM row, then a [开始解析] button.
   const groups = [];
   let lastGroup = null;
   for (const opt of ENGINE_OPTIONS) {
     if (opt.group !== lastGroup) {
+      if (lastGroup) groups.push('</optgroup>');
       groups.push(`<optgroup label="${esc(opt.group)}">`);
       lastGroup = opt.group;
     }
-    groups.push(`<option value="${opt.value}">${esc(opt.label)}</option>`);
+    const selected = opt.value === 'ocr' ? ' selected' : '';
+    groups.push(`<option value="${opt.value}"${selected}>${esc(opt.label)}</option>`);
   }
-  // close last optgroup if open
   if (lastGroup) groups.push('</optgroup>');
+  const pages = Number(currentArticle?.pages) || 0;
 
   return `
-    <p style="font-size:14px;color:var(--text-2);margin-bottom:16px">选择识别引擎与 LLM 后开始重新解析</p>
+    <p style="font-size:14px;color:var(--text-2);margin-bottom:16px">选择识别引擎与 LLM 后开始解析</p>
     <div id="engine-selector">
       <div class="engine-row">
         <label>识别引擎</label>
@@ -12885,6 +13529,25 @@ function buildReparsePanelHtml() {
         </select>
       </div>
       <p class="engine-desc" id="engine-desc"></p>
+      <div id="engine-estimate"></div>
+      <div id="preparse-hint" style="display:none;margin-top:8px;padding:8px 10px;border-radius:8px;background:var(--accent-subtle,#eef4ff);border:1px solid var(--border);font-size:12px;color:var(--text-2);text-align:left;line-height:1.45"></div>
+      <div class="ocr-range-box" id="ocr-range-box" style="display:none">
+        <div class="ocr-mode">
+          <label><input type="radio" name="ocr-mode" value="full" checked /> 全文</label>
+          <label><input type="radio" name="ocr-mode" value="range" /> 选页</label>
+        </div>
+        <div class="ocr-pages" id="ocr-pages-row" style="display:none">
+          <span>第</span>
+          <input type="number" id="ocr-page-from" min="1" value="1" />
+          <span>–</span>
+          <input type="number" id="ocr-page-to" min="1" value="${pages || 1}" />
+          <span>页${pages ? `（共 ${pages} 页）` : ''}</span>
+          <button type="button" class="ctrl-btn" style="padding:2px 8px;font-size:11px" onclick="setOcrQuickRange(10)">前 10 页</button>
+        </div>
+        <label style="display:flex;gap:6px;align-items:center;margin-top:8px;font-size:12px;color:var(--text-2)">
+          <input type="checkbox" id="ocr-force-cloud" /> 强制云 OCR（忽略文本层，较慢且耗 token）
+        </label>
+      </div>
       <div class="engine-row engine-row-llm">
         <label>LLM 模型</label>
         <select id="convert-llm-provider" style="flex:1;min-width:140px"></select>
@@ -12892,23 +13555,147 @@ function buildReparsePanelHtml() {
       </div>
       <p class="engine-desc" id="convert-llm-desc">用于元信息提取 / 翻译 / 校准。修改后会同步到全局 LLM 设置。</p>
       <div class="engine-actions">
-        <button class="btn-emerald btn-convert" onclick="startConvert()">开始解析</button>
+        <button class="btn-emerald btn-convert" id="btn-start-convert" onclick="startConvert(false)">开始解析</button>
+        <button class="ctrl-btn btn-convert" id="btn-resume-convert" style="display:none" onclick="startConvert(true)">续跑</button>
       </div>
     </div>
   `;
+}
+
+function _updateEngineEstimate() {
+  const engineSel = document.getElementById('engine-select');
+  const el = document.getElementById('engine-estimate');
+  if (!engineSel || !el) return;
+  const opt = ENGINE_OPTIONS.find(o => o.value === engineSel.value);
+  const pages = Number(currentArticle?.pages) || 0;
+  const mode = document.querySelector('input[name="ocr-mode"]:checked')?.value || 'full';
+  let pageCount = pages;
+  if (PAGE_OCR_ENGINES.has(engineSel.value) && mode === 'range') {
+    const from = parseInt(document.getElementById('ocr-page-from')?.value || '1', 10) || 1;
+    const to = parseInt(document.getElementById('ocr-page-to')?.value || String(from), 10) || from;
+    pageCount = Math.max(0, to - from + 1);
+  }
+  const forceOcr = !!document.getElementById('ocr-force-cloud')?.checked;
+  const eta = estimateConvertSeconds(engineSel.value, pageCount, { forceOcr });
+  const bits = [];
+  if (pages) bits.push(`本文约 ${pages} 页`);
+  if (PAGE_OCR_ENGINES.has(engineSel.value) && pageCount && pageCount !== pages) {
+    bits.push(`本次 ${pageCount} 页`);
+  }
+  if (opt?.hint) bits.push(opt.hint);
+  if (eta) bits.push(`预计耗时 ${formatEtaSeconds(eta)}`);
+  if (engineSel.value === 'ocr' && !forceOcr) {
+    bits.push('文本层优先时几乎不耗 token');
+  } else if (engineSel.value === 'ocr' && forceOcr && pageCount) {
+    bits.push('强制云 OCR 将按页计费');
+  }
+  if (pages >= 80 && PAGE_OCR_ENGINES.has(engineSel.value) && forceOcr) {
+    bits.push('厚书强制云 OCR 很慢，建议文本层优先或 DocMind');
+  } else if (pages >= 80 && engineSel.value === 'marker') {
+    bits.push('厚书本地 Marker 易超时/显存不足，建议云端引擎');
+  } else if (pages >= 80 && engineSel.value === 'pymupdf') {
+    bits.push('数字版厚书优先本引擎');
+  }
+  el.textContent = bits.join(' · ');
+  _updatePreparseHint();
+}
+
+async function _updatePreparseHint() {
+  const box = document.getElementById('preparse-hint');
+  const engineSel = document.getElementById('engine-select');
+  if (!box || !engineSel || !currentArticle?.id) return;
+  const pages = Number(currentArticle.pages) || 0;
+  if (pages < 20 || !PAGE_OCR_ENGINES.has(engineSel.value)) {
+    box.style.display = 'none';
+    return;
+  }
+  // Heuristic: if article already has md from pymupdf history, recommend it.
+  const parser = (currentArticle.parser || '').toLowerCase();
+  const forceOcr = !!document.getElementById('ocr-force-cloud')?.checked;
+  if (forceOcr) {
+    box.style.display = 'block';
+    box.innerHTML = `已勾选强制云 OCR：约 ${pages} 页将逐页识图，耗时与 token 随页数增长。数字版请优先取消勾选或改用 <b>PyMuPDF 文本层</b>。`;
+    return;
+  }
+  box.style.display = 'block';
+  box.innerHTML = `长文档提示：云 OCR 默认<strong>文本层优先</strong>（有字的页不调云）。数字版全书可直接选 <button type="button" class="ctrl-btn" style="padding:1px 8px;font-size:11px;margin:0 4px" onclick="document.getElementById('engine-select').value='pymupdf';document.getElementById('engine-select').dispatchEvent(new Event('change'))">PyMuPDF 全文</button>${parser === 'pymupdf' ? '（当前已是文本层解析）' : ''}。`;
+}
+
+function _syncOcrRangeUi() {
+  const engineSel = document.getElementById('engine-select');
+  const box = document.getElementById('ocr-range-box');
+  const pagesRow = document.getElementById('ocr-pages-row');
+  if (!engineSel || !box) return;
+  const isPage = PAGE_OCR_ENGINES.has(engineSel.value);
+  box.style.display = isPage ? 'block' : 'none';
+  const mode = document.querySelector('input[name="ocr-mode"]:checked')?.value || 'full';
+  if (pagesRow) pagesRow.style.display = (isPage && mode === 'range') ? 'flex' : 'none';
+  const pages = Number(currentArticle?.pages) || 0;
+  const toEl = document.getElementById('ocr-page-to');
+  if (toEl && pages && (!toEl.value || Number(toEl.value) > pages)) toEl.value = String(pages);
+  _updateEngineEstimate();
+}
+
+function setOcrQuickRange(n) {
+  const pages = Number(currentArticle?.pages) || n;
+  const fromEl = document.getElementById('ocr-page-from');
+  const toEl = document.getElementById('ocr-page-to');
+  const rangeRadio = document.querySelector('input[name="ocr-mode"][value="range"]');
+  if (rangeRadio) rangeRadio.checked = true;
+  if (fromEl) fromEl.value = '1';
+  if (toEl) toEl.value = String(Math.min(n, pages || n));
+  _syncOcrRangeUi();
+}
+
+async function _loadOcrCheckpointUi() {
+  const btn = document.getElementById('btn-resume-convert');
+  if (!btn || !currentArticle?.id) return;
+  try {
+    const r = await fetch(`/api/articles/${encodeURIComponent(currentArticle.id)}/ocr-checkpoint`);
+    if (!r.ok) { btn.style.display = 'none'; return; }
+    const ck = await r.json();
+    if (ck.exists && (ck.status === 'cancelled' || ck.status === 'running') && ck.next_page != null) {
+      btn.style.display = '';
+      btn.textContent = `从第 ${ck.next_page} 页续跑`;
+      btn.dataset.engine = ck.engine || '';
+      btn.dataset.pageFrom = ck.page_from || '';
+      btn.dataset.pageTo = ck.page_to || '';
+      const engineSel = document.getElementById('engine-select');
+      if (engineSel && ck.engine) engineSel.value = ck.engine;
+      if (ck.page_from && ck.page_to) {
+        const rangeRadio = document.querySelector('input[name="ocr-mode"][value="range"]');
+        const fullRadio = document.querySelector('input[name="ocr-mode"][value="full"]');
+        const pages = Number(ck.pdf_total) || Number(currentArticle?.pages) || 0;
+        if (ck.page_from === 1 && pages && ck.page_to >= pages) {
+          if (fullRadio) fullRadio.checked = true;
+        } else if (rangeRadio) {
+          rangeRadio.checked = true;
+          const fromEl = document.getElementById('ocr-page-from');
+          const toEl = document.getElementById('ocr-page-to');
+          if (fromEl) fromEl.value = ck.page_from;
+          if (toEl) toEl.value = ck.page_to;
+        }
+      }
+      _syncOcrRangeUi();
+    } else {
+      btn.style.display = 'none';
+    }
+  } catch (_) {
+    btn.style.display = 'none';
+  }
 }
 
 function wireReparsePanel() {
   const engineSel = document.getElementById('engine-select');
   const engineDesc = document.getElementById('engine-desc');
   if (engineSel && engineDesc) {
-    // Default: marker
-    if (!engineSel.value) engineSel.value = 'marker';
+    if (![...engineSel.options].some(o => o.value === engineSel.value)) {
+      engineSel.value = 'ocr';
+    }
+    if (!engineSel.value) engineSel.value = 'ocr';
     engineDesc.textContent = ENGINE_DESCS[engineSel.value] || '';
-    engineSel.addEventListener('change', () => {
+    const onEngineChange = () => {
       engineDesc.textContent = ENGINE_DESCS[engineSel.value] || '';
-      // If the chosen engine is LLM-based (llm_vision), remind the user
-      // that the LLM dropdown below directly drives the parser.
       const llmDesc = document.getElementById('convert-llm-desc');
       if (llmDesc) {
         if (engineSel.value === 'llm_vision' || engineSel.value === 'vision') {
@@ -12917,13 +13704,25 @@ function wireReparsePanel() {
           llmDesc.textContent = '用于元信息提取 / 翻译 / 校准。修改后会同步到全局 LLM 设置。';
         }
       }
-    });
+      _syncOcrRangeUi();
+    };
+    engineSel.addEventListener('change', onEngineChange);
+    onEngineChange();
   }
+  document.querySelectorAll('input[name="ocr-mode"]').forEach(r => {
+    r.addEventListener('change', _syncOcrRangeUi);
+  });
+  const forceCb = document.getElementById('ocr-force-cloud');
+  if (forceCb) forceCb.addEventListener('change', _updateEngineEstimate);
+  ['ocr-page-from', 'ocr-page-to'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', _updateEngineEstimate);
+  });
+  _loadOcrCheckpointUi();
 
   const providerSel = document.getElementById('convert-llm-provider');
   const modelSel = document.getElementById('convert-llm-model');
   if (providerSel && modelSel) {
-    // Fill from llmConfig (load if not loaded yet).
     const fill = () => {
       const providers = (llmConfig && llmConfig.providers) || [];
       providerSel.innerHTML = providers
@@ -12992,9 +13791,29 @@ async function persistConvertLLMChoice() {
   }
 }
 
-async function startConvert() {
+function _readOcrRangePayload(engine) {
+  if (!PAGE_OCR_ENGINES.has(engine)) return {};
+  const mode = document.querySelector('input[name="ocr-mode"]:checked')?.value || 'full';
+  const pages = Number(currentArticle?.pages) || 0;
+  const forceOcr = !!document.getElementById('ocr-force-cloud')?.checked;
+  let range;
+  if (mode === 'full') {
+    range = { page_from: 1, page_to: pages || null };
+  } else {
+    let from = parseInt(document.getElementById('ocr-page-from')?.value || '1', 10);
+    let to = parseInt(document.getElementById('ocr-page-to')?.value || String(from), 10);
+    if (!Number.isFinite(from) || from < 1) from = 1;
+    if (!Number.isFinite(to) || to < from) to = from;
+    if (pages && to > pages) to = pages;
+    range = { page_from: from, page_to: to };
+  }
+  if (engine === 'ocr') range.force_ocr = forceOcr;
+  return range;
+}
+
+async function startConvert(resume = false) {
   const sel = document.getElementById('engine-select');
-  const engine = sel ? sel.value : 'marker';
+  let engine = sel ? sel.value : 'ocr';
   const article = currentArticle;
   if (!article) return;
   if (!article.pdf_available) {
@@ -13002,26 +13821,69 @@ async function startConvert() {
     return;
   }
 
-  // Persist the LLM dropdown choice to the global config so that
-  // run_conversion / extract_info_for_article / translate all see it.
+  let range = _readOcrRangePayload(engine);
+  if (resume) {
+    const btn = document.getElementById('btn-resume-convert');
+    if (btn?.dataset.engine) engine = btn.dataset.engine;
+    if (btn?.dataset.pageFrom) range.page_from = parseInt(btn.dataset.pageFrom, 10);
+    if (btn?.dataset.pageTo) range.page_to = parseInt(btn.dataset.pageTo, 10);
+  }
+
+  const pages = Number(article.pages) || 0;
+  const pageCount = (range.page_from && range.page_to)
+    ? (range.page_to - range.page_from + 1)
+    : pages;
+  const forceOcr = !!range.force_ocr;
+  const etaSec = estimateConvertSeconds(engine, pageCount, { forceOcr });
+  const needConfirm = !resume && pageCount >= 80 && (
+    engine === 'marker' || (PAGE_OCR_ENGINES.has(engine) && forceOcr)
+  );
+  if (needConfirm) {
+    const btn = document.getElementById('btn-start-convert');
+    const key = `${engine}:${forceOcr ? 'force' : 'hybrid'}`;
+    if (btn && btn.dataset.longDocConfirm !== key) {
+      btn.dataset.longDocConfirm = key;
+      showDataRootMsg(
+        `约 ${pageCount} 页 · 预计 ${formatEtaSeconds(etaSec)}。强制云 OCR/Marker 可能很慢且耗 token。再点一次「开始解析」确认。`,
+        'amber',
+      );
+      return;
+    }
+  }
+  if (!resume && PAGE_OCR_ENGINES.has(engine) && range.page_from && range.page_to && range.page_from > range.page_to) {
+    toast('页码范围无效', 'error');
+    return;
+  }
+
   await persistConvertLLMChoice();
 
-  // Show converting UI
   article.converting = true;
   document.getElementById('md-content').innerHTML = `
     <div style="max-width:700px;margin:0 auto;padding:20px">
       <div style="text-align:center;margin-bottom:20px">
         <div class="spinner"></div>
-        <p style="margin-top:12px;font-weight:600;color:var(--text-strong)" id="conv-status-msg">正在启动 ${engine} 引擎...</p>
-        <p style="font-size:12px;color:var(--text-3)">实时日志如下，完成后自动刷新</p>
+        <p style="margin-top:12px;font-weight:600;color:var(--text-strong)" id="conv-status-msg">正在启动 ${esc(engine)} 引擎...</p>
+        <p style="font-size:12px;color:var(--text-3)">边解析边写入 Markdown；进度、剩余时间与 token 如下</p>
+        <div id="conv-progress-wrap">
+          <div class="bar"><i id="conv-progress-bar"></i></div>
+          <div class="meta" id="conv-progress-meta">准备中…预计 ${esc(formatEtaSeconds(etaSec) || '计算中')}</div>
+        </div>
+        <div style="margin-top:12px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+          <button type="button" class="ctrl-btn" id="btn-cancel-convert" onclick="cancelConvert('${esc(article.id)}')">取消</button>
+          <button type="button" class="ctrl-btn" id="btn-peek-partial" style="display:none" onclick="peekPartialMarkdown('${esc(article.id)}')">查看已解析内容</button>
+        </div>
       </div>
+      <div id="conv-partial-preview" style="display:none;margin-bottom:12px;max-height:280px;overflow:auto;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);text-align:left;font-size:13px;line-height:1.55"></div>
       <div id="conv-log-viewer" style="background:var(--surface-2);color:var(--text);padding:16px;border-radius:8px;font-family:'SFMono-Regular',Consolas,monospace;font-size:12px;line-height:1.7;max-height:400px;overflow-y:auto;white-space:pre-wrap;border:1px solid var(--border)">提交中...</div>
     </div>`;
   document.getElementById('md-content').style.display = 'block';
+  if (PAGE_OCR_ENGINES.has(engine) || engine === 'pymupdf') {
+    const wrap = document.getElementById('conv-progress-wrap');
+    if (wrap) wrap.style.display = 'block';
+  }
 
-  // Trigger conversion
   try {
-    const payload = { id: article.id, engine: engine };
+    const payload = { id: article.id, engine, resume: !!resume, ...range };
     if (engine === 'docparser') {
       const urlInput = document.getElementById('docparser-url-input');
       if (urlInput && urlInput.value.trim() !== '') {
@@ -13045,11 +13907,78 @@ async function startConvert() {
       startConvPolling(article.id);
     } else {
       const logViewer = document.getElementById('conv-log-viewer');
-      if (logViewer) logViewer.textContent = '发起解析请求失败';
+      if (logViewer) logViewer.textContent = '发起解析请求失败: ' + (await resp.text());
     }
   } catch (e) {
     const logViewer = document.getElementById('conv-log-viewer');
     if (logViewer) logViewer.textContent = '网络错误: ' + e.message;
+  }
+}
+
+async function cancelConvert(articleId) {
+  try {
+    await fetch('/api/convert/' + encodeURIComponent(articleId) + '/cancel', { method: 'POST' });
+    const statusMsg = document.getElementById('conv-status-msg');
+    if (statusMsg) statusMsg.textContent = '正在取消…';
+  } catch (e) {
+    toast('取消请求失败: ' + e.message, 'error');
+  }
+}
+
+async function peekPartialMarkdown(articleId) {
+  const preview = document.getElementById('conv-partial-preview');
+  const btn = document.getElementById('btn-peek-partial');
+  if (!preview) return;
+  try {
+    const resp = await fetch(`articles/${encodeURIComponent(articleId)}/${encodeURIComponent(articleId)}.md?t=${Date.now()}`);
+    if (!resp.ok) throw new Error('暂无部分结果');
+    const md = await resp.text();
+    preview.style.display = 'block';
+    if (btn) btn.style.display = '';
+    // Lightweight preview: escape + keep line breaks; full render after done.
+    const clip = md.length > 12000 ? md.slice(0, 12000) + '\n\n…' : md;
+    preview.innerHTML = '<pre style="white-space:pre-wrap;margin:0;font-family:inherit">' + esc(clip) + '</pre>';
+    preview.scrollTop = preview.scrollHeight;
+  } catch (e) {
+    toast(e.message || '读取失败', 'error');
+  }
+}
+
+let _convLastPartialAt = 0;
+async function _refreshPartialDuringConvert(articleId, data) {
+  if (!(data.done > 0)) return;
+  const now = Date.now();
+  if (now - _convLastPartialAt < 2500) return;
+  _convLastPartialAt = now;
+  const btn = document.getElementById('btn-peek-partial');
+  if (btn) btn.style.display = '';
+  const preview = document.getElementById('conv-partial-preview');
+  if (preview && preview.style.display !== 'none') {
+    await peekPartialMarkdown(articleId);
+  }
+}
+
+function _showConvCancelledUi(articleId, data) {
+  const statusMsg = document.getElementById('conv-status-msg');
+  const cancelBtn = document.getElementById('btn-cancel-convert');
+  if (cancelBtn) cancelBtn.style.display = 'none';
+  if (statusMsg) {
+    statusMsg.textContent = '已取消 — 可从断点续跑';
+    statusMsg.style.color = 'var(--amber, #d97706)';
+  }
+  const wrap = document.getElementById('conv-progress-wrap');
+  if (wrap && !document.getElementById('btn-resume-after-cancel')) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn-emerald btn-convert';
+    b.id = 'btn-resume-after-cancel';
+    b.style.marginTop = '10px';
+    b.textContent = `从第 ${data.next_page || (data.done || 0) + 1} 页续跑`;
+    b.onclick = async () => {
+      await showReconvert();
+      startConvert(true);
+    };
+    wrap.parentElement.appendChild(b);
   }
 }
 
@@ -13058,6 +13987,9 @@ async function startConvPolling(articleId) {
 
   const logViewer = document.getElementById('conv-log-viewer');
   const statusMsg = document.getElementById('conv-status-msg');
+  const bar = document.getElementById('conv-progress-bar');
+  const meta = document.getElementById('conv-progress-meta');
+  const wrap = document.getElementById('conv-progress-wrap');
 
   async function poll() {
     try {
@@ -13065,32 +13997,75 @@ async function startConvPolling(articleId) {
       if (!resp.ok) return;
       const data = await resp.json();
 
-      // Update log viewer
       if (logViewer && data.log) {
         logViewer.textContent = data.log;
         logViewer.scrollTop = logViewer.scrollHeight;
       }
+      if (statusMsg && data.message) statusMsg.textContent = data.message;
 
-      // Update status message
-      if (statusMsg && data.message) {
-        statusMsg.textContent = data.message;
+      if (data.total > 0 && wrap) {
+        wrap.style.display = 'block';
+        const pct = data.percent != null ? data.percent : Math.round(100 * (data.done || 0) / data.total);
+        if (bar) bar.style.width = pct + '%';
+        const tok = Number(data.total_tokens) || 0;
+        const tokIn = Number(data.prompt_tokens) || 0;
+        const tokOut = Number(data.completion_tokens) || 0;
+        const eta = data.eta_seconds != null ? formatEtaSeconds(data.eta_seconds) : '';
+        if (meta) {
+          meta.textContent = `${data.done || 0}/${data.total}（${pct}%）`
+            + (data.page_from && data.page_to ? ` · 范围 ${data.page_from}-${data.page_to}` : '')
+            + (eta ? ` · 剩余 ${eta}` : '')
+            + ((data.pages_text || data.pages_ocr)
+              ? ` · 文本层 ${data.pages_text || 0} / 云 ${data.pages_ocr || 0}` : '')
+            + (tok ? ` · tokens ${tok}（in ${tokIn} / out ${tokOut}）` : '');
+        }
+        await _refreshPartialDuringConvert(articleId, data);
       }
 
-      // If done, reload the article
       if (data.status === 'done') {
         clearInterval(convPollTimer);
         convPollTimer = null;
-        if (statusMsg) statusMsg.textContent = '✅ 解析完成，正在刷新...';
-        // Reload articles list and reopen
-        await loadArticles();
-        // Update the current article reference
-        const updated = articles.find(a => a.id === articleId);
-        if (updated && !updated.converting && updated.md_available) {
-          openReader(articleId);
-        } else {
-          // Still show converting if not ready
-          if (statusMsg) statusMsg.textContent = '等待文件写入...';
+        const tok = Number(data.total_tokens) || 0;
+        if (statusMsg) {
+          statusMsg.textContent = tok
+            ? `✅ 解析完成 · 共用 tokens ${tok}，正在刷新...`
+            : '✅ 解析完成，正在刷新...';
         }
+        try {
+          await Promise.race([
+            loadArticles(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000)),
+          ]);
+        } catch (_) { /* catalog refresh is best-effort */ }
+        const updated = articles.find(a => a.id === articleId);
+        if (updated) {
+          updated.converting = false;
+          updated.md_available = true;
+        } else if (currentArticle?.id === articleId) {
+          articles.push({
+            ...currentArticle,
+            converting: false,
+            md_available: true,
+          });
+        }
+        try {
+          // Must force-reload: tab is already active, plain openReader is a no-op.
+          await reloadArticleReader(articleId);
+        } catch (_) {
+          if (statusMsg) statusMsg.textContent = '解析完成，但刷新失败 — 请关闭标签后重新打开';
+        }
+      } else if (data.status === 'cancelled') {
+        clearInterval(convPollTimer);
+        convPollTimer = null;
+        // Enrich with checkpoint next_page
+        try {
+          const ckR = await fetch(`/api/articles/${encodeURIComponent(articleId)}/ocr-checkpoint`);
+          if (ckR.ok) {
+            const ck = await ckR.json();
+            if (ck.exists) Object.assign(data, ck);
+          }
+        } catch (_) {}
+        _showConvCancelledUi(articleId, data);
       } else if (data.status === 'error') {
         clearInterval(convPollTimer);
         convPollTimer = null;
@@ -13098,18 +14073,15 @@ async function startConvPolling(articleId) {
           statusMsg.textContent = '❌ 解析失败: ' + (data.message || '未知错误');
           statusMsg.style.color = 'var(--rose)';
         }
-        // Show error prominently
-        if (logViewer) {
-          logViewer.style.borderColor = 'var(--rose)';
-        }
+        if (logViewer) logViewer.style.borderColor = 'var(--rose)';
       }
-    } catch(e) {
-      // API might be busy, keep polling
+    } catch (e) {
+      // keep polling
     }
   }
 
-  poll(); // First call immediately
-  convPollTimer = setInterval(poll, 1500);
+  poll();
+  convPollTimer = setInterval(poll, 1200);
 }
 </script>
 <script src="assets/bitable.js?v=20260715-fix42"></script>

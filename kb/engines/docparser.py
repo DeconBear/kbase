@@ -6,7 +6,6 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from engines._paths import ARTICLES_DIR
 from storage import load_local_env
 
 load_local_env()
@@ -182,8 +181,9 @@ class DocParserEngine:
         log(f"  Parsed in {parse_time:.1f}s, {len(markdown)} chars")
 
         # Save result
-        article_dir = ARTICLES_DIR / article_id
-        article_dir.mkdir(parents=True, exist_ok=True)
+        from engines._paths import resolve_article_dir
+
+        article_dir = resolve_article_dir(article_id, create=True)
 
         from workspace_paths import publish_engine_markdown
 

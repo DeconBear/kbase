@@ -40,7 +40,7 @@ def _manifest_flags(ws: Workspace) -> dict[str, Any]:
         "autoClassifyPdfs": m.get("autoClassifyPdfs", True),
         "autoExtractMetadata": m.get("autoExtractMetadata", True),
         "classifyUseLlm": m.get("classifyUseLlm", "uncertain_only"),
-        "literatureDir": m.get("literatureDir") or "articles",
+        "literatureDir": m.get("literatureDir") or ".literature",
     }
 
 
