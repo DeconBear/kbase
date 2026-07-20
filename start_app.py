@@ -1,23 +1,37 @@
-import sys
-import subprocess
+"""Launch KBase desktop without leaving a Python console window open."""
+from __future__ import annotations
+
 import os
+import subprocess
+import sys
+from pathlib import Path
 
-def main():
-    python_exe = sys.executable
-    pythonw_exe = python_exe.replace("python.exe", "pythonw.exe")
-    
-    # Prefer pythonw if it exists to avoid console flash
-    exe = pythonw_exe if os.path.exists(pythonw_exe) else python_exe
-    
-    startupinfo = None
-    if sys.platform == 'win32' and exe == python_exe:
-        # Hide console window if using python.exe
-        startupinfo = subprocess.STARTUPINFO()
-        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
 
-    subprocess.Popen([exe, "kb/desktop.py"], startupinfo=startupinfo)
-    print("KBase has been launched in the background!")
-    print("You can now close this console window.")
+def main() -> int:
+    root = Path(__file__).resolve().parent
+    desktop = root / "kb" / "desktop.py"
+    if not desktop.is_file():
+        print(f"Cannot find {desktop}", file=sys.stderr)
+        return 1
+
+    python_exe = Path(sys.executable)
+    pythonw = python_exe.with_name("pythonw.exe")
+    exe = pythonw if pythonw.is_file() else python_exe
+
+    creationflags = 0
+    if sys.platform == "win32":
+        creationflags = getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
+        if exe.name.lower() == "python.exe":
+            creationflags |= getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+
+    subprocess.Popen(
+        [str(exe), str(desktop)],
+        cwd=str(root),
+        close_fds=True,
+        creationflags=creationflags,
+    )
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

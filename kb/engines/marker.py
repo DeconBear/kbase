@@ -6,7 +6,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from engines._paths import ARTICLES_DIR, LOW_MEMORY_CONFIG as RUNTIME_CONFIG, REPO_ROOT
+from engines._paths import LOW_MEMORY_CONFIG as RUNTIME_CONFIG, REPO_ROOT
 from storage import DATA_ROOT as _DATA_ROOT
 MARKER_DEPS_INSTALLING = _DATA_ROOT / ".marker_deps_installing"
 
@@ -120,7 +120,9 @@ class MarkerEngine:
         if device in {"cpu", "cuda"}:
             env["TORCH_DEVICE"] = device
 
-        article_dir = ARTICLES_DIR / article_id
+        from engines._paths import resolve_article_dir
+
+        article_dir = resolve_article_dir(article_id, create=True)
         work_root = article_dir / ".marker_work"
         if work_root.exists():
             try:

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Knowledge Base - 论文知识库</title>
-<link rel="icon" type="image/png" href="assets/kbase-logo-64.png">
+<link rel="icon" type="image/png" href="assets/kbase-logo-64.png?v=2">
 <!-- Vendored CDN libraries under assets/cdn/ — original upstream URLs are kept in comments for reference -->
 <script src="assets/cdn/marked.min.js"></script>
 <!-- was: https://cdn.jsdelivr.net/npm/marked/marked.min.js -->
@@ -360,22 +360,48 @@ select option{background:var(--surface-2);color:var(--text)}
 .sidebar-nav-btn.primary{background:var(--primary);color:#fff;border-color:var(--primary)}
 .sidebar-nav-btn.primary:hover{background:var(--primary-hover);border-color:var(--primary-hover);box-shadow:0 2px 8px rgba(53,115,240,.25)}
 .sidebar-nav-btn.icon-only{padding:5px 8px;font-size:14px}
-#folder-tree-body{display:none}
+#folder-tree-body{display:none;flex:1;overflow-y:auto;padding:4px 0 10px;min-height:0}
 #folder-tree-actions{display:none}
+#folder-tree-pane.mode-collections #folder-tree-body{display:flex;flex-direction:column}
+#folder-tree-pane.mode-collections #folder-tree-actions{display:flex}
+#folder-tree-pane.mode-collections #workspace-doc-tree,
+#folder-tree-pane.mode-collections #workspace-bookmark-tree,
+#folder-tree-pane.mode-collections #workspace-file-actions{display:none !important}
+#folder-tree-pane.mode-workspace #folder-tree-body,
+#folder-tree-pane.mode-workspace #folder-tree-actions{display:none !important}
+#library-side-tabs{display:flex;gap:0;padding:0;border-bottom:1px solid var(--border);background:var(--surface-2);flex-shrink:0}
+#library-side-tabs button{flex:1;border:0;background:transparent;color:var(--text-3);font-size:12px;font-weight:600;padding:8px 6px;cursor:pointer;border-bottom:2px solid transparent}
+#library-side-tabs button.active{color:var(--text-strong);border-bottom-color:var(--primary);background:var(--surface)}
+#library-side-tabs button:hover{color:var(--text)}
 .folder-tree-item{padding:6px 12px;cursor:pointer;font-size:13px;color:var(--text-2);display:flex;align-items:center;gap:6px;transition:var(--transition);border-left:3px solid transparent;user-select:none}
 .folder-tree-item:hover{background:var(--list-hover);color:var(--text)}
 .folder-tree-item.active{border-left-color:var(--primary);background:var(--list-active);color:var(--text-strong);font-weight:500;box-shadow:inset 3px 0 0 var(--primary)}
 .folder-tree-item.drag-over{background:var(--primary-subtle);border:1px dashed var(--primary)}
-.folder-tree-item .folder-icon{font-size:14px;width:18px;text-align:center;flex-shrink:0}
+.folder-tree-item .folder-icon{width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;line-height:0}
+.folder-tree-item .folder-icon .kb-ico{width:16px;height:16px;display:block}
 .folder-tree-item .folder-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
 .folder-tree-item .folder-count{font-size:10px;color:var(--text-3);background:var(--surface-3);padding:1px 6px;border-radius:10px;flex-shrink:0}
-.folder-tree-item .folder-toggle{font-size:10px;width:14px;text-align:center;cursor:pointer;color:var(--text-3);flex-shrink:0}
+.folder-tree-item .folder-toggle{width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text-3);flex-shrink:0;line-height:0}
+.folder-tree-item .folder-toggle .kb-ico{width:12px;height:12px;opacity:.75}
+.folder-tree-item.active .folder-icon .kb-ico{color:var(--primary)}
+.kb-ico{color:currentColor;flex-shrink:0}
+.kb-ico-folder{color:#e8a317}
+.kb-ico-folder-open{color:#3573f0}
+.kb-ico-library{color:#3573f0}
+.kb-ico-inbox{color:#8b8b8b}
+.kb-ico-pdf{color:#e84654}
+.kb-ico-md{color:#36b37e}
+.kb-ico-link{color:#3573f0}
+.kb-ico-file{color:#8b8b8b}
+.kb-ico-image{color:#a78bfa}
+.kb-ico-code{color:#38bdf8}
 .article-tree-item{padding:5px 14px;cursor:pointer;font-size:12px;color:var(--text-2);display:flex;align-items:center;gap:6px;transition:var(--transition);user-select:none}
 .article-tree-item:hover{background:var(--accent-subtle);color:var(--text)}
 .article-tree-item .item-icon{font-size:13px;width:16px;text-align:center;flex-shrink:0;opacity:.6}
 .article-tree-item .item-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
 .article-tree-item .item-badge{font-size:10px;flex-shrink:0}
-.article-tree-item .article-item-icon{font-size:13px;width:16px;text-align:center;flex-shrink:0;opacity:.6}
+.article-tree-item .article-item-icon{width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;opacity:.85;line-height:0}
+.article-tree-item .article-item-icon .kb-ico{width:14px;height:14px}
 .article-card-sm{margin:4px 8px;padding:10px 14px;background:var(--surface-2);border-radius:var(--radius-sm);border:1px solid var(--border);cursor:pointer;transition:var(--transition)}
 .article-card-sm:hover{background:var(--surface-3);border-color:var(--border-light)}
 .article-card-sm-title{font-size:13px;font-weight:600;color:var(--text-strong);margin-bottom:4px}
@@ -1311,7 +1337,7 @@ body { display: flex !important; flex-direction: column !important; height: 100v
           <button class="sidebar-nav-btn" onclick="switchToKanbanView()" title="打开看板">📋 看板</button>
           <button class="sidebar-nav-btn" onclick="promptOrganizeLiterature()" title="自动整理文献">📚↗</button>
         </div>
-        <div id="folder-tree-pane">
+        <div id="folder-tree-pane" class="mode-collections">
         <div id="workspace-tree-header" style="padding:8px 12px 6px;border-bottom:1px solid var(--border);background:var(--surface-2);flex-shrink:0">
           <button type="button" class="sidebar-nav-btn" style="width:100%;justify-content:flex-start;font-size:12px;gap:6px" onclick="toggleWorkspaceSwitcher(event)" title="切换工作空间">
             <span>🗂️</span>
@@ -1324,8 +1350,12 @@ body { display: flex !important; flex-direction: column !important; height: 100v
             <button type="button" class="btn-outline" style="width:100%;font-size:11px" onclick="pickAndOpenWorkspace()">打开文件夹…</button>
           </div>
         </div>
+        <div id="library-side-tabs">
+          <button type="button" class="active" data-side-tab="collections" onclick="setLibrarySideTab('collections')" title="Zotero 式文献分类">📚 文献分类</button>
+          <button type="button" data-side-tab="workspace" onclick="setLibrarySideTab('workspace')" title="工作空间文件树">🗂 工作空间</button>
+        </div>
         <div id="folder-tree-header">
-          <input type="text" id="searchInput" placeholder="🔍 搜索工作空间文件..." oninput="onLibrarySearchInput()" style="flex:1;min-width:0">
+          <input type="text" id="searchInput" placeholder="🔍 搜索文献 / 文件..." oninput="onLibrarySearchInput()" style="flex:1;min-width:0">
         </div>
         <div id="workspace-file-actions" style="display:flex;gap:6px;padding:0 12px 8px;border-bottom:1px solid var(--border);background:var(--surface-2);flex-wrap:wrap">
           <button class="sidebar-action-btn" onclick="addWorkspaceSource()" title="索引现有文件夹，不移动原文件">
@@ -1339,17 +1369,11 @@ body { display: flex !important; flex-direction: column !important; height: 100v
           </button>
         </div>
         <div id="folder-tree-actions">
-          <button class="sidebar-action-btn" onclick="createWorkspaceFolderPrompt()" title="在当前目录新建文件夹">
-            <span class="icon">📁</span> 新建文件夹
+          <button class="sidebar-action-btn" onclick="createFolderPrompt()" title="新建主题/分类文件夹">
+            ＋ 新建分类
           </button>
-          <button class="sidebar-action-btn" onclick="openNotesEditorFromTree()" title="在当前目录新建 Markdown">
-            <span class="icon">📝</span> 新建笔记
-          </button>
-          <button class="sidebar-action-btn primary" onclick="switchToBitableView()" title="打开多维表格">
-            <span class="icon">📊</span> 多维表格
-          </button>
-          <button class="sidebar-action-btn" onclick="switchToKanbanView()" title="打开看板">
-            <span class="icon">📋</span> 看板
+          <button class="sidebar-action-btn" onclick="runArticleAutoClassify(true)" title="按主题重新分类全部文献">
+            <span class="icon">🏷</span> 按主题分类
           </button>
         </div>
         <div id="folder-tree-body"></div>
@@ -1397,7 +1421,7 @@ body { display: flex !important; flex-direction: column !important; height: 100v
     <main id="global-chat-panel">
       <div id="home-topbar">
         <div class="home-title">
-          <img class="app-logo" src="assets/kbase-logo-64.png" alt="">
+          <img class="app-logo" src="assets/kbase-logo-64.png?v=2" alt="">
           <div class="home-title-text">
             <h2>KBase AI</h2>
             <span id="global-model-label"></span>
@@ -1514,14 +1538,15 @@ body { display: flex !important; flex-direction: column !important; height: 100v
             <span>上传和解析后自动用 LLM 提取/校准标题、作者、DOI 等信息</span>
           </label>
           <label style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:8px 12px;background:var(--surface-2);border-radius:var(--radius-sm);cursor:pointer;font-size:12px;color:var(--text-2)">
-            <select id="setArticleFolderAutoMode" onchange="onArticleFolderAutoModeChange()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:2px 6px;min-width:140px">
+            <select id="setArticleFolderAutoMode" onchange="onArticleFolderAutoModeChange()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:2px 6px;min-width:160px">
               <option value="off">关闭（仅手动）</option>
+              <option value="topic">按主题（推荐，主题/年份二级）</option>
               <option value="year">按年份</option>
               <option value="venue">按期刊/会议</option>
               <option value="category">按 category 字段</option>
               <option value="first_tag">按首个标签</option>
             </select>
-            <span>文献库自动分类（元数据提取后归入文件夹；也可在文献库点「自动分类」）</span>
+            <span>文献库自动分类（Zotero 式文件夹；也可点侧栏「按主题分类」）</span>
           </label>
           <div style="margin-top:10px;padding:10px 12px;background:var(--surface-2);border-radius:var(--radius-sm);font-size:12px;color:var(--text-2)">
             <div style="font-weight:600;margin-bottom:8px;color:var(--text)">📚 整理文献入库</div>
@@ -4367,14 +4392,31 @@ function _biblioStatusHtml(a) {
   return parts.length ? parts.join(' ') : '—';
 }
 
+function _folderDescendantIds(folderId) {
+  const ids = new Set([folderId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const f of (articleFolders || [])) {
+      if (f.parent_id && ids.has(f.parent_id) && !ids.has(f.id)) {
+        ids.add(f.id);
+        changed = true;
+      }
+    }
+  }
+  return ids;
+}
+
 function getFilteredBiblioArticles() {
   const q = (document.getElementById('searchInput')?.value || '').trim().toLowerCase();
   let list = articles.slice();
   if (biblioFolderFilter) list = list.filter(a => a.id === biblioFolderFilter);
-  if (biblioArticleFolderFilter === '__uncategorized__') {
+  const folderFilter = biblioArticleFolderFilter || currentFolderId;
+  if (folderFilter === '__uncategorized__') {
     list = list.filter(a => !a.folder_id);
-  } else if (biblioArticleFolderFilter) {
-    list = list.filter(a => a.folder_id === biblioArticleFolderFilter);
+  } else if (folderFilter) {
+    const ids = _folderDescendantIds(folderFilter);
+    list = list.filter(a => a.folder_id && ids.has(a.folder_id));
   }
   if (q) {
     list = list.filter(a => {
@@ -4674,9 +4716,11 @@ async function onOrganizeSettingsChange() {
 
 async function runArticleAutoClassify(forceAll = false) {
   const modeEl = document.getElementById('setArticleFolderAutoMode');
-  const mode = modeEl?.value || workspaceMeta?.articleFolderAutoMode || 'off';
+  let mode = modeEl?.value || workspaceMeta?.articleFolderAutoMode || 'off';
+  // Sidebar「按主题分类」defaults to topic when settings are still off/year-only.
+  if (forceAll && (mode === 'off' || mode === 'year')) mode = 'topic';
   if (mode === 'off') {
-    toast('请先在设置 → 常规 中选择自动分类方式（年份/期刊/标签等）', 'info');
+    toast('请先在设置 → 常规 中选择自动分类方式（主题/年份等）', 'info');
     if (typeof showSettings === 'function') {
       await showSettings();
       if (typeof showSettingsTab === 'function') showSettingsTab('paneGeneral');
@@ -4684,7 +4728,19 @@ async function runArticleAutoClassify(forceAll = false) {
     return;
   }
   try {
-    toast('正在自动分类…', 'info');
+    toast(mode === 'topic' ? '正在按主题分级分类…' : '正在自动分类…', 'info');
+    // Persist chosen mode so later metadata ingest follows it.
+    try {
+      await fetch('/api/workspace/settings', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ articleFolderAutoMode: mode }),
+      }).then(async r => {
+        const d = await r.json().catch(() => ({}));
+        if (d.workspace) workspaceMeta = d.workspace;
+      });
+      if (modeEl) modeEl.value = mode;
+    } catch (_) {}
     const r = await fetch('/api/article-folders/auto-classify', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -4696,11 +4752,33 @@ async function runArticleAutoClassify(forceAll = false) {
     else await loadArticleFolders();
     await loadArticles();
     refreshBiblioFolderFilterSelect();
+    setLibrarySideTab('collections');
+    // Expand top-level topic folders for a Zotero-like browse
+    for (const f of articleFolders) {
+      if (!f.parent_id) expandedFolderIds.add(f.id);
+    }
+    _saveExpandedFolderState();
+    renderFolderTree();
     renderLibrary();
     toast(d.message || `已归类 ${d.moved || 0} 篇`, 'success');
   } catch (e) {
     toast('自动分类失败: ' + (e.message || e), 'error');
   }
+}
+
+function setLibrarySideTab(tab) {
+  const pane = document.getElementById('folder-tree-pane');
+  const mode = tab === 'workspace' ? 'workspace' : 'collections';
+  if (pane) {
+    pane.classList.toggle('mode-collections', mode === 'collections');
+    pane.classList.toggle('mode-workspace', mode === 'workspace');
+  }
+  document.querySelectorAll('#library-side-tabs button').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.sideTab === mode);
+  });
+  try { localStorage.setItem('kbaseLibrarySideTab', mode); } catch (_) {}
+  if (mode === 'collections') renderFolderTree();
+  else if (typeof loadWorkspaceTree === 'function') loadWorkspaceTree();
 }
 
 function folderNameForArticle(a) {
@@ -4729,6 +4807,8 @@ function refreshBiblioFolderFilterSelect() {
 
 function onBiblioFolderFilterChange(value) {
   biblioArticleFolderFilter = value || null;
+  currentFolderId = value || null;
+  renderFolderTree();
   renderBiblioPanel();
 }
 
@@ -5063,11 +5143,61 @@ function _treeNodeMatchesFilter(node) {
   return !!node;
 }
 
+function _kbIco(name, extraClass = '') {
+  const cls = `kb-ico kb-ico-${name}${extraClass ? ' ' + extraClass : ''}`;
+  const common = `class="${cls}" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"`;
+  const stroke = 'fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"';
+  switch (name) {
+    case 'library':
+      return `<svg ${common} ${stroke}><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M8 7h8M8 11h6"/></svg>`;
+    case 'folder':
+      return `<svg ${common} ${stroke}><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>`;
+    case 'folder-open':
+      return `<svg ${common} ${stroke}><path d="M3 7a2 2 0 0 1 2-2h3.5l1.5 1.5H19a1 1 0 0 1 1 1V9"/><path d="M3 9h18l-1.4 8.2A2 2 0 0 1 17.6 19H6.4a2 2 0 0 1-2-1.8L3 9z"/></svg>`;
+    case 'inbox':
+      return `<svg ${common} ${stroke}><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>`;
+    case 'chevron-right':
+      return `<svg ${common} ${stroke}><path d="m9 18 6-6-6-6"/></svg>`;
+    case 'chevron-down':
+      return `<svg ${common} ${stroke}><path d="m6 9 6 6 6-6"/></svg>`;
+    case 'dot':
+      return `<svg ${common}><circle cx="12" cy="12" r="2.2" fill="currentColor"/></svg>`;
+    case 'link':
+      return `<svg ${common} ${stroke}><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`;
+    case 'pdf':
+      return `<svg ${common} ${stroke}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h2.5a1.5 1.5 0 0 1 0 3H8v-5m0 5v2m5-5h1a2 2 0 0 1 0 4h-1v-4m4 0v5"/></svg>`;
+    case 'md':
+      return `<svg ${common} ${stroke}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13l2 3 2-3m3 0v5m0-5h1.5a1.5 1.5 0 0 1 0 3H13"/></svg>`;
+    case 'file':
+      return `<svg ${common} ${stroke}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></svg>`;
+    case 'image':
+      return `<svg ${common} ${stroke}><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.5-3.5L7 22"/></svg>`;
+    case 'code':
+      return `<svg ${common} ${stroke}><path d="m8 9-4 3 4 3M16 9l4 3-4 3M13 6l-2 12"/></svg>`;
+    case 'globe':
+      return `<svg ${common} ${stroke}><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>`;
+    case 'canvas':
+      return `<svg ${common} ${stroke}><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`;
+    default:
+      return `<svg ${common} ${stroke}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>`;
+  }
+}
+
 function _workspaceKindIcon(kind) {
-  return {
-    pdf:'📕', markdown:'📝', word:'📝', html:'🌐', image:'🖼️', canvas:'🎨',
-    text:'📄', json:'{ }', csv:'▦', code:'💻', file:'📄',
-  }[kind] || '📄';
+  const map = {
+    pdf: 'pdf', markdown: 'md', word: 'md', html: 'globe', image: 'image',
+    canvas: 'canvas', text: 'file', json: 'code', csv: 'file', code: 'code', file: 'file',
+  };
+  return _kbIco(map[kind] || 'file');
+}
+
+function _kbFolderIco(open = false) {
+  return _kbIco(open ? 'folder-open' : 'folder');
+}
+
+function _kbToggleIco(expanded, canExpand) {
+  if (!canExpand) return _kbIco('dot');
+  return _kbIco(expanded ? 'chevron-down' : 'chevron-right');
 }
 
 function _isTextBrowseKind(kind, path) {
@@ -5206,8 +5336,8 @@ function _renderWorkspaceTreeNode(node, depth) {
       ? ` oncontextmenu="showWorkspaceFsContextMenu(event,decodeURIComponent('${keyArg}'),'dir','')"`
       : '';
     let html = `<div class="folder-tree-item${workspaceSelectedDir === key ? ' active' : ''}" style="padding-left:${indent}px" onclick="${folderClick}"${ctx}>
-      <span class="folder-toggle" onclick="event.stopPropagation();toggleWorkspaceDir(decodeURIComponent('${keyArg}'))">${canExpand ? (isExpanded ? '▼' : '▶') : ''}</span>
-      <span class="folder-icon">${node.isSourceRoot ? '🔗' : '📁'}</span>
+      <span class="folder-toggle" onclick="event.stopPropagation();toggleWorkspaceDir(decodeURIComponent('${keyArg}'))">${_kbToggleIco(isExpanded, canExpand)}</span>
+      <span class="folder-icon">${node.isSourceRoot ? _kbIco('link') : _kbFolderIco(isExpanded)}</span>
       <span class="folder-name">${esc(node.name || workspaceMeta?.name || '根目录')}${node.readOnly ? ' <span style="font-size:9px;color:var(--text-3)">只读</span>' : ''}${node.available === false ? ' <span style="font-size:9px;color:var(--rose)">不可用</span>' : ''}</span>
       ${canExpand ? `<span class="folder-count">${children.length}</span>` : ''}
     </div>`;
@@ -5846,6 +5976,12 @@ async function init() {
   await loadArticleFolders();
   applyLibrarySideState();
   applyAiPanelState();
+  try {
+    const sideTab = localStorage.getItem('kbaseLibrarySideTab') || 'collections';
+    setLibrarySideTab(sideTab);
+  } catch (_) {
+    setLibrarySideTab('collections');
+  }
   renderBiblioSavedSearches();
   toggleBiblioView(biblioViewMode);
   await loadLibrarySessions();
@@ -5957,51 +6093,45 @@ function _totalFolderCount(folderId) {
 function renderFolderTree() {
   const body = document.getElementById('folder-tree-body');
   if (!body) return;
-  const search = (document.getElementById('searchInput')?.value || '').toLowerCase();
-  if (search) {
+  const pane = document.getElementById('folder-tree-pane');
+  if (pane && pane.classList.contains('mode-workspace')) return;
+  const search = (document.getElementById('searchInput')?.value || '').trim().toLowerCase();
+  if (search && pane?.classList.contains('mode-collections')) {
     _renderSearchResults(body, search);
     return;
   }
   let html = `<div class="folder-nav-header">
-    <span class="breadcrumb-current">📁 文献库</span>
-    <button class="sidebar-action-btn compact" style="flex:0;padding:4px 8px;font-size:11px" onclick="createFolderPrompt()" title="新建根文件夹">📁 新建</button>
-    <button class="icon-btn" onclick="toggleArticleDetailMode()" title="${articleDetailMode ? '简略模式' : '详细模式'}">${articleDetailMode ? '📋' : '📝'}</button>
+    <span class="breadcrumb-current">📚 我的文库</span>
+    <button class="sidebar-action-btn compact" style="flex:0;padding:4px 8px;font-size:11px" onclick="createFolderPrompt()" title="新建根分类">＋</button>
+    <button class="icon-btn" onclick="toggleArticleDetailMode()" title="${articleDetailMode ? '侧栏隐藏条目' : '侧栏显示条目'}">${articleDetailMode ? '📋' : '📄'}</button>
   </div>`;
 
-  // Root drop zone — move items to uncategorized
   html += `<div class="folder-tree-item${currentFolderId === null ? ' active' : ''}" style="padding-left:12px"
     onclick="selectFolder(null)"
     ondragover="event.preventDefault();this.classList.add('drag-over')"
     ondragleave="this.classList.remove('drag-over')"
     ondrop="handleFolderDrop(event,null);this.classList.remove('drag-over')">
-    <span class="folder-toggle" style="opacity:0">▶</span>
-    <span class="folder-icon">🏠</span>
+    <span class="folder-toggle" style="opacity:0">${_kbIco('dot')}</span>
+    <span class="folder-icon">${_kbIco('library')}</span>
     <span class="folder-name">全部文献</span>
     <span class="folder-count">${articles.length}</span>
   </div>`;
 
   const uncategorized = _folderArticles(null);
   if (uncategorized.length) {
-    const uncExpanded = expandedFolderIds.has('__uncategorized__');
-    html += `<div class="uncategorized-header" onclick="toggleFolderExpand('__uncategorized__')">
-      <span class="folder-toggle">${uncExpanded ? '▼' : '▶'}</span>
-      <span>未分类</span>
+    html += `<div class="folder-tree-item${currentFolderId === '__uncategorized__' ? ' active' : ''}" style="padding-left:12px"
+      onclick="selectFolder('__uncategorized__')">
+      <span class="folder-toggle" style="opacity:0">${_kbIco('dot')}</span>
+      <span class="folder-icon">${_kbIco('inbox')}</span>
+      <span class="folder-name">未分类</span>
       <span class="folder-count">${uncategorized.length}</span>
     </div>`;
-    if (uncExpanded) {
-      uncategorized.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
-      if (articleDetailMode) {
-        html += uncategorized.map(a => _renderArticleDetailFull(a, 12)).join('');
-      } else {
-        html += uncategorized.map(a => _renderArticleItem(a, 12)).join('');
-      }
-    }
   }
 
   html += _renderArticleFolderBranch(null, 0);
 
   if (!articleFolders.length && !uncategorized.length && !articles.length) {
-    html += '<div style="padding:24px;text-align:center;color:var(--text-3);font-size:12px">暂无文献<br><span style="font-size:11px">上传 PDF 或创建文件夹</span></div>';
+    html += '<div style="padding:24px;text-align:center;color:var(--text-3);font-size:12px">暂无文献<br><span style="font-size:11px">上传 PDF 或点击「按主题分类」</span></div>';
   }
   body.innerHTML = html;
 }
@@ -6015,28 +6145,26 @@ function _renderArticleFolderBranch(parentId, depth) {
     const hasSubfolders = articleFolders.some(x => x.parent_id === f.id);
     const directArts = _folderArticles(f.id);
     const totalCount = _totalFolderCount(f.id);
-    const indent = 12 + depth * 16;
-    const canExpand = hasSubfolders || directArts.length > 0;
+    const indent = 12 + depth * 14;
     html += `<div class="folder-tree-item${currentFolderId === f.id ? ' active' : ''}" style="padding-left:${indent}px"
+      onclick="selectFolder('${esc(f.id)}')"
       oncontextmenu="showFolderContextMenu(event,'${esc(f.id)}')"
       draggable="true"
       ondragstart="event.dataTransfer.setData('text/folder-id','${esc(f.id)}')"
       ondragover="event.preventDefault();this.classList.add('drag-over')"
       ondragleave="this.classList.remove('drag-over')"
       ondrop="handleFolderDrop(event,'${esc(f.id)}');this.classList.remove('drag-over')">
-      <span class="folder-toggle" onclick="event.stopPropagation();${canExpand ? `toggleFolderExpand('${esc(f.id)}')` : ''}">${canExpand ? (isExpanded ? '▼' : '▶') : ''}</span>
-      <span class="folder-icon">${f.icon || '📁'}</span>
-      <span class="folder-name" onclick="event.stopPropagation();selectFolder('${esc(f.id)}')">${esc(f.name)}</span>
+      <span class="folder-toggle" onclick="event.stopPropagation();${hasSubfolders ? `toggleFolderExpand('${esc(f.id)}')` : `selectFolder('${esc(f.id)}')`}">${_kbToggleIco(isExpanded, hasSubfolders)}</span>
+      <span class="folder-icon">${_kbFolderIco(!!isExpanded)}</span>
+      <span class="folder-name">${esc(f.name)}</span>
       <span class="folder-count">${totalCount}</span>
-      <button class="folder-add-btn" onclick="event.stopPropagation();createSubFolder('${esc(f.id)}')" title="新建子文件夹">＋</button>
+      <button class="folder-add-btn" onclick="event.stopPropagation();createSubFolder('${esc(f.id)}')" title="新建子分类">＋</button>
     </div>`;
     if (isExpanded) {
       html += _renderArticleFolderBranch(f.id, depth + 1);
-      const arts = directArts.slice().sort((a, b) => (a.title || '').localeCompare(b.title || ''));
       if (articleDetailMode) {
-        html += arts.map(a => _renderArticleDetailFull(a, indent + 16)).join('');
-      } else {
-        html += arts.map(a => _renderArticleItem(a, indent + 16)).join('');
+        const arts = directArts.slice().sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+        html += arts.map(a => _renderArticleItem(a, indent + 14)).join('');
       }
     }
   }
@@ -6084,7 +6212,16 @@ function _renderArticleDetailFull(a, indent) {
 
 function selectFolder(folderId) {
   currentFolderId = folderId;
+  biblioArticleFolderFilter = folderId;
+  // Expanding on select feels like Zotero collections
+  if (folderId && folderId !== '__uncategorized__') {
+    expandedFolderIds.add(folderId);
+    _saveExpandedFolderState();
+  }
+  const sel = document.getElementById('biblioFolderFilterSelect');
+  if (sel) sel.value = folderId || '';
   renderFolderTree();
+  renderBiblioPanel();
 }
 
 function toggleFolderExpand(folderId) {
@@ -6117,7 +6254,7 @@ function _renderArticleItem(a, indent) {
     draggable="true"
     ondragstart="event.dataTransfer.setData('text/article-id','${esc(a.id)}')"
     title="${esc(a.title)}">
-    <span class="article-item-icon">📄</span>
+    <span class="article-item-icon">${_kbIco('file')}</span>
     <span class="item-title">${esc(a.title)}</span>
     ${a.translated?'<span class="item-badge">🌐</span>':''}
     ${a.summarized?'<span class="item-badge">🤖</span>':''}
@@ -6143,9 +6280,9 @@ function _renderSearchResults(body, q) {
   for (const [fid, arts] of byFolder) {
     if (fid) {
       const folder = articleFolders.find(f => f.id === fid);
-      html += `<div style="padding:6px 14px;font-size:11px;color:var(--text-3);font-weight:600">📁 ${esc(folder ? folder.name : fid)}</div>`;
+      html += `<div style="padding:6px 14px;font-size:11px;color:var(--text-3);font-weight:600;display:flex;align-items:center;gap:6px">${_kbIco('folder')} ${esc(folder ? folder.name : fid)}</div>`;
     } else {
-      html += '<div style="padding:6px 14px;font-size:11px;color:var(--text-3);font-weight:600">📁 未分类</div>';
+      html += `<div style="padding:6px 14px;font-size:11px;color:var(--text-3);font-weight:600;display:flex;align-items:center;gap:6px">${_kbIco('inbox')} 未分类</div>`;
     }
     html += arts.map(a => _renderArticleItem(a, 14)).join('');
   }
@@ -7189,10 +7326,56 @@ function removeArticlePdf(articleId) {
   if (frame) frame.remove();
 }
 
-async function openReader(id) {
+async function openReader(id, { forceReload = false } = {}) {
   const article = articles.find(a => a.id === id);
   if (!article) return;
+  if (forceReload) {
+    await reloadArticleReader(id);
+    return;
+  }
   TabManager.openTab('article-' + id, 'article', '📄 ' + article.title, {article});
+}
+
+/** Force-reload article markdown even when its tab is already active. */
+async function reloadArticleReader(articleId) {
+  let article = articles.find(a => a.id === articleId);
+  if (!article && currentArticle?.id === articleId) {
+    article = { ...currentArticle, converting: false, md_available: true };
+    articles.push(article);
+  }
+  if (!article) return;
+
+  article.converting = false;
+  article.md_available = true;
+
+  const tabId = 'article-' + articleId;
+  const tab = TabManager.tabs.find(t => t.id === tabId);
+  if (!tab) {
+    TabManager.openTab(tabId, 'article', '📄 ' + article.title, { article });
+    return;
+  }
+
+  tab.data.article = article;
+  tab.data.currentRawMd = '';
+  tab.data.translatedMd = '';
+  tab.data.parsedMd = '';
+  tab.data.summaryText = '';
+  tab.data.translationChecked = false;
+  delete tab.data.renderedHtml;
+  delete tab.data.renderedView;
+  delete tab.data.tocHtml;
+
+  if (TabManager.activeTabId !== tabId) {
+    TabManager.activateTab(tabId);
+    return;
+  }
+
+  currentArticle = article;
+  currentRawMd = '';
+  translatedMd = '';
+  parsedMd = '';
+  summaryText = '';
+  await initArticleTab(tabId, tab.data);
 }
 
 async function initArticleTab(tabId, tabData) {
@@ -13174,9 +13357,8 @@ async function showReconvert() {
   if (versions.length > 0) {
     verHtml = '<div id="version-list"><h5>历史版本</h5>';
     for (const v of versions) {
-      const histEntry = history.filter(h => h.engine === v.engine && h.status === 'success').pop();
-      const time = histEntry ? histEntry.time : '';
-      const current = v.engine === 'marker' ? '' : ''; // just simplify: all show as available
+      const histEntry = history.filter(h => h.engine === v.engine && h.status === 'success')[0];
+      const time = histEntry ? (histEntry.ts || histEntry.time || '') : '';
       verHtml += `<div class="version-item" onclick="loadVersion('${esc(article.id)}', '${esc(v.engine)}')">
         <span class="v-engine">${v.engine}</span>
         <span class="v-time">${time || ''}</span>
@@ -13185,10 +13367,10 @@ async function showReconvert() {
     verHtml += '</div>';
   } else if (history.length > 0) {
     verHtml = '<div id="version-list"><h5>转换记录</h5>';
-    for (const h of [...history].reverse()) {
+    for (const h of history) {
       verHtml += `<div class="version-item">
         <span class="v-engine">${h.engine}</span>
-        <span class="v-time">${h.time}</span>
+        <span class="v-time">${h.ts || h.time || ''}</span>
         <span class="v-status ${h.status}">${h.status === 'success' ? '✓' : '✗'}</span>
       </div>`;
     }
@@ -13849,28 +14031,28 @@ async function startConvPolling(articleId) {
             ? `✅ 解析完成 · 共用 tokens ${tok}，正在刷新...`
             : '✅ 解析完成，正在刷新...';
         }
-        await loadArticles();
+        try {
+          await Promise.race([
+            loadArticles(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000)),
+          ]);
+        } catch (_) { /* catalog refresh is best-effort */ }
         const updated = articles.find(a => a.id === articleId);
-        if (updated && !updated.converting && updated.md_available) {
-          openReader(articleId);
-        } else if (statusMsg) {
-          // articles list may timeout on huge workspaces — open anyway
-          try {
-            if (!articles.find(a => a.id === articleId)) {
-              articles.push({
-                id: articleId,
-                title: currentArticle?.title || articleId,
-                md_available: true,
-                pdf_available: true,
-                pages: currentArticle?.pages || 0,
-                tags: [],
-                converting: false,
-              });
-            }
-            openReader(articleId);
-          } catch (_) {
-            statusMsg.textContent = '等待文件写入...';
-          }
+        if (updated) {
+          updated.converting = false;
+          updated.md_available = true;
+        } else if (currentArticle?.id === articleId) {
+          articles.push({
+            ...currentArticle,
+            converting: false,
+            md_available: true,
+          });
+        }
+        try {
+          // Must force-reload: tab is already active, plain openReader is a no-op.
+          await reloadArticleReader(articleId);
+        } catch (_) {
+          if (statusMsg) statusMsg.textContent = '解析完成，但刷新失败 — 请关闭标签后重新打开';
         }
       } else if (data.status === 'cancelled') {
         clearInterval(convPollTimer);

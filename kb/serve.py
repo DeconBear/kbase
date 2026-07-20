@@ -55,6 +55,7 @@ from storage import (
     list_article_history,
     list_chat_sessions,
     list_conversion_history,
+    record_article_history,
     list_notebooks,
     list_workspaces,
     load_chat_session_file,
@@ -411,17 +412,71 @@ def _preferred_markdown_file(article_id: str) -> Path | None:
     return None
 
 
+_VERSIONED_MD_ENGINES = frozenset({
+    "pymupdf", "marker", "docmind", "docparser", "unisound",
+    "ocr", "vision", "llm_vision",
+})
+# Suffixes that look like ``{id}_*.md`` but are not engine snapshots.
+_VERSIONED_MD_SKIP = frozenset({
+    "calibrated", "translated", "translated_old", "summary",
+    "info", "meta", "page_ocr",
+})
+
+
 def _versioned_markdown_files(article_id: str) -> list[Path]:
     folder = article_dir_for(article_id)
-    engines = {"pymupdf", "marker", "docmind", "docparser"}
     files: list[Path] = []
-    for f in folder.iterdir():
+    try:
+        children = list(folder.iterdir())
+    except OSError:
+        return files
+    for f in children:
         if not f.is_file() or not f.name.startswith(f"{article_id}_") or not f.name.endswith(".md"):
             continue
         engine = f.name[len(article_id) + 1 : -3]
-        if engine in engines:
+        if not engine or engine in _VERSIONED_MD_SKIP or engine.endswith("_pages"):
+            continue
+        if engine in _VERSIONED_MD_ENGINES or engine.replace("-", "_").isalnum():
             files.append(f)
     return files
+
+
+def _list_article_versions(article_id: str) -> list[dict]:
+    """Merge DB history with on-disk ``{id}_{engine}.md`` snapshots."""
+    article_dir = article_dir_for(article_id)
+    try:
+        article_dir_res = article_dir.resolve()
+    except OSError:
+        article_dir_res = article_dir
+
+    by_engine: dict[str, dict] = {}
+    for entry in list_article_history(article_id):
+        engine = str(entry.get("engine") or "").strip()
+        if not engine:
+            continue
+        raw = entry.get("file_path") or ""
+        p = Path(raw) if raw else article_dir / f"{article_id}_{engine}.md"
+        try:
+            ok = p.is_file() and p.resolve().parent == article_dir_res
+        except OSError:
+            ok = p.is_file() and p.parent == article_dir
+        if not ok:
+            # Prefer live file under the resolved article dir.
+            live = article_dir / f"{article_id}_{engine}.md"
+            if live.is_file():
+                p = live
+                ok = True
+        if ok:
+            by_engine[engine] = {"engine": engine, "file": p.name}
+
+    for f in _versioned_markdown_files(article_id):
+        engine = f.name[len(article_id) + 1 : -3]
+        if engine not in by_engine:
+            by_engine[engine] = {"engine": engine, "file": f.name}
+            # Backfill catalog so later loads stay consistent.
+            record_article_history_safe(article_id, engine, f)
+
+    return sorted(by_engine.values(), key=lambda v: v["engine"])
 
 
 def _is_article_library_folder(folder: Path) -> bool:
@@ -662,9 +717,23 @@ def scan_articles() -> list[dict]:
             upsert_article(article)
 
         # Any leftover rows whose article folder is gone: drop them.
-        for aid in list(existing.keys()):
-            if aid not in live_dirs:
-                delete_article(aid)
+        # Guard: if the literature root itself is missing/empty but the catalog
+        # still has rows, do NOT mass-delete — usually a sync/rename glitch
+        # (e.g. literature ↔ .literature) rather than intentional removal.
+        lit_root = storage.ARTICLES_DIR
+        try:
+            lit_empty = (not lit_root.is_dir()) or (not any(lit_root.iterdir()))
+        except OSError:
+            lit_empty = True
+        if lit_empty and existing:
+            print(
+                "scan_articles: skip catalog purge — literature root empty/missing "
+                f"({lit_root}) while {len(existing)} articles remain in SQLite"
+            )
+        else:
+            for aid in list(existing.keys()):
+                if aid not in live_dirs:
+                    delete_article(aid)
 
     return get_all_articles()
 
@@ -891,9 +960,18 @@ def run_conversion(
         if md_file.exists():
             try:
                 shutil.copy2(md_file, versioned)
-            except OSError:
-                pass
-            record_article_history_safe(article_id, engine_name, versioned)
+            except OSError as exc:
+                log(f"WARN: copy versioned markdown failed: {exc}")
+        elif versioned.exists():
+            log(f"WARN: primary markdown missing; keeping existing {versioned.name}")
+        else:
+            log("WARN: no markdown output to snapshot as history version")
+        if versioned.exists():
+            try:
+                record_article_history(article_id, engine_name, versioned)
+            except Exception as exc:  # noqa: BLE001
+                log(f"WARN: record article history failed: {exc}")
+                record_article_history_safe(article_id, engine_name, versioned)
 
         # Drop outdated derived files. Translated goes to *_translated_old.md.
         zh_file = adjacent_zh_md_path(article_dir, pdf, article_id)
@@ -966,8 +1044,8 @@ def run_conversion(
 def record_article_history_safe(article_id: str, engine: str, file_path: Path) -> None:
     try:
         record_article_history(article_id, engine, file_path)
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001
+        print(f" record_article_history failed ({article_id}/{engine}): {exc}")
 
 
 def _run_calibrate(article_id: str, log_callback) -> None:
@@ -1259,17 +1337,9 @@ class KBHandler(http.server.BaseHTTPRequestHandler):
                 self._json(_translation_state(article_id))
             elif path.startswith("/api/conversion-history/"):
                 article_id = article_id_from_request_path(self.path)
-                article_dir = article_dir_for(article_id)
+                article_dir_for(article_id)
                 history = list_conversion_history(article_id)
-                versions = []
-                for entry in list_article_history(article_id):
-                    if not entry.get("file_path"):
-                        continue
-                    p = Path(entry["file_path"])
-                    if not p.exists() or p.parent != article_dir:
-                        continue
-                    engine = entry["engine"]
-                    versions.append({"engine": engine, "file": p.name})
+                versions = _list_article_versions(article_id)
                 self._json({"history": history, "versions": versions})
             elif path.startswith("/api/articles/") and path.endswith("/ocr-checkpoint"):
                 self.handle_ocr_checkpoint()

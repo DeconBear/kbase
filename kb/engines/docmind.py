@@ -9,7 +9,6 @@ from alibabacloud_docmind_api20220711 import models
 from alibabacloud_tea_openapi import models as open_api_models
 from alibabacloud_tea_util import models as util_models
 
-from engines._paths import ARTICLES_DIR
 from storage import load_local_env
 
 load_local_env()
@@ -141,7 +140,9 @@ class DocMindEngine:
         
         pattern_md = r'!\[([^\]]*)\]\((http[s]?://[^\)]+)\)'
         matches = re.findall(pattern_md, full_md)
-        article_dir = ARTICLES_DIR / article_id
+        from engines._paths import resolve_article_dir
+
+        article_dir = resolve_article_dir(article_id, create=True)
         
         for alt_text, url in matches:
             filename = alt_text if alt_text and not "/" in alt_text and not "\\" in alt_text else url.split("?")[0].split("/")[-1]

@@ -240,8 +240,8 @@ class Workspace:
                 "autoClassifyPdfs": True,
                 "autoExtractMetadata": True,
                 "classifyUseLlm": "uncertain_only",
-                # Article-folder auto classify: off|year|venue|category|first_tag
-                "articleFolderAutoMode": "off",
+                # Article-folder auto classify: off|topic|year|venue|category|first_tag
+                "articleFolderAutoMode": "topic",
             }
             self.save_manifest(manifest)
         if not self.links_path.exists():

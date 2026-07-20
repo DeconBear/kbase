@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from engines._paths import ARTICLES_DIR
+from engines._paths import ARTICLES_DIR, resolve_article_dir
 
 PAGE_ENGINES = frozenset({"ocr", "vision", "llm_vision"})
 
@@ -26,8 +26,6 @@ class ConversionCancelled(Exception):
 
 def article_dir(article_id: str) -> Path:
     try:
-        from storage import resolve_article_dir
-
         return resolve_article_dir(article_id)
     except Exception:
         return ARTICLES_DIR / article_id

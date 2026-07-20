@@ -8,9 +8,10 @@ import urllib.request
 
 import fitz  # PyMuPDF
 
-from engines._paths import ARTICLES_DIR, LOW_MEMORY_CONFIG as RUNTIME_CONFIG
+from engines._paths import LOW_MEMORY_CONFIG as RUNTIME_CONFIG
 from engines.page_ocr_common import (
     ConversionCancelled,
+    article_dir,
     clear_checkpoint,
     publish_stitched,
     run_page_loop,
@@ -183,7 +184,7 @@ class VisionOcrEngine:
             )
             clear_checkpoint(article_id, remove_pages=True)
 
-            meta_path = ARTICLES_DIR / article_id / f"{article_id}_meta.json"
+            meta_path = article_dir(article_id) / f"{article_id}_meta.json"
             meta = {}
             if meta_path.exists():
                 try:

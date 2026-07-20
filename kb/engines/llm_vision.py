@@ -8,9 +8,9 @@ import urllib.request
 
 import fitz  # PyMuPDF
 
-from engines._paths import ARTICLES_DIR
 from engines.page_ocr_common import (
     ConversionCancelled,
+    article_dir,
     clear_checkpoint,
     publish_stitched,
     run_page_loop,
@@ -195,7 +195,7 @@ class LlmVisionEngine:
             publish_stitched(article_id, pdf_path, start, end, total_pages, partial=False)
             clear_checkpoint(article_id, remove_pages=True)
 
-            meta_path = ARTICLES_DIR / article_id / f"{article_id}_meta.json"
+            meta_path = article_dir(article_id) / f"{article_id}_meta.json"
             meta = {}
             if meta_path.exists():
                 try:
